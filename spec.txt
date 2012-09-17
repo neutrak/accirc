@@ -1,0 +1,14 @@
+irc client (accidental IRC)
+	ncurses
+	multi-server is a must
+	different escapes for client and server commands
+		: in client window at start of message will send that raw text to the server
+		/ will send it to client command handling code
+		\: or \/ for a literal
+	tab-completed nicks (using a system very similar to what apathy IRC already does)
+	needs a live search feature
+	needs to be tolerant to disconnects
+		attempt to reconnect
+		not die hard or eat RAM or some shit
+//	neulang if possible //I'll rewrite it when I have that language implemented worth a damn
+
