@@ -23,6 +23,9 @@
 //preprocessor defines
 #define TRUE 1
 #define FALSE 0
+
+#define VERSION 0.1
+
 //these are for ncurses' benefit
 #define KEY_ESCAPE 0x1b
 #define KEY_DEL KEY_DC
@@ -38,6 +41,7 @@
 #define DEFAULT_NICK "accidental_irc_user"
 
 //global variables
+//TODO: store the following: server names as strings, channel text for scrollback, channel topics
 char *read_buffers[MAX_SERVERS];
 int socket_fds[MAX_SERVERS];
 char *nicks[MAX_SERVERS];
@@ -51,6 +55,8 @@ WINDOW *channel_list;
 WINDOW *channel_topic;
 WINDOW *channel_text;
 WINDOW *user_input;
+WINDOW *top_border;
+WINDOW *bottom_border;
 
 #ifdef DEBUG
 FILE *debug_output;
@@ -95,6 +101,69 @@ void substr(char *dest, char *source, unsigned int start, unsigned int length){
 		dest_index++;
 	}
 	dest[dest_index]='\0';
+}
+
+//insert c into text at index, in a /relatively/ efficient (O(n)) manner
+//for error-handling we also take in text_size which is the size of the buffer/char array in bytes
+//returns TRUE on success, FALSE on failure
+char strinsert(char *text, char c, int index, int text_size){
+	int length=strlen(text);
+	//if we can fit another character in the string
+	//the -1 is for a NULL byte, since these are C strings
+	if(length<text_size-1){
+		//if we're inserting off the end it's an append
+		if(index>=length){
+			index=length;
+		}
+		
+		//juggle and shift everything after index one position right without losing or corrupting anything
+		char temp[2];
+		//temp[1] is the character that will go into the postion we're currently considering
+		temp[1]=c;
+		//up to and including the null index
+		while(index<=length){
+			//temp[0] is the character that was previously at the postion we're currently considering
+			temp[0]=text[index];
+			//assign temp[1] to this position as expected
+			text[index]=temp[1];
+			//temp[0] will go into the next position
+			temp[1]=temp[0];
+			//move on to the next character
+			index++;
+		}
+		//null-terminate (note this is equivalent to text[index]=temp[1], but it should always be NULL)
+		text[index]='\0';
+		
+		return TRUE;
+	}
+	return FALSE;
+}
+
+//remove the char at index from text, in a /relatively/ efficient (O(n)) manner
+//returns TRUE on success, FALSE on failure
+char strremove(char *text, int index){
+	int length=strlen(text);
+	
+	//if there are any characters to remove
+	if(strlen(text)>0){
+		//if they're asking to remove from past the end just remove from the end
+		if(index>length){
+			index=length-1;
+		//and likewise on the start
+		}else if(index<0){
+			index=0;
+		}
+		
+		//juggle and shift everything after index one positon left
+		//note that on the null termination it will get shifted also
+		while(index<length){
+			text[index]=text[index+1];
+			index++;
+		}
+		
+		return TRUE;
+	}
+	return FALSE;
 }
 
 //returns TRUE if successful
@@ -180,6 +249,7 @@ void parse_input(char *input_buffer){
 		}
 		
 		//the good stuff, the heart of command handling :)
+		//connect to a server
 		if(!strcmp("connect",command)){
 			char host[BUFFER_SIZE];
 			char port_buffer[BUFFER_SIZE];
@@ -248,10 +318,14 @@ void parse_input(char *input_buffer){
 					if(read_buffers[server_index]==NULL){
 						//make it one
 						read_buffers[server_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+						//initialize the buffer to all NULL bytes
+						int n;
+						for(n=0;n<BUFFER_SIZE;n++){
+							read_buffers[server_index][n]='\0';
+						}
 						nicks[server_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 						socket_fds[server_index]=new_socket_fd;
 						channels[server_index]=(char**)(malloc(MAX_CHANNELS*sizeof(char*)));
-						int n;
 						for(n=0;n<MAX_CHANNELS;n++){
 							channels[server_index][n]=NULL;
 						}
@@ -272,7 +346,35 @@ void parse_input(char *input_buffer){
 					}
 				}
 			}
+		//move a server to the left
+		}else if(!strcmp(command,"sl")){
+			int index;
+			for(index=current_server;index>=0;index--){
+				if(read_buffers[index]!=NULL){
+					current_server=index;
+					index=-1;
+				//if current index is negative there never was a server so just die and don't change it
+				}else if((index==0)&&(current_index>=0)){
+					//go back to the start, at worst we'll end up where we were
+					index=MAX_SERVERS;
+				}
+			}
+		//move a server to the right
+		}else if(!strcmp(command,"sr")){
+			int index;
+			for(index=current_server;index<MAX_SERVERS;index++){
+				if(read_buffers[index]!=NULL){
+					current_server=index;
+					index=MAX_SERVERS;
+				//if current index is negative there never was a server so just die and don't change it
+				}else if((index==(MAX_SERVERS-1))&&(current_index>=0)){
+					//go back to the start, at worst we'll end up where we were
+					index=0;
+				}
+			}
 		}
+		//TODO: change client, etc. commands with similar error handling and looping to the change server commands above
+		
 	//if it's a server command send the raw text to the server
 	}else if(server_command){
 		char to_send[BUFFER_SIZE];
@@ -290,6 +392,18 @@ fail:
 
 //runtime
 int main(int argc, char *argv[]){
+	//handle special argument cases like --version, --help, etc.
+	if(argc>1){
+		if(!strcmp(argv[1],"--version")){
+			printf("accidental_irc version %f\n",VERSION);
+			exit(0);
+		}else if(!strcmp(argv[1],"--help")){
+			//TODO: make a man page
+			printf("accidental_irc, the irc client that accidentally got written; MAN PAGE COMING SOON!");
+			exit(0);
+		}
+	}
+	
 	//initialize the global variables appropriately
 	int n;
 	for(n=0;n<MAX_SERVERS;n++){
@@ -342,7 +456,9 @@ int main(int argc, char *argv[]){
 	server_list=newwin(1,width,0,0);
 	channel_list=newwin(1,width,1,0);
 	channel_topic=newwin(1,width,2,0);
-	channel_text=newwin((height-2),width,3,0);
+	top_border=newwin(1,width,3,0);
+	channel_text=newwin((height-6),width,4,0);
+	bottom_border=newwin(1,width,(height-2),0);
 	user_input=newwin(1,width,(height-1),0);
 	
 	keypad(user_input,TRUE);
@@ -353,7 +469,9 @@ int main(int argc, char *argv[]){
 	wclear(server_list);
 	wclear(channel_list);
 	wclear(channel_topic);
+	wclear(top_border);
 	wclear(channel_text);
+	wclear(bottom_border);
 	wclear(user_input);
 	
 	wprintw(server_list,"(no servers)");
@@ -361,10 +479,17 @@ int main(int argc, char *argv[]){
 	wprintw(channel_topic,"(no channel topic)");
 	wprintw(channel_text,"(no channel text)");
 	
+	for(n=0;n<width;n++){
+		wprintw(top_border,"-");
+		wprintw(bottom_border,"-");
+	}
+	
 	wrefresh(server_list);
 	wrefresh(channel_list);
 	wrefresh(channel_topic);
+	wrefresh(top_border);
 	wrefresh(channel_text);
+	wrefresh(bottom_border);
 	wrefresh(user_input);
 	
 	//start the cursor in the user input area
@@ -403,6 +528,14 @@ int main(int argc, char *argv[]){
 						cursor_pos--;
 					}
 					break;
+				//TODO: handle text entry history
+				case KEY_UP:
+					break;
+				case KEY_DOWN:
+					break;
+				//TODO: handle user name completion (make ctrl+tab actually send a tab)
+				case '\t':
+					break;
 				case KEY_HOME:
 					cursor_pos=0;
 					break;
@@ -414,17 +547,7 @@ int main(int argc, char *argv[]){
 				//user wants to destroy something they entered
 				case KEY_BACKSPACE:
 					if(cursor_pos>0){
-						char tmp_buffer[BUFFER_SIZE];
-						//delete the character behind the specified point
-						int n;
-						for(n=0;n<(cursor_pos-1);n++){
-							tmp_buffer[n]=input_buffer[n];
-						}
-						for(n=cursor_pos;n<strlen(input_buffer);n++){
-							tmp_buffer[n-1]=input_buffer[n];
-						}
-						tmp_buffer[strlen(input_buffer)-1]='\0';
-						strncpy(input_buffer,tmp_buffer,BUFFER_SIZE);
+						strremove(input_buffer,cursor_pos-1);
 						//and update the cursor position
 						cursor_pos--;
 					}
@@ -432,43 +555,13 @@ int main(int argc, char *argv[]){
 				//user wants to destroy something they entered
 				case KEY_DEL:
 					if(cursor_pos<strlen(input_buffer)){
-						char tmp_buffer[BUFFER_SIZE];
-						//delete the character at the specified point
-						int n;
-						for(n=0;n<cursor_pos;n++){
-							tmp_buffer[n]=input_buffer[n];
-						}
-						for(n=cursor_pos;n<strlen(input_buffer);n++){
-							tmp_buffer[n]=input_buffer[n+1];
-						}
-						tmp_buffer[strlen(input_buffer)-1]='\0';
-						strncpy(input_buffer,tmp_buffer,BUFFER_SIZE);
+						strremove(input_buffer,cursor_pos);
 					}
 					break;
 				//normal input
 				default:
-					{
-						char tmp_buffer[BUFFER_SIZE];
-						if(cursor_pos>=strlen(input_buffer)){
-							strncpy(tmp_buffer,input_buffer,BUFFER_SIZE);
-							sprintf(input_buffer,"%s%c",tmp_buffer,c);
-							cursor_pos=strlen(input_buffer);
-						}else{
-							//insert the character at the specified point
-							int n;
-							for(n=0;n<cursor_pos;n++){
-								tmp_buffer[n]=input_buffer[n];
-							}
-							tmp_buffer[cursor_pos]=(char)(c);
-							for(n=cursor_pos;n<strlen(input_buffer);n++){
-								tmp_buffer[n+1]=input_buffer[n];
-							}
-							tmp_buffer[strlen(input_buffer)+1]='\0';
-							strncpy(input_buffer,tmp_buffer,BUFFER_SIZE);
-							//and put the cursor after that
-							cursor_pos++;
-						}
-					}
+					strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE);
+					cursor_pos++;
 					break;
 			}
 		}
@@ -478,7 +571,9 @@ int main(int argc, char *argv[]){
 		for(server_index=0;server_index<MAX_SERVERS;server_index++){
 			//if this is a valid server connection we have a buffer allocated
 			if(read_buffers[server_index]!=NULL){
-				int bytes_transferred=recv(socket_fds[server_index],read_buffers[server_index],BUFFER_SIZE-1,0);
+				//can't make a more descriptive name than that; go ahead, I dare you to try
+				char one_byte_buffer[1];
+				int bytes_transferred=recv(socket_fds[server_index],one_byte_buffer,1,0);
 				if((bytes_transferred<=0)&&(errno!=EAGAIN)){
 					//TODO: handle connection errors gracefully here
 					//at the moment this just de-allocates associated memory
@@ -491,29 +586,51 @@ int main(int argc, char *argv[]){
 					}
 					free(channels[server_index]);
 				}else if(bytes_transferred>0){
-					//clear out the remainder of the buffer since we re-use this memory
-					int n;
-					for(n=bytes_transferred;n<BUFFER_SIZE;n++){
-						read_buffers[server_index][n]='\0';
-					}
+					//add this byte to the total buffer
+					if(strinsert(read_buffers[server_index],one_byte_buffer[0],strlen(read_buffers[server_index]),BUFFER_SIZE)){
+						//a newline ends the reading and makes us start from scratch for the next byte
+						if(one_byte_buffer[0]=='\n'){
+							//clear out the remainder of the buffer since we re-use this memory
+							int n;
+							for(n=strlen(read_buffers[server_index]);n<BUFFER_SIZE;n++){
+								read_buffers[server_index][n]='\0';
+							}
 #ifdef DEBUG
-					fprintf(debug_output,"main debug 0, read from server: %s\n",read_buffers[server_index]);
+							fprintf(debug_output,"main debug 0, read from server: %s",read_buffers[server_index]);
 #endif
-					
-					//parse in whatever the server sent and display it appropriately
-					int first_space=strfind(" :",read_buffers[server_index]);
-					char command[BUFFER_SIZE];
-					substr(command,read_buffers[server_index],0,first_space);
-					if(!strcmp(command,"PING")){
-						//TODO: make this less hacky than it is
-						//switch the I in ping for an O in pong
-						read_buffers[server_index][1]='O';
-						safe_send(socket_fds[server_index],read_buffers[server_index]);
-					}
-					
-					if(server_index==current_server){
-//						wprintw(channel_text,"%s",read_buffers[server_index]);
-//						wrefresh(channel_text);
+							
+							//parse in whatever the server sent and display it appropriately
+							int first_space=strfind(" :",read_buffers[server_index]);
+							char command[BUFFER_SIZE];
+							substr(command,read_buffers[server_index],0,first_space);
+							if(!strcmp(command,"PING")){
+								//TODO: make this less hacky than it is
+								//switch the I in ping for an O in pong
+								read_buffers[server_index][1]='O';
+								safe_send(socket_fds[server_index],read_buffers[server_index]);
+							}
+							
+							if(server_index==current_server){
+								//this is just for debugging, it won't stay
+								//TODO: get scrollback, remove this
+//								wclear(channel_text);
+								
+								wprintw(channel_text,"%s",read_buffers[server_index]);
+								wrefresh(channel_text);
+							}
+							
+							//clear out the real buffer for the next line from the server
+							for(n=0;n<BUFFER_SIZE;n++){
+								read_buffers[server_index][n]='\0';
+							}
+						}//else do nothing, we'll handle it when we get some more bytes
+					//oh shit, we overflowed the buffer
+					}else{
+						//TODO: handle this more gracefully than just clearing the buffer and ignoring what was in it
+						int n;
+						for(n=0;n<BUFFER_SIZE;n++){
+							read_buffers[server_index][n]='\0';
+						}
 					}
 				}
 			}
@@ -525,10 +642,16 @@ int main(int argc, char *argv[]){
 //		for(n=0;n<MAX_SERVERS;n++){
 //			if(read_buffers[n]!=NULL){
 //				char output[BUFFER_SIZE];
+//				//bold the active server
+//				if(n==current_server){
+//					attron(A_BOLD);	
+//				}
 //				sprintf(output,"%i | ",n);
 //				wprintw(server_list,output);
+//				attroff(A_BOLD);
 //			}
 //		}
+//		wrefresh(server_list);
 //		//if there is a server we are connected to then display channels for that server
 //		if(current_server>=0){
 //			wclear(channel_list);
@@ -540,8 +663,11 @@ int main(int argc, char *argv[]){
 //				}
 //			}
 //		}
+//		wrefresh(channel_list);
 //		wprintw(channel_topic,"(no channel topic)");
+//		wrefresh(channel_topic);
 //		wprintw(channel_text,"(no channel text)");
+//		wrefresh(channel_text);
 		
 		//output the most recent text from the user so they can see what they're typing
 		wclear(user_input);
@@ -550,7 +676,8 @@ int main(int argc, char *argv[]){
 		wmove(user_input,0,cursor_pos);
 		wrefresh(user_input);
 	}
-	//free all the RAM we allocated for anything
+	//TODO: figure out what's segfaulting on ^C, I think it's in here somewhere
+/*	//free all the RAM we allocated for anything
 	int server_index;
 	for(server_index=0;server_index<MAX_SERVERS;server_index++){
 		//if this is a valid server connection we have a buffer allocated
@@ -566,6 +693,7 @@ int main(int argc, char *argv[]){
 			free(channels[server_index]);
 		}
 	}
+*/
 
 #ifdef DEBUG
 	fclose(debug_output);

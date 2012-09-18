@@ -1,0 +1,579 @@
+parse_input debug 0, got input "asdlfkjwklerjwer"
+parse_input debug 0, got input "/connect naos.foonetic.net 80"
+parse_input debug 1
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Looking up your hostname...
+
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Found your hostname (cached)
+
+parse_input debug 0, got input ":NICK accidental_irc_user"
+main debug 0, read from server: PING :B2F51203
+
+parse_input debug 0, got input ":USER 1 2 3 4"
+parse_input debug 0, got input ":"
+main debug 0, read from server: :naos.foonetic.net 001 accidental_irc_user :Welcome to the Foonetic IRC Network accidental_irc_user!1@r03drmb75.device.mst.edu
+
+main debug 0, read from server: :naos.foonetic.net 002 accidental_irc_user :Your host is naos.foonetic.net, running version Unreal3.2.7
+
+main debug 0, read from server: :naos.foonetic.net 003 accidental_irc_user :This server was created Fri Jun 20 2008 at 23:46:38 UTC
+
+main debug 0, read from server: :naos.foonetic.net 004 accidental_irc_user naos.foonetic.net Unreal3.2.7 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj
+
+main debug 0, read from server: :naos.foonetic.net 005 accidental_irc_user CMDS=KNOCK,MAP,DCCALLOW,USERIP NAMESX SAFELIST HCN MAXCHANNELS=40 CHANLIMIT=#:40 MAXLIST=b:600,e:600,I:600 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 MAXTARGETS=20 :are supported by this server
+
+main debug 0, read from server: :naos.foonetic.net 005 accidental_irc_user WALLCHOPS WATCH=128 SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=Foonetic CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT STATUSMSG=~&@%+ EXCEPTS :are supported by this server
+
+main debug 0, read from server: :naos.foonetic.net 005 accidental_irc_user INVEX :are supported by this server
+
+main debug 0, read from server: :naos.foonetic.net 251 accidental_irc_user :There are 358 users and 1001 invisible on 6 servers
+
+main debug 0, read from server: :naos.foonetic.net 252 accidental_irc_user 14 :operator(s) online
+
+main debug 0, read from server: :naos.foonetic.net 254 accidental_irc_user 484 :channels formed
+
+main debug 0, read from server: :naos.foonetic.net 255 accidental_irc_user :I have 345 clients and 3 servers
+
+main debug 0, read from server: :naos.foonetic.net 265 accidental_irc_user :Current Local Users: 345  Max: 650
+
+main debug 0, read from server: :naos.foonetic.net 266 accidental_irc_user :Current Global Users: 1359  Max: 1910
+
+main debug 0, read from server: :naos.foonetic.net 375 accidental_irc_user :- naos.foonetic.net Message of the Day - 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 11/7/2008 0:32
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     __                        _   _      
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-    / _| ___   ___  _ __   ___| |_(_) ___ 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-   | |_ / _ \ / _ \| '_ \ / _ \ __| |/ __|
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-   |  _| (_) | (_) | | | |  __/ |_| | (__ 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-   |_|  \___/ \___/|_| |_|\___|\__|_|\___|
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-                            
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- Welcome to Foonetic IRC @ naos.foonetic.net
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-                Dallas, Texas
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       Server Administrator:   dyfrgi
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-           http://foonetic.net/
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       To get help or find IRCops:
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-                #help
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       Random server: irc.foonetic.net
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       To see the rules, type /quote rules
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       Port: 80, 6667, 6668, 6669, 7000
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       SSL Ports: 443, 6697, 7001
+
+main debug 0, read from server: :naos.foonetic.net 376 accidental_irc_user :End of /MOTD command.
+
+main debug 0, read from server: :accidental_irc_user MODE accidental_irc_user :+wx
+
+main debug 0, read from server: :NickServ!NickServ@services.foonetic.net NOTICE accidental_irc_user :Welcome to Foonetic, accidental_irc_user! Here on Foonetic, we provide services to enable the registration of nicknames and channels! For details, type /msg NickServ help and /msg ChanServ help.
+
+main debug 0, read from server: PING :naos.foonetic.net
+
+main debug 0, read from server: PING :naos.foonetic.net
+
+main debug 0, read from server: PING :naos.foonetic.net
+
+main debug 0, read from server: PING :naos.foonetic.net
+
+main debug 0, read from server: PING :naos.foonetic.net
+
+main debug 0, read from server: PING :naos.foonetic.net
+
+parse_input debug 0, got input "/connect naos.foonetic.net 80"
+parse_input debug 1
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Looking up your hostname...
+
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Found your hostname
+
+parse_input debug 0, got input ":NICK accidental_irc_user"
+main debug 0, read from server: PING :8685175C
+
+parse_input debug 0, got input ":USER 1 3 4 5"
+main debug 0, read from server: :naos.foonetic.net 001 accidental_irc_user :Welcome to the Foonetic IRC Network accidental_irc_user!1@r03drmb75.device.mst.edu
+
+main debug 0, read from server: :naos.foonetic.net 002 accidental_irc_user :Your host is naos.foonetic.net, running version Unreal3.2.7
+
+main debug 0, read from server: :naos.foonetic.net 003 accidental_irc_user :This server was created Fri Jun 20 2008 at 23:46:38 UTC
+
+main debug 0, read from server: :naos.foonetic.net 004 accidental_irc_user naos.foonetic.net Unreal3.2.7 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj
+
+parse_input debug 0, got input ":"
+main debug 0, read from server: :naos.foonetic.net 005 accidental_irc_user CMDS=KNOCK,MAP,DCCALLOW,USERIP NAMESX SAFELIST HCN MAXCHANNELS=40 CHANLIMIT=#:40 MAXLIST=b:600,e:600,I:600 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 MAXTARGETS=20 :are supported by this server
+
+main debug 0, read from server: :naos.foonetic.net 005 accidental_irc_user WALLCHOPS WATCH=128 SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=Foonetic CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT STATUSMSG=~&@%+ EXCEPTS :are supported by this server
+
+main debug 0, read from server: :naos.foonetic.net 005 accidental_irc_user INVEX :are supported by this server
+
+main debug 0, read from server: :naos.foonetic.net 251 accidental_irc_user :There are 355 users and 992 invisible on 6 servers
+
+main debug 0, read from server: :naos.foonetic.net 252 accidental_irc_user 14 :operator(s) online
+
+main debug 0, read from server: :naos.foonetic.net 253 accidental_irc_user 1 :unknown connection(s)
+
+main debug 0, read from server: :naos.foonetic.net 254 accidental_irc_user 481 :channels formed
+
+main debug 0, read from server: :naos.foonetic.net 255 accidental_irc_user :I have 348 clients and 3 servers
+
+main debug 0, read from server: :naos.foonetic.net 265 accidental_irc_user :Current Local Users: 348  Max: 650
+
+main debug 0, read from server: :naos.foonetic.net 266 accidental_irc_user :Current Global Users: 1347  Max: 1910
+
+main debug 0, read from server: :naos.foonetic.net 375 accidental_irc_user :- naos.foonetic.net Message of the Day - 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 11/7/2008 0:32
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     __                        _   _      
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-    / _| ___   ___  _ __   ___| |_(_) ___ 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-   | |_ / _ \ / _ \| '_ \ / _ \ __| |/ __|
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-   |  _| (_) | (_) | | | |  __/ |_| | (__ 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-   |_|  \___/ \___/|_| |_|\___|\__|_|\___|
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-                            
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- Welcome to Foonetic IRC @ naos.foonetic.net
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-                Dallas, Texas
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       Server Administrator:   dyfrgi
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-           http://foonetic.net/
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       To get help or find IRCops:
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-                #help
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       Random server: irc.foonetic.net
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       To see the rules, type /quote rules
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       Port: 80, 6667, 6668, 6669, 7000
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       SSL Ports: 443, 6697, 7001
+
+main debug 0, read from server: :naos.foonetic.net 376 accidental_irc_user :End of /MOTD command.
+
+main debug 0, read from server: :accidental_irc_user MODE accidental_irc_user :+wx
+
+main debug 0, read from server: :NickServ!NickServ@services.foonetic.net NOTICE accidental_irc_user :Welcome to Foonetic, accidental_irc_user! Here on Foonetic, we provide services to enable the registration of nicknames and channels! For details, type /msg NickServ help and /msg ChanServ help.
+
+main debug 0, read from server: PING :naos.foonetic.net
+
+parse_input debug 0, got input "/connect naos.foonetic.net 80"
+parse_input debug 1
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Looking up your hostname...
+
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Found your hostname (cached)
+
+parse_input debug 0, got input ":NICK accidental_irc_user"
+main debug 0, read from server: PING :1EADE8BB
+
+parse_input debug 0, got input ":USER 1 2 3 4"
+main debug 0, read from server: :naos.foonetic.net 001 accidental_irc_user :Welcome to the Foonetic IRC Network accidental_irc_user!1@r03drmb75.device.mst.edu
+
+parse_input debug 0, got input ":"
+main debug 0, read from server: :naos.foonetic.net 002 accidental_irc_user :Your host is naos.foonetic.net, running version Unreal3.2.7
+
+main debug 0, read from server: :naos.foonetic.net 003 accidental_irc_user :This server was created Fri Jun 20 2008 at 23:46:38 UTC
+
+main debug 0, read from server: :naos.foonetic.net 004 accidental_irc_user naos.foonetic.net Unreal3.2.7 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj
+
+main debug 0, read from server: :naos.foonetic.net 005 accidental_irc_user CMDS=KNOCK,MAP,DCCALLOW,USERIP NAMESX SAFELIST HCN MAXCHANNELS=40 CHANLIMIT=#:40 MAXLIST=b:600,e:600,I:600 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 MAXTARGETS=20 :are supported by this server
+
+main debug 0, read from server: :naos.foonetic.net 005 accidental_irc_user WALLCHOPS WATCH=128 SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=Foonetic CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT STATUSMSG=~&@%+ EXCEPTS :are supported by this server
+
+main debug 0, read from server: :naos.foonetic.net 005 accidental_irc_user INVEX :are supported by this server
+
+main debug 0, read from server: :naos.foonetic.net 251 accidental_irc_user :There are 357 users and 996 invisible on 6 servers
+
+main debug 0, read from server: :naos.foonetic.net 252 accidental_irc_user 14 :operator(s) online
+
+main debug 0, read from server: :naos.foonetic.net 254 accidental_irc_user 481 :channels formed
+
+main debug 0, read from server: :naos.foonetic.net 255 accidental_irc_user :I have 349 clients and 3 servers
+
+main debug 0, read from server: :naos.foonetic.net 265 accidental_irc_user :Current Local Users: 349  Max: 650
+
+main debug 0, read from server: :naos.foonetic.net 266 accidental_irc_user :Current Global Users: 1353  Max: 1910
+
+main debug 0, read from server: :naos.foonetic.net 375 accidental_irc_user :- naos.foonetic.net Message of the Day - 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 11/7/2008 0:32
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     __                        _   _      
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-    / _| ___   ___  _ __   ___| |_(_) ___ 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-   | |_ / _ \ / _ \| '_ \ / _ \ __| |/ __|
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-   |  _| (_) | (_) | | | |  __/ |_| | (__ 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-   |_|  \___/ \___/|_| |_|\___|\__|_|\___|
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-                            
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- Welcome to Foonetic IRC @ naos.foonetic.net
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-                Dallas, Texas
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       Server Administrator:   dyfrgi
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-           http://foonetic.net/
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       To get help or find IRCops:
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-                #help
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :- 
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       Random server: irc.foonetic.net
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       To see the rules, type /quote rules
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-     
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       Port: 80, 6667, 6668, 6669, 7000
+
+main debug 0, read from server: :naos.foonetic.net 372 accidental_irc_user :-       SSL Ports: 443, 6697, 7001
+
+main debug 0, read from server: :naos.foonetic.net 376 accidental_irc_user :End of /MOTD command.
+
+main debug 0, read from server: :accidental_irc_user MODE accidental_irc_user :+wx
+
+main debug 0, read from server: :NickServ!NickServ@services.foonetic.net NOTICE accidental_irc_user :Welcome to Foonetic, accidental_irc_user! Here on Foonetic, we provide services to enable the registration of nicknames and channels! For details, type /msg NickServ help and /msg ChanServ help.
+
+parse_input debug 0, got input "/connect naos.foonetic.net 80"
+parse_input debug 1
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Looking up your hostname...
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Found your hostname (cached)
+parse_input debug 0, got input ":NICK accirc_user"
+main debug 0, read from server: PING :2D7ABFFF
+parse_input debug 0, got input ":USER 1 2 3 4"
+main debug 0, read from server: :naos.foonetic.net 001 accirc_user :Welcome to the Foonetic IRC Network accirc_user!1@r03drmb75.device.mst.edu
+parse_input debug 0, got input ":"
+main debug 0, read from server: :naos.foonetic.net 002 accirc_user :Your host is naos.foonetic.net, running version Unreal3.2.7
+main debug 0, read from server: :naos.foonetic.net 003 accirc_user :This server was created Fri Jun 20 2008 at 23:46:38 UTC
+main debug 0, read from server: :naos.foonetic.net 004 accirc_user naos.foonetic.net Unreal3.2.7 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj
+main debug 0, read from server: :naos.foonetic.net 005 accirc_user CMDS=KNOCK,MAP,DCCALLOW,USERIP NAMESX SAFELIST HCN MAXCHANNELS=40 CHANLIMIT=#:40 MAXLIST=b:600,e:600,I:600 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 MAXTARGETS=20 :are supported by this server
+main debug 0, read from server: :naos.foonetic.net 005 accirc_user WALLCHOPS WATCH=128 SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=Foonetic CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT STATUSMSG=~&@%+ EXCEPTS :are supported by this server
+main debug 0, read from server: :naos.foonetic.net 005 accirc_user INVEX :are supported by this server
+main debug 0, read from server: :naos.foonetic.net 251 accirc_user :There are 358 users and 993 invisible on 6 servers
+main debug 0, read from server: :naos.foonetic.net 252 accirc_user 14 :operator(s) online
+main debug 0, read from server: :naos.foonetic.net 254 accirc_user 482 :channels formed
+main debug 0, read from server: :naos.foonetic.net 255 accirc_user :I have 351 clients and 3 servers
+main debug 0, read from server: :naos.foonetic.net 265 accirc_user :Current Local Users: 351  Max: 650
+main debug 0, read from server: :naos.foonetic.net 266 accirc_user :Current Global Users: 1351  Max: 1910
+main debug 0, read from server: :naos.foonetic.net 375 accirc_user :- naos.foonetic.net Message of the Day - 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- 11/7/2008 0:32
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-     __                        _   _      
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-    / _| ___   ___  _ __   ___| |_(_) ___ 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-   | |_ / _ \ / _ \| '_ \ / _ \ __| |/ __|
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-   |  _| (_) | (_) | | | |  __/ |_| | (__ 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-   |_|  \___/ \___/|_| |_|\___|\__|_|\___|
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-                            
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- Welcome to Foonetic IRC @ naos.foonetic.net
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-                Dallas, Texas
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-     
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       Server Administrator:   dyfrgi
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-           http://foonetic.net/
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       To get help or find IRCops:
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-                #help
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       Random server: irc.foonetic.net
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-     
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       To see the rules, type /quote rules
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-     
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       Port: 80, 6667, 6668, 6669, 7000
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       SSL Ports: 443, 6697, 7001
+main debug 0, read from server: :naos.foonetic.net 376 accirc_user :End of /MOTD command.
+main debug 0, read from server: :accirc_user MODE accirc_user :+wx
+main debug 0, read from server: :NickServ!NickServ@services.foonetic.net NOTICE accirc_user :Welcome to Foonetic, accirc_user! Here on Foonetic, we provide services to enable the registration of nicknames and channels! For details, type /msg NickServ help and /msg ChanServ help.
+parse_input debug 0, got input ":PRIVMSG neutrak :test"
+parse_input debug 0, got input "/connect daemonic.foonetic.net 6667"
+parse_input debug 1
+main debug 0, read from server: :daemonic.foonetic.net NOTICE AUTH :*** Looking up your hostname...
+main debug 0, read from server: :daemonic.foonetic.net NOTICE AUTH :*** Found your hostname
+main debug 0, read from server: ERROR :Closing Link: [131.151.67.81] (Ping timeout)
+parse_input debug 0, got input "/connect daemonic.foonetic.net 6667"
+parse_input debug 1
+main debug 0, read from server: :daemonic.foonetic.net NOTICE AUTH :*** Looking up your hostname...
+main debug 0, read from server: :daemonic.foonetic.net NOTICE AUTH :*** Found your hostname (cached)
+main debug 0, read from server: ERROR :Closing Link: [131.151.67.81] (Ping timeout)
+parse_input debug 0, got input "/connect naos.foonetic.net 80"
+parse_input debug 1
+parse_input debug 0, got input "/connect naos.foonetic.net 80"
+parse_input debug 1
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Looking up your hostname...
+main debug 0, read from server: :naos.foonetic.net NOTICE AUTH :*** Found your hostname (cached)
+parse_input debug 0, got input ":nick accirc_user"
+main debug 0, read from server: PING :8C566F63
+parse_input debug 0, got input ":user 1 2 3 4"
+parse_input debug 0, got input ":"
+main debug 0, read from server: :naos.foonetic.net 001 accirc_user :Welcome to the Foonetic IRC Network accirc_user!1@r03drmb75.device.mst.edu
+main debug 0, read from server: :naos.foonetic.net 002 accirc_user :Your host is naos.foonetic.net, running version Unreal3.2.7
+main debug 0, read from server: :naos.foonetic.net 003 accirc_user :This server was created Fri Jun 20 2008 at 23:46:38 UTC
+main debug 0, read from server: :naos.foonetic.net 004 accirc_user naos.foonetic.net Unreal3.2.7 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj
+main debug 0, read from server: :naos.foonetic.net 005 accirc_user CMDS=KNOCK,MAP,DCCALLOW,USERIP NAMESX SAFELIST HCN MAXCHANNELS=40 CHANLIMIT=#:40 MAXLIST=b:600,e:600,I:600 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 MAXTARGETS=20 :are supported by this server
+main debug 0, read from server: :naos.foonetic.net 005 accirc_user WALLCHOPS WATCH=128 SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=Foonetic CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT STATUSMSG=~&@%+ EXCEPTS :are supported by this server
+main debug 0, read from server: :naos.foonetic.net 005 accirc_user INVEX :are supported by this server
+main debug 0, read from server: :naos.foonetic.net 251 accirc_user :There are 356 users and 995 invisible on 6 servers
+main debug 0, read from server: :naos.foonetic.net 252 accirc_user 14 :operator(s) online
+main debug 0, read from server: :naos.foonetic.net 254 accirc_user 483 :channels formed
+main debug 0, read from server: :naos.foonetic.net 255 accirc_user :I have 352 clients and 3 servers
+main debug 0, read from server: :naos.foonetic.net 265 accirc_user :Current Local Users: 352  Max: 650
+main debug 0, read from server: :naos.foonetic.net 266 accirc_user :Current Global Users: 1351  Max: 1910
+main debug 0, read from server: :naos.foonetic.net 375 accirc_user :- naos.foonetic.net Message of the Day - 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- 11/7/2008 0:32
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-     __                        _   _      
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-    / _| ___   ___  _ __   ___| |_(_) ___ 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-   | |_ / _ \ / _ \| '_ \ / _ \ __| |/ __|
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-   |  _| (_) | (_) | | | |  __/ |_| | (__ 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-   |_|  \___/ \___/|_| |_|\___|\__|_|\___|
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-                            
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- Welcome to Foonetic IRC @ naos.foonetic.net
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-                Dallas, Texas
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-     
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       Server Administrator:   dyfrgi
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-           http://foonetic.net/
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       To get help or find IRCops:
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-                #help
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       Random server: irc.foonetic.net
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-     
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       To see the rules, type /quote rules
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-     
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       Port: 80, 6667, 6668, 6669, 7000
+main debug 0, read from server: :naos.foonetic.net 372 accirc_user :-       SSL Ports: 443, 6697, 7001
+main debug 0, read from server: :naos.foonetic.net 376 accirc_user :End of /MOTD command.
+main debug 0, read from server: :accirc_user MODE accirc_user :+wx
+main debug 0, read from server: :NickServ!NickServ@services.foonetic.net NOTICE accirc_user :Welcome to Foonetic, accirc_user! Here on Foonetic, we provide services to enable the registration of nicknames and channels! For details, type /msg NickServ help and /msg ChanServ help.
+parse_input debug 0, got input ":PRIVMSG ChanServ :help"
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :***** ChanServ Help *****
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :ChanServ gives normal users the ability to maintain control
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :of a channel, without the need of a bot. Channel takeovers are
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :virtually impossible when a channel is registered with ChanServ.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :Registration is a quick and painless process. Once registered,
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :the founder can maintain complete and total control over the channel.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :Please note that channels will expire after 60 days of inactivity,
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :or if there are no eligible channel successors.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :Activity is defined as a user with one of +FHORafhoqrsv being on the channel.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :Successors are primarily those who have the +R flag
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :set on their account in the channel, although other
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :people may be chosen depending on their access
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :level and activity.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user : 
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :For more information on a command, type:
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :/msg ChanServ help <command>
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :For a verbose listing of all commands, type:
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :/msg ChanServ help commands
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user : 
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :The following commands are available:
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :FLAGS           Manipulates specific permissions on a channel.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :INVITE          Invites you to a channel.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :OP              Gives channel ops to a user.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :RECOVER         Regain control of your channel.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :SET             Sets various control flags.
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user : 
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :Other commands: ACCESS, AKICK, CLEAR, CLONE, COUNT, DEHALFOP, 
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :                DEOP, DEPROTECT, DEVOICE, DROP, GETKEY, 
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :                HALFOP, HELP, INFO, KICK, KICKBAN, PROTECT, 
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :                ROLE, STATUS, SYNC, TAXONOMY, TEMPLATE, 
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :                TOPIC, TOPICAPPEND, TOPICPREPEND, VOICE, 
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :                WHY
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :***** End of Help *****
+main debug 0, read from server: :ChanServ!ChanServ@services.foonetic.net NOTICE accirc_user :If you're having trouble or you need some additional help, you may want to join the help channel #help
+parse_input debug 0, got input "/connect irc.xkcd.com 6667"
+parse_input debug 1
+Err: Could not find server
+parse_input debug 0, got input ":NICK accirc_user_2"
+main debug 0, read from server: :accirc_user!1@hide-68F46812.device.mst.edu NICK :accirc_user_2
+parse_input debug 0, got input ":USER 1 2 3 4"
+main debug 0, read from server: :naos.foonetic.net 462 accirc_user_2 :You may not reregister
+parse_input debug 0, got input ":"
+parse_input debug 0, got input ":PRIVMSG neutrak :testing"
+parse_input debug 0, got input ":PRIVMSG accirc_user :test"
+main debug 0, read from server: :naos.foonetic.net 401 accirc_user_2 accirc_user :No such nick/channel
+parse_input debug 0, got input "/connect irc.xkcd.com 6667"
+parse_input debug 1
+main debug 0, read from server: :anchor.foonetic.net NOTICE AUTH :*** Looking up your hostname...
+main debug 0, read from server: :anchor.foonetic.net NOTICE AUTH :*** Couldn't resolve your hostname; using your IP address instead
+parse_input debug 0, got input ":NICK accirc_user"
+main debug 0, read from server: PING :A6A15636
+parse_input debug 0, got input ":USER 1 2 3 4"
+parse_input debug 0, got input ":"
+main debug 0, read from server: :anchor.foonetic.net 001 accirc_user :Welcome to the Foonetic IRC Network accirc_user!1@131.151.67.81
+main debug 0, read from server: :anchor.foonetic.net 002 accirc_user :Your host is anchor.foonetic.net, running version Unreal3.2.8.1
+main debug 0, read from server: :anchor.foonetic.net 003 accirc_user :This server was created Fri Apr 6 2012 at 00:08:06 PDT
+main debug 0, read from server: :anchor.foonetic.net 004 accirc_user anchor.foonetic.net Unreal3.2.8.1 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGj
+main debug 0, read from server: :anchor.foonetic.net 005 accirc_user CMDS=KNOCK,MAP,DCCALLOW,USERIP UHNAMES NAMESX SAFELIST HCN MAXCHANNELS=40 CHANLIMIT=#:40 MAXLIST=b:600,e:600,I:600 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 :are supported by this server
+main debug 0, read from server: :anchor.foonetic.net 005 accirc_user MAXTARGETS=20 WALLCHOPS WATCH=128 WATCHOPTS=A SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTG NETWORK=Foonetic CASEMAPPING=ascii EXTBAN=~,cqnr ELIST=MNUCT :are supported by this server
+main debug 0, read from server: :anchor.foonetic.net 005 accirc_user STATUSMSG=~&@%+ EXCEPTS INVEX :are supported by this server
+main debug 0, read from server: :anchor.foonetic.net 251 accirc_user :There are 360 users and 992 invisible on 6 servers
+main debug 0, read from server: :anchor.foonetic.net 252 accirc_user 14 :operator(s) online
+main debug 0, read from server: :anchor.foonetic.net 254 accirc_user 484 :channels formed
+main debug 0, read from server: :anchor.foonetic.net 255 accirc_user :I have 322 clients and 1 servers
+main debug 0, read from server: :anchor.foonetic.net 265 accirc_user :Current Local Users: 322  Max: 508
+main debug 0, read from server: :anchor.foonetic.net 266 accirc_user :Current Global Users: 1352  Max: 1910
+main debug 0, read from server: :anchor.foonetic.net 375 accirc_user :- anchor.foonetic.net Message of the Day - 
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :- 22/10/2011 4:49
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-      __                        _   _
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-     / _| ___   ___  _ __   ___| |_(_) ___
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-    | |_ / _ \ / _ \| '_ \ / _ \ __| |/ __|
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-    |  _| (_) | (_) | | | |  __/ |_| | (__
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-    |_|  \___/ \___/|_| |_|\___|\__|_|\___|
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-  Welcome to Foonetic IRC @ anchor.foonetic.net
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-             London, England, UK
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-        Server Administrator:   zigdon
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :- 
+parse_input debug 0, got input ":PRIVMSG accirc_user_2 :test"
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-            http://foonetic.net/
+main debug 0, read from server: :accirc_user!1@427FF716.2DF8AE8A.3F3E9BDC.IP PRIVMSG accirc_user_2 :test
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-        To get help or find IRCops:
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-                 #help
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-        Random server: irc.foonetic.net
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-        To see the rules, type /quote rules
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-        Port: 6667, 6668, 6669, 7000
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :-        SSL Ports: 6697, 7001, 8067
+main debug 0, read from server: :anchor.foonetic.net 372 accirc_user :- 
+main debug 0, read from server: :anchor.foonetic.net 376 accirc_user :End of /MOTD command.
+main debug 0, read from server: :accirc_user MODE accirc_user :+wx
+main debug 0, read from server: :NickServ!NickServ@services.foonetic.net NOTICE accirc_user :Welcome to Foonetic, accirc_user! Here on Foonetic, we provide services to enable the registration of nicknames and channels! For details, type /msg NickServ help and /msg ChanServ help.
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user_2 :test
+main debug 0, read from server: PING :naos.foonetic.net
+parse_input debug 0, got input "/connect irc.silverirc.com 6667"
+parse_input debug 1
+main debug 0, read from server: :irc.solusos.com NOTICE AUTH :*** Looking up your hostname...
+main debug 0, read from server: :irc.solusos.com NOTICE AUTH :*** Found your hostname
+parse_input debug 0, got input ":NICK accirc_user"
+main debug 0, read from server: PING :7E0CC67C
+parse_input debug 0, got input ":USER 1 2 3 4"
+main debug 0, read from server: :irc.solusos.com 001 accirc_user :Welcome to the SilverIRC IRC Network accirc_user!1@r03drmb75.device.mst.edu
+parse_input debug 0, got input ":"
+main debug 0, read from server: :irc.solusos.com 002 accirc_user :Your host is irc.solusos.com, running version Unreal3.2.9
+main debug 0, read from server: :irc.solusos.com 003 accirc_user :This server was created Wed Dec 7 2011 at 23:28:03 UTC
+main debug 0, read from server: :irc.solusos.com 004 accirc_user irc.solusos.com Unreal3.2.9 iowghraAsORTVSxNCWqBzvdHtGp lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGjZ
+main debug 0, read from server: :irc.solusos.com 005 accirc_user UHNAMES NAMESX SAFELIST HCN MAXCHANNELS=15 CHANLIMIT=#:15 MAXLIST=b:60,e:60,I:60 NICKLEN=30 CHANNELLEN=32 TOPICLEN=307 KICKLEN=307 AWAYLEN=307 MAXTARGETS=20 :are supported by this server
+main debug 0, read from server: :irc.solusos.com 005 accirc_user WALLCHOPS WATCH=128 WATCHOPTS=A SILENCE=15 MODES=12 CHANTYPES=# PREFIX=(qaohv)~&@%+ CHANMODES=beI,kfL,lj,psmntirRcOAQKVCuzNSMTGZ NETWORK=SilverIRC CASEMAPPING=ascii EXTBAN=~,qjncrR ELIST=MNUCT STATUSMSG=~&@%+ :are supported by this server
+main debug 0, read from server: :irc.solusos.com 005 accirc_user EXCEPTS INVEX CMDS=KNOCK,MAP,DCCALLOW,USERIP :are supported by this server
+main debug 0, read from server: :irc.solusos.com 251 accirc_user :There are 1 users and 40 invisible on 4 servers
+main debug 0, read from server: :irc.solusos.com 252 accirc_user 13 :operator(s) online
+main debug 0, read from server: :irc.solusos.com 254 accirc_user 22 :channels formed
+main debug 0, read from server: :irc.solusos.com 255 accirc_user :I have 15 clients and 1 servers
+main debug 0, read from server: :irc.solusos.com 265 accirc_user :Current Local Users: 15  Max: 31
+main debug 0, read from server: :irc.solusos.com 266 accirc_user :Current Global Users: 41  Max: 99
+main debug 0, read from server: :irc.solusos.com 422 accirc_user :MOTD File is missing
+main debug 0, read from server: :accirc_user MODE accirc_user :+iwx
+main debug 0, read from server: PING :anchor.foonetic.net
+main debug 0, read from server: :neutrak!neutrak@sirc-8B6227B6.device.mst.edu PRIVMSG accirc_user :test
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user_2 :test
+main debug 0, read from server: PING :naos.foonetic.net
+parse_input debug 0, got input "/sl"
+parse_input debug 1
+parse_input debug 0, got input "/sl"
+parse_input debug 1
+parse_input debug 0, got input ":JOIN :#faid3.0"
+main debug 0, read from server: :accirc_user_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0
+main debug 0, read from server: :naos.foonetic.net 332 accirc_user_2 #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking
+main debug 0, read from server: :naos.foonetic.net 333 accirc_user_2 #FaiD3.0 Spock 1340151212
+main debug 0, read from server: :naos.foonetic.net 353 accirc_user_2 @ #FaiD3.0 :accirc_user_2 @Data Spock @neutrak @MonkeyofDoom ~Shishichi SandM @NieXS @L davean 
+parse_input debug 0, got input "/sr"
+parse_input debug 1
+main debug 0, read from server: :naos.foonetic.net 366 accirc_user_2 #FaiD3.0 :End of /NAMES list.
+main debug 0, read from server: PING :irc.solusos.com
+parse_input debug 0, got input ":JOIN :#faid3.0"
+main debug 0, read from server: :accirc_user!1@427FF716.2DF8AE8A.3F3E9BDC.IP JOIN :#FaiD3.0
+main debug 0, read from server: PING :anchor.foonetic.net
+main debug 0, read from server: :accirc_user!1@427FF716.2DF8AE8A.3F3E9BDC.IP JOIN :#FaiD3.0
+main debug 0, read from server: :anchor.foonetic.net 332 accirc_user #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking
+main debug 0, read from server: :anchor.foonetic.net 333 accirc_user #FaiD3.0 Spock 1340151212
+main debug 0, read from server: :anchor.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user accirc_user_2 @Data Spock @neutrak @MonkeyofDoom ~Shishichi SandM @NieXS @L davean 
+main debug 0, read from server: :anchor.foonetic.net 366 accirc_user #FaiD3.0 :End of /NAMES list.
+parse_input debug 0, got input ":PRIVMSG #faid3.0 :hm, that's odd how it changes my hostmask, even though literally the same program is connecting"
+main debug 0, read from server: :accirc_user!1@427FF716.2DF8AE8A.3F3E9BDC.IP PRIVMSG #faid3.0 :hm, that's odd how it changes my hostmask, even though literally the same program is connecting
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG #faid3.0 :also, I love how I get messages from myself when I have the same network open twice
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG #faid3.0 :also, I love how I get messages from myself when I have the same network open twice
+main debug 0, read from server: PING :naos.foonetic.net
+main debug 0, read from server: PING :irc.solusos.com
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG #faid3.0 :I /might/ consider adding error handling so the same server is only open on one instance
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG #faid3.0 :I /might/ consider adding error handling so the same server is only open on one instance
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG #faid3.0 :eh, I won't atm
+main debug 0, read from server: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG #faid3.0 :eh, I won't atm
+main debug 0, read from server: PING :anchor.foonetic.net
+main debug 0, read from server: PING :naos.foonetic.net
+main debug 0, read from server: PING :irc.solusos.com
+main debug 0, read from server: PING :anchor.foonetic.net
+main debug 0, read from server: PING :naos.foonetic.net
+main debug 0, read from server: PING :anchor.foonetic.net
+main debug 0, read from server: PING :irc.solusos.com
+main debug 0, read from server: PING :naos.foonetic.net
+main debug 0, read from server: PING :anchor.foonetic.net
+main debug 0, read from server: PING :irc.solusos.com
+main debug 0, read from server: PING :naos.foonetic.net
+main debug 0, read from server: PING :anchor.foonetic.net
+main debug 0, read from server: PING :irc.solusos.com
+main debug 0, read from server: PING :naos.foonetic.net
+main debug 0, read from server: PING :anchor.foonetic.net
+main debug 0, read from server: PING :irc.solusos.com
+main debug 0, read from server: PING :naos.foonetic.net
+main debug 0, read from server: PING :anchor.foonetic.net
+main debug 0, read from server: PING :irc.solusos.com
+main debug 0, read from server: PING :naos.foonetic.net
+main debug 0, read from server: PING :anchor.foonetic.net
