@@ -41,6 +41,7 @@
 #define DEFAULT_NICK "accidental_irc_user"
 
 //global variables
+//TODO: make an irc_connection struct in place of parallel arrays
 //TODO: store the following: server names as strings, channel text for scrollback, channel topics
 char *read_buffers[MAX_SERVERS];
 int socket_fds[MAX_SERVERS];
@@ -346,6 +347,7 @@ void parse_input(char *input_buffer){
 					}
 				}
 			}
+		//TODO: update the display upon changes in server or channel being viewed here
 		//move a server to the left
 		}else if(!strcmp(command,"sl")){
 			int index;
@@ -354,7 +356,7 @@ void parse_input(char *input_buffer){
 					current_server=index;
 					index=-1;
 				//if current index is negative there never was a server so just die and don't change it
-				}else if((index==0)&&(current_index>=0)){
+				}else if((index==0)&&(current_server>=0)){
 					//go back to the start, at worst we'll end up where we were
 					index=MAX_SERVERS;
 				}
@@ -367,7 +369,7 @@ void parse_input(char *input_buffer){
 					current_server=index;
 					index=MAX_SERVERS;
 				//if current index is negative there never was a server so just die and don't change it
-				}else if((index==(MAX_SERVERS-1))&&(current_index>=0)){
+				}else if((index==(MAX_SERVERS-1))&&(current_server>=0)){
 					//go back to the start, at worst we'll end up where we were
 					index=0;
 				}
@@ -635,6 +637,8 @@ int main(int argc, char *argv[]){
 				}
 			}
 		}
+		
+		//TODO: place a unix epoch clock in bottom_border, update it when the time changes (have a 1s history called old_time)
 		
 		//output the most up-to-date information about servers, channels, topics, and various whatnot
 //		wclear(server_list);
