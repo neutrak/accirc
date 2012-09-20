@@ -1,6 +1,10 @@
 //accidental irc, the accidental mutlti-server ncurses irc client
 //in C at the moment (a rewrite will be done if I ever finish writing the interpreter for neulang...)
 
+//this takes a fractal design as follows
+//	client has set of connections
+//		connection has set of channels
+
 //libraries
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,21 +40,37 @@
 #define MAX_SERVERS 64
 //same for channels
 #define MAX_CHANNELS 64
+//the number of lines of scrollback to store (each line being BUFFER_SIZE chars long)
+#define MAX_SCROLLBACK 400
 
 //some defaults in case the user forgets to give a nickname
 #define DEFAULT_NICK "accidental_irc_user"
 
 //global variables
-//TODO: make an irc_connection struct in place of parallel arrays
-//TODO: store the following: server names as strings, channel text for scrollback, channel topics
-char *read_buffers[MAX_SERVERS];
-int socket_fds[MAX_SERVERS];
-char *nicks[MAX_SERVERS];
-char **channels[MAX_SERVERS];
-//char **channels_text[MAX_SERVERS];
-//char *servers[MAX_SERVERS];
+//TODO: add logging, log files will probably be opened on connects and joins, and should be stored here
+typedef struct irc_connection irc_connection;
+struct irc_connection {
+	//behind-the-scenes data, the user never sees it
+	int socket_fd;
+	char read_buffer[BUFFER_SIZE];
+	//this data is stored in case the connection dies and we need to re-connect
+	int port;
+	
+	//this data is what the user sees (but is also used for other things)
+	char server_name[BUFFER_SIZE];
+	char nick[BUFFER_SIZE];
+	char *channel_name[MAX_CHANNELS];
+	char **channel_content[MAX_CHANNELS];
+//	char *channel_topic[MAX_CHANNELS];
+	int current_channel;
+};
+
 int current_server;
-int current_channel;
+irc_connection *servers[MAX_SERVERS];
+
+//determine if we're done
+char done;
+
 WINDOW *server_list;
 WINDOW *channel_list;
 WINDOW *channel_topic;
@@ -197,6 +217,7 @@ char safe_recv(int socket, char *buffer){
 
 //parse user's input (note this is conextual based on current server and channel)
 void parse_input(char *input_buffer){
+	//TODO: add what the user input to the relevant scrollback structure in servers[current_server]
 #ifdef DEBUG
 	fprintf(debug_output,"parse_input debug 0, got input \"%s\"\n",input_buffer);
 #endif
@@ -306,72 +327,124 @@ void parse_input(char *input_buffer){
 					goto fail;
 				}
 				
+				//clear out the server list because we're probably gonna be modifying it
+				wclear(server_list);
+				wmove(server_list,0,0);
+				
 				//set the socket non-blocking
 				//set the socket to be non-blocking
 				int flags=fcntl(new_socket_fd,F_GETFL,0);
 				flags=(flags==-1)?0:flags;
 				fcntl(new_socket_fd,F_SETFL,flags|O_NONBLOCK);
 				
+				//a flag to say if we've already added the sever
+				char added=FALSE;
+				
 				//make some data structures for relevant information
 				int server_index;
 				for(server_index=0;server_index<MAX_SERVERS;server_index++){
-					//if this is not already a valid server
-					if(read_buffers[server_index]==NULL){
+					//if this is not already a valid server and we haven't put the new server anywhere
+					if((servers[server_index]==NULL)&&(!added)){
 						//make it one
-						read_buffers[server_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+						servers[server_index]=(irc_connection*)(malloc(sizeof(irc_connection)));
 						//initialize the buffer to all NULL bytes
 						int n;
 						for(n=0;n<BUFFER_SIZE;n++){
-							read_buffers[server_index][n]='\0';
+							servers[server_index]->read_buffer[n]='\0';
 						}
-						nicks[server_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-						socket_fds[server_index]=new_socket_fd;
-						channels[server_index]=(char**)(malloc(MAX_CHANNELS*sizeof(char*)));
-						for(n=0;n<MAX_CHANNELS;n++){
-							channels[server_index][n]=NULL;
-						}
-						//set the default channel to NULL for various messages from the server that are not channel-specific
+						servers[server_index]->socket_fd=new_socket_fd;
+						
+						//set the current channel to be 0 (the system/debug channel)
+						//a JOIN would add channels, but upon initial connection 0 is the only valid one
+						servers[server_index]->current_channel=0;
+						
+						//set the default channel for various messages from the server that are not channel-specific
 						//NOTE: this scheme should be able to be overloaded to treat PM conversations as channels
-						channels[server_index][0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-						strncpy(channels[server_index][0],"",BUFFER_SIZE);
+						servers[server_index]->channel_name[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+						for(n=0;n<BUFFER_SIZE;n++){
+							servers[server_index]->channel_name[0][n]='\0';
+						}
+						
+						//set the main chat window with scrollback
+						//as we get lines worth storing we'll add them to this content, but for the moment it's blank
+						servers[server_index]->channel_content[0]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
+						for(n=0;n<MAX_SCROLLBACK;n++){
+							servers[server_index]->channel_content[0][n]=NULL;
+						}
+						
+						//set the port information (in case we need to re-connect)
+						servers[server_index]->port=port;
+						
+						//set the server name
+						strncpy(servers[server_index]->server_name,host,BUFFER_SIZE);
 						
 						//set the current server to be the one we just connected to
 						current_server=server_index;
 						
-						//set the current channel to be 0 (the system/debug channel)
-						//a JOIN would add channels, but upon initial connection 0 is the only valid one
-						current_channel=0;
+						//don't add this server again
+						added=TRUE;
 						
-						//break this loop
-						server_index=MAX_SERVERS;
+						//output the server information (since we set current_server to this, bold it)
+						wattron(server_list,A_BOLD);
+						wprintw(server_list,servers[server_index]->server_name);
+						wattroff(server_list,A_BOLD);
+						wprintw(server_list," | ");
+						
+					}else if(servers[server_index]!=NULL){
+						//another server, output it to the server list
+						wprintw(server_list,servers[server_index]->server_name);
+						wprintw(server_list," | ");
 					}
 				}
+				
+				//refresh the server list
+				wrefresh(server_list);
 			}
+		}else if(!strcmp(command,"exit")){
+			done=TRUE;
 		//TODO: update the display upon changes in server or channel being viewed here
 		//move a server to the left
 		}else if(!strcmp(command,"sl")){
+			//pre-condition for the below loop, else we'd start where we are
+			if(current_server>0){
+				current_server--;
+			//at the end loop back around
+			}else if(current_server==0){
+				current_server=MAX_SERVERS-1;
+			}
+			
 			int index;
 			for(index=current_server;index>=0;index--){
-				if(read_buffers[index]!=NULL){
+				if(servers[index]!=NULL){
 					current_server=index;
 					index=-1;
 				//if current index is negative there never was a server so just die and don't change it
 				}else if((index==0)&&(current_server>=0)){
 					//go back to the start, at worst we'll end up where we were
+					//note this is MAX_SERVERS because it gets decremented before the next loop iteration
 					index=MAX_SERVERS;
 				}
 			}
 		//move a server to the right
 		}else if(!strcmp(command,"sr")){
+			//pre-condition for the below loop, else we'd start where we are
+			if(current_server<(MAX_SERVERS-1)){
+				current_server++;
+			//at the end loop back around
+			}else if(current_server==MAX_SERVERS-1){
+				current_server=0;
+			}
+			
 			int index;
 			for(index=current_server;index<MAX_SERVERS;index++){
-				if(read_buffers[index]!=NULL){
+				if(servers[index]!=NULL){
 					current_server=index;
 					index=MAX_SERVERS;
 				//if current index is negative there never was a server so just die and don't change it
 				}else if((index==(MAX_SERVERS-1))&&(current_server>=0)){
 					//go back to the start, at worst we'll end up where we were
-					index=0;
+					//note this is -1 because it gets incremented before the next loop iteration
+					index=-1;
 				}
 			}
 		}
@@ -381,12 +454,12 @@ void parse_input(char *input_buffer){
 	}else if(server_command){
 		char to_send[BUFFER_SIZE];
 		sprintf(to_send,"%s\n",input_buffer);
-		safe_send(socket_fds[current_server],to_send);
+		safe_send(servers[current_server]->socket_fd,to_send);
 	//if it's not a command of any kind send it as a PM to current channel and server
 	}else{
 //		char to_send[BUFFER_SIZE];
-//		sprintf(to_send,"PRIVMSG %s :%s\n",channels[current_server][current_channel],input_buffer);
-//		safe_send(socket_fds[current_server],to_send);
+//		sprintf(to_send,"PRIVMSG %s :%s\n",servers[current_server]->channel_name[current_channel],input_buffer);
+//		safe_send(servers[current_server]->socket_fd,to_send);
 	}
 fail:	
 	strncpy(input_buffer,"\0",BUFFER_SIZE);
@@ -401,7 +474,7 @@ int main(int argc, char *argv[]){
 			exit(0);
 		}else if(!strcmp(argv[1],"--help")){
 			//TODO: make a man page
-			printf("accidental_irc, the irc client that accidentally got written; MAN PAGE COMING SOON!");
+			printf("accidental_irc, the irc client that accidentally got written; MAN PAGE COMING SOON!\n");
 			exit(0);
 		}
 	}
@@ -409,15 +482,11 @@ int main(int argc, char *argv[]){
 	//initialize the global variables appropriately
 	int n;
 	for(n=0;n<MAX_SERVERS;n++){
-		read_buffers[n]=NULL;
-		socket_fds[n]=-1;
-		nicks[n]=NULL;
-		channels[n]=NULL;
+		servers[n]=NULL;
 	}
 	
 	//negative values mean the user is not connected to anything (this is the default)
 	current_server=-1;
-	current_channel=-1;
 	
 	FILE *settings=fopen("accidental_irc.ini","r");
 	if(!settings){
@@ -426,7 +495,7 @@ int main(int argc, char *argv[]){
 		//TODO: read in the ini settings file
 		fclose(settings);
 	}
-
+	
 #ifdef DEBUG
 	debug_output=fopen("debug_output.txt","a");
 	if(!debug_output){
@@ -438,9 +507,13 @@ int main(int argc, char *argv[]){
 #endif
 	
 	//declare some variables
+	//for the clock
+	char time_buffer[BUFFER_SIZE];
+	//for user input
 	char input_buffer[BUFFER_SIZE];
 	for(n=0;n<BUFFER_SIZE;n++){
 		input_buffer[n]='\0';
+		time_buffer[BUFFER_SIZE]='\0';
 	}
 	
 	int width=80;
@@ -452,6 +525,7 @@ int main(int argc, char *argv[]){
 	noecho();
 	//get raw input
 	raw();
+	//TODO: handle SIGWINCH (aka resize events)
 	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
 	getmaxyx(stdscr,height,width);
 	//allocate windows for our toolbars and the main chat
@@ -483,6 +557,14 @@ int main(int argc, char *argv[]){
 	
 	for(n=0;n<width;n++){
 		wprintw(top_border,"-");
+	}
+	
+	//unix epoch clock (initialization)
+	long unsigned int old_time=(uintmax_t)(time(NULL));
+	sprintf(time_buffer,"[%lu]",old_time);
+	wprintw(bottom_border,time_buffer);
+	
+	for(n=strlen(time_buffer);n<width;n++){
 		wprintw(bottom_border,"-");
 	}
 	
@@ -503,9 +585,13 @@ int main(int argc, char *argv[]){
 	//one character of input
 	int c;
 	//determine if we're done
-	char done=FALSE;
+	done=FALSE;
 	//main loop
 	while(!done){
+		//store what the current_server and channel in that server were previously so we know if they change
+		//if they change we'll update the display
+		int old_server=current_server;
+		
 		c=wgetch(user_input);
 		if(c>=0){
 			switch(c){
@@ -515,6 +601,7 @@ int main(int argc, char *argv[]){
 					break;
 				//user hit enter, meaning parse and handle the user's input
 				case '\n':
+					//note the input_buffer gets reset to all NULL after parse_input
 					parse_input(input_buffer);
 					//reset the cursor for the next round of input
 					cursor_pos=0;
@@ -549,21 +636,24 @@ int main(int argc, char *argv[]){
 				//user wants to destroy something they entered
 				case KEY_BACKSPACE:
 					if(cursor_pos>0){
-						strremove(input_buffer,cursor_pos-1);
-						//and update the cursor position
-						cursor_pos--;
+						if(strremove(input_buffer,cursor_pos-1)){
+							//and update the cursor position upon success
+							cursor_pos--;
+						}
 					}
 					break;
 				//user wants to destroy something they entered
 				case KEY_DEL:
 					if(cursor_pos<strlen(input_buffer)){
 						strremove(input_buffer,cursor_pos);
+						//note cursor position doesn't change here
 					}
 					break;
 				//normal input
 				default:
-					strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE);
-					cursor_pos++;
+					if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
+						cursor_pos++;
+					}
 					break;
 			}
 		}
@@ -572,58 +662,133 @@ int main(int argc, char *argv[]){
 		int server_index;
 		for(server_index=0;server_index<MAX_SERVERS;server_index++){
 			//if this is a valid server connection we have a buffer allocated
-			if(read_buffers[server_index]!=NULL){
+			if(servers[server_index]!=NULL){
 				//can't make a more descriptive name than that; go ahead, I dare you to try
 				char one_byte_buffer[1];
-				int bytes_transferred=recv(socket_fds[server_index],one_byte_buffer,1,0);
+				int bytes_transferred=recv(servers[server_index]->socket_fd,one_byte_buffer,1,0);
 				if((bytes_transferred<=0)&&(errno!=EAGAIN)){
 					//TODO: handle connection errors gracefully here
+					close(servers[server_index]->socket_fd);
+					
 					//at the moment this just de-allocates associated memory
-					free(read_buffers[server_index]);
-					close(socket_fds[server_index]);
-					free(nicks[server_index]);
 					int n;
 					for(n=0;n<MAX_CHANNELS;n++){
-						free(channels[server_index][n]);
+						if((servers[server_index]->channel_name[n])!=NULL){
+							free(servers[server_index]->channel_name[n]);
+							int n1;
+							for(n1=0;n1<MAX_SCROLLBACK;n1++){
+								if(servers[server_index]->channel_content[n][n1]!=NULL){
+									free(servers[server_index]->channel_content[n][n1]);
+								}
+							}
+							free(servers[server_index]->channel_content[n]);
+						}
 					}
-					free(channels[server_index]);
+					free(servers[server_index]);
+					//reset that entry to null for subsequent iterations
+					servers[server_index]=NULL;
+					
+					//if we were on that server we'd better switch because it's not there anymore
+					if(server_index==current_server){
+						for(n=0;n<MAX_SERVERS;n++){
+							if(servers[n]!=NULL){
+								//reset the current server (note if there are still >1 connected servers it'll hit the last one)
+								current_server=n;
+							}
+						}
+					}
 				}else if(bytes_transferred>0){
 					//add this byte to the total buffer
-					if(strinsert(read_buffers[server_index],one_byte_buffer[0],strlen(read_buffers[server_index]),BUFFER_SIZE)){
+					if(strinsert(servers[server_index]->read_buffer,one_byte_buffer[0],strlen(servers[server_index]->read_buffer),BUFFER_SIZE)){
 						//a newline ends the reading and makes us start from scratch for the next byte
 						if(one_byte_buffer[0]=='\n'){
 							//clear out the remainder of the buffer since we re-use this memory
 							int n;
-							for(n=strlen(read_buffers[server_index]);n<BUFFER_SIZE;n++){
-								read_buffers[server_index][n]='\0';
+							for(n=strlen(servers[server_index]->read_buffer);n<BUFFER_SIZE;n++){
+								servers[server_index]->read_buffer[n]='\0';
 							}
 #ifdef DEBUG
-							fprintf(debug_output,"main debug 0, read from server: %s",read_buffers[server_index]);
+							fprintf(debug_output,"main debug 0, read from server: %s",servers[server_index]->read_buffer);
 #endif
 							
 							//parse in whatever the server sent and display it appropriately
-							int first_space=strfind(" :",read_buffers[server_index]);
+							int first_delimeter=strfind(" :",servers[server_index]->read_buffer);
 							char command[BUFFER_SIZE];
-							substr(command,read_buffers[server_index],0,first_space);
+							if(first_delimeter>0){
+								substr(command,servers[server_index]->read_buffer,0,first_delimeter);
+							}else{
+								strncpy(command,"",BUFFER_SIZE);
+							}
+							
 							if(!strcmp(command,"PING")){
 								//TODO: make this less hacky than it is
 								//switch the I in ping for an O in pong
-								read_buffers[server_index][1]='O';
-								safe_send(socket_fds[server_index],read_buffers[server_index]);
-							}
-							
-							if(server_index==current_server){
-								//this is just for debugging, it won't stay
-								//TODO: get scrollback, remove this
-//								wclear(channel_text);
+								servers[server_index]->read_buffer[1]='O';
+								safe_send(servers[server_index]->socket_fd,servers[server_index]->read_buffer);
+							}else{
+								//take out the trailing newline
+								substr(servers[server_index]->read_buffer,servers[server_index]->read_buffer,0,strfind("\n",servers[server_index]->read_buffer));
 								
-								wprintw(channel_text,"%s",read_buffers[server_index]);
-								wrefresh(channel_text);
+								//add the message to the relevant channel scrollback structure
+								//TODO: make this parse PMs and such and not just ALWAYS go to the system channel
+								char **scrollback=servers[server_index]->channel_content[0];
+								
+								//find the next blank line
+								int scrollback_line;
+								for(scrollback_line=0;(scrollback_line<MAX_SCROLLBACK)&&(scrollback[scrollback_line]!=NULL);scrollback_line++);
+								
+								//if we filled the buffer move everything back and take the last line
+								if(scrollback_line>=MAX_SCROLLBACK){
+									//free the line we're pushing out of the buffer
+									free(scrollback[0]);
+									//move all other lines back
+									for(scrollback_line=0;scrollback_line<(MAX_SCROLLBACK-1);scrollback_line++){
+										scrollback[scrollback_line]=scrollback[scrollback_line+1];
+									}
+									//put in the new line at the end
+									scrollback_line=MAX_SCROLLBACK-1;
+								}
+								//regardless of if we filled the buffer add in the new line here
+								scrollback[scrollback_line]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+								strncpy(scrollback[scrollback_line],servers[server_index]->read_buffer,BUFFER_SIZE);
+								
+								//if this was currently in view update it there
+								if(current_server==server_index){
+									//number of lines of scrollback available
+									//the most recently added line was the last one, but since this is 0 indexed the length is that+1
+									int line_count=scrollback_line+1;
+									
+									int w_height,w_width;
+									getmaxyx(channel_text,w_height,w_width);
+									
+									//if there's not enough lines to fill the whole window
+									if(line_count<w_height){
+										//fill a sub-window only
+										w_height=line_count;
+									}
+									
+									//print out the channel text
+									//first clearing that window
+									wclear(channel_text);
+									
+									//TODO: word wrap, and do it sanely
+									int output_line;
+									for(output_line=0;output_line<w_height;output_line++){
+										//if there's text to display on this line
+										if(scrollback[(line_count-w_height)+output_line]!=NULL){
+											//start at the start of the line
+											wmove(channel_text,output_line,0);
+											wprintw(channel_text,scrollback[(line_count-w_height)+output_line]);
+										}
+									}
+									//refresh the channel text window
+									wrefresh(channel_text);
+								}
 							}
 							
 							//clear out the real buffer for the next line from the server
 							for(n=0;n<BUFFER_SIZE;n++){
-								read_buffers[server_index][n]='\0';
+								servers[server_index]->read_buffer[n]='\0';
 							}
 						}//else do nothing, we'll handle it when we get some more bytes
 					//oh shit, we overflowed the buffer
@@ -631,47 +796,53 @@ int main(int argc, char *argv[]){
 						//TODO: handle this more gracefully than just clearing the buffer and ignoring what was in it
 						int n;
 						for(n=0;n<BUFFER_SIZE;n++){
-							read_buffers[server_index][n]='\0';
+							servers[server_index]->read_buffer[n]='\0';
 						}
 					}
 				}
 			}
 		}
 		
-		//TODO: place a unix epoch clock in bottom_border, update it when the time changes (have a 1s history called old_time)
+		//unix epoch clock in bottom_border, update it when the time changes
+		long unsigned int current_time=(uintmax_t)(time(NULL));
+		//if the time has changed
+		if(current_time>old_time){
+			wclear(bottom_border);
+			
+			sprintf(time_buffer,"[%lu]",old_time);
+			wmove(bottom_border,0,0);
+			wprintw(bottom_border,time_buffer);
+			
+			for(n=strlen(time_buffer);n<width;n++){
+				wprintw(bottom_border,"-");
+			}
+			//refresh the window from the buffer
+			wrefresh(bottom_border);
+			
+			//re-set for next iteration
+			old_time=current_time;
+		}
 		
-		//output the most up-to-date information about servers, channels, topics, and various whatnot
-//		wclear(server_list);
-//		int n;
-//		for(n=0;n<MAX_SERVERS;n++){
-//			if(read_buffers[n]!=NULL){
-//				char output[BUFFER_SIZE];
-//				//bold the active server
-//				if(n==current_server){
-//					attron(A_BOLD);	
-//				}
-//				sprintf(output,"%i | ",n);
-//				wprintw(server_list,output);
-//				attroff(A_BOLD);
-//			}
-//		}
-//		wrefresh(server_list);
-//		//if there is a server we are connected to then display channels for that server
-//		if(current_server>=0){
-//			wclear(channel_list);
-//			for(n=0;n<MAX_CHANNELS;n++){
-//				if(channels[current_server][n]!=NULL){
-//					char output[BUFFER_SIZE];
-//					sprintf(output,"%i | ",n);
-//					wprintw(channel_list,output);
-//				}
-//			}
-//		}
-//		wrefresh(channel_list);
-//		wprintw(channel_topic,"(no channel topic)");
-//		wrefresh(channel_topic);
-//		wprintw(channel_text,"(no channel text)");
-//		wrefresh(channel_text);
+		//TODO: output the most up-to-date information about servers, channels, topics, and various whatnot
+		//(do this where changes occur so we're not CONSTANTLY refreshing, which causes flicker among other things)
+		if(old_server!=current_server){
+			//update the display of the server list
+			wclear(server_list);
+			wmove(server_list,0,0);
+			for(n=0;n<MAX_SERVERS;n++){
+				if(servers[n]!=NULL){
+					if(current_server==n){
+						wattron(server_list,A_BOLD);
+						wprintw(server_list,servers[n]->server_name);
+						wattroff(server_list,A_BOLD);
+					}else{
+						wprintw(server_list,servers[n]->server_name);
+					}
+					wprintw(server_list," | ");
+				}
+			}
+			wrefresh(server_list);
+		}
 		
 		//output the most recent text from the user so they can see what they're typing
 		wclear(user_input);
@@ -684,21 +855,30 @@ int main(int argc, char *argv[]){
 /*	//free all the RAM we allocated for anything
 	int server_index;
 	for(server_index=0;server_index<MAX_SERVERS;server_index++){
-		//if this is a valid server connection we have a buffer allocated
-		if(read_buffers[server_index]!=NULL){
-			free(read_buffers[server_index]);
-			safe_send(socket_fds[server_index],"QUIT :accidental_irc exited\n");
-			close(socket_fds[server_index]);
-			free(nicks[server_index]);
+		//if this is a valid server connection
+		if(servers[server_index]!=NULL){
+			safe_send(servers[server_index]->socket_fd,"QUIT :accidental_irc exited\n");
+			close(servers[server_index]->socket_fd);
+			
 			int n;
 			for(n=0;n<MAX_CHANNELS;n++){
-				free(channels[server_index][n]);
+				if((servers[server_index]->channel_name[n])!=NULL){
+					free(servers[server_index]->channel_name[n]);
+					int n1;
+					for(n1=0;n1<MAX_SCROLLBACK;n1++){
+						if(servers[server_index]->channel_content[n][n1]!=NULL){
+							free(servers[server_index]->channel_content[n][n1]);
+						}
+					}
+					free(servers[server_index]->channel_content[n]);
+				}
 			}
-			free(channels[server_index]);
+			free(servers[server_index]);
 		}
 	}
 */
-
+	
+	
 #ifdef DEBUG
 	fclose(debug_output);
 #endif
