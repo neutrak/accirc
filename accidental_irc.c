@@ -402,7 +402,6 @@ void parse_input(char *input_buffer){
 			}
 		}else if(!strcmp(command,"exit")){
 			done=TRUE;
-		//TODO: update the display upon changes in server or channel being viewed here
 		//move a server to the left
 		}else if(!strcmp(command,"sl")){
 			//pre-condition for the below loop, else we'd start where we are
@@ -592,6 +591,10 @@ int main(int argc, char *argv[]){
 		//if they change we'll update the display
 		int old_server=current_server;
 		
+		//store the previous input buffer so we know if it changed
+		char old_input_buffer[BUFFER_SIZE];
+		strncpy(old_input_buffer,input_buffer,BUFFER_SIZE);
+		
 		c=wgetch(user_input);
 		if(c>=0){
 			switch(c){
@@ -697,6 +700,22 @@ int main(int argc, char *argv[]){
 							}
 						}
 					}
+					//update the server list display to reflect this server no longer being there (EVEN IF this wasn't the currently selected server, which is why I can't combine this with the above loop)
+					wclear(server_list);
+					wmove(server_list,0,0);
+					for(n=0;n<MAX_SERVERS;n++){
+						if(servers[n]!=NULL){
+							if(current_server==n){
+								wattron(server_list,A_BOLD);
+								wprintw(server_list,servers[n]->server_name);
+								wattroff(server_list,A_BOLD);
+							}else{
+								wprintw(server_list,servers[n]->server_name);
+							}
+							wprintw(server_list," | ");
+						}
+					}
+					wrefresh(server_list);
 				}else if(bytes_transferred>0){
 					//add this byte to the total buffer
 					if(strinsert(servers[server_index]->read_buffer,one_byte_buffer[0],strlen(servers[server_index]->read_buffer),BUFFER_SIZE)){
@@ -844,12 +863,18 @@ int main(int argc, char *argv[]){
 			wrefresh(server_list);
 		}
 		
-		//output the most recent text from the user so they can see what they're typing
-		wclear(user_input);
-		wmove(user_input,0,0);
-		wprintw(user_input,"%s",input_buffer);
+		//the cursor is one thing that should ALWAYS be visible
 		wmove(user_input,0,cursor_pos);
-		wrefresh(user_input);
+		
+		//if the user typed something
+		if(strcmp(input_buffer,old_input_buffer)!=0){
+			//output the most recent text from the user so they can see what they're typing
+			wclear(user_input);
+			wmove(user_input,0,0);
+			wprintw(user_input,"%s",input_buffer);
+			wmove(user_input,0,cursor_pos);
+			wrefresh(user_input);
+		}
 	}
 	//TODO: figure out what's segfaulting on ^C, I think it's in here somewhere
 /*	//free all the RAM we allocated for anything
