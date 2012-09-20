@@ -1,5 +1,5 @@
 #!/bin/bash
 
-#gcc -g -o accirc accidental_irc.c -Wall -lncurses -D DEBUG
-gcc -g -o accirc accidental_irc.c -Wall -lncurses
+#the $* is for -D DEBUG and similar
+gcc -g -o accirc accidental_irc.c -Wall -lncurses $*
 
