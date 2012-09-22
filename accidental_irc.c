@@ -30,6 +30,10 @@
 #define TRUE 1
 #define FALSE 0
 
+//the smallest terminal we can actually use (smaller than this and we exit with error)
+#define MIN_HEIGHT 7
+#define MIN_WIDTH 12
+
 #define VERSION 0.1
 
 //these are for ncurses' benefit
@@ -50,6 +54,9 @@
 
 //and in case the user doesn't give a proper quit message
 #define DEFAULT_QUIT_MESSAGE "accidental_irc exited"
+
+//the error to display when a line overflows
+#define LINE_OVERFLOW_ERROR "<<etc.>>"
 
 //the default directoryto save logs to
 #define LOGGING_DIRECTORY "logs"
@@ -85,9 +92,17 @@ irc_connection *servers[MAX_SERVERS];
 char *input_history[MAX_SCROLLBACK];
 //the location in input_history we're at now
 int input_line;
+//the location in the scrollback for the current channel we're at now
+//(this var stores the index of the LAST line to output, hence "end")
+int scrollback_end;
 
 //determine if we're done
 char done;
+
+//global width and height for the whole program (in characters)
+//because there should never be inconsistency for that
+int width=80;
+int height=24;
 
 WINDOW *server_list;
 WINDOW *channel_list;
@@ -264,6 +279,9 @@ void refresh_server_list(){
 	for(n=0;n<MAX_SERVERS;n++){
 		//if the server is connected
 		if(servers[n]!=NULL){
+			//TODO: fix the new_server_content handling, right now this line is temporary to ignore it entirely
+			servers[current_server]->new_server_content=FALSE;
+			
 			//if it's the active server bold it
 			if(current_server==n){
 				wattron(server_list,A_BOLD);
@@ -364,14 +382,38 @@ void refresh_channel_text(){
 	//first clearing that window
 	wclear(channel_text);
 	
-	//TODO: word wrap, and do it sanely
+	//where to stop outputting, by default this is the last line available
+	int output_end=line_count;
+	
+	if(scrollback_end>=0){
+		output_end=scrollback_end;
+	}
+	
+	//TODO: word wrap, and do it sanely (for the moment I'm just giving a line overflow error, which is not /terrible/ but not /great/ either)
 	int output_line;
-	for(output_line=0;output_line<w_height;output_line++){
+	for(output_line=(output_end-w_height);output_line<output_end;output_line++){
 		//if there's text to display on this line
-		if(scrollback[(line_count-w_height)+output_line]!=NULL){
+		if(scrollback[output_line]!=NULL){
 			//start at the start of the line
-			wmove(channel_text,output_line,0);
-			wprintw(channel_text,scrollback[(line_count-w_height)+output_line]);
+			wmove(channel_text,output_line-(output_end-w_height),0);
+			if(strlen(scrollback[output_line])<w_width){
+				wprintw(channel_text,scrollback[output_line]);
+			}else{
+				//NOTE: although we're not outputting the full line here, the full line WILL be in the logs for the user to view
+				//and WILL be in the scrollback should the user resize the window
+				char output_text[BUFFER_SIZE];
+				int n;
+				for(n=0;n<w_width;n++){
+					output_text[n]=scrollback[output_line][n];
+				}
+				char line_overflow_error[BUFFER_SIZE];
+				strncpy(line_overflow_error,LINE_OVERFLOW_ERROR,BUFFER_SIZE);
+				for(n=w_width-strlen(line_overflow_error);n<w_width;n++){
+					output_text[n]=line_overflow_error[n-w_width+strlen(line_overflow_error)];
+				}
+				output_text[w_width]='\0';
+				wprintw(channel_text,output_text);
+			}
 		}
 	}
 	//refresh the channel text window
@@ -381,6 +423,9 @@ void refresh_channel_text(){
 //parse user's input (note this is conextual based on current server and channel)
 //because some input may be given recursively or from key bindings, there is a history flag to tell if we should actually consider this input in the history
 void parse_input(char *input_buffer, char keep_history){
+	//go to the end of scrollback because why would the user input something and not want to see it?
+	scrollback_end=-1;
+	
 	//ignore blank commands
 	if(!strcmp("",input_buffer)){
 		goto fail;
@@ -629,51 +674,64 @@ void parse_input(char *input_buffer, char keep_history){
 			}
 		//move a server to the left
 		}else if(!strcmp(command,"sl")){
-			//pre-condition for the below loop, else we'd start where we are
-			if(current_server>0){
-				current_server--;
-			//at the end loop back around
-			}else if(current_server==0){
-				current_server=MAX_SERVERS-1;
-			}
-			
-			int index;
-			for(index=current_server;index>=0;index--){
-				if(servers[index]!=NULL){
-					current_server=index;
-					index=-1;
-				//if current index is negative there never was a server so just die and don't change it
-				}else if((index==0)&&(current_server>=0)){
-					//go back to the start, at worst we'll end up where we were
-					//note this is MAX_SERVERS because it gets decremented before the next loop iteration
-					index=MAX_SERVERS;
+			if(current_server>=0){
+				//reset scrollback
+				scrollback_end=-1;
+				
+				//pre-condition for the below loop, else we'd start where we are
+				if(current_server>0){
+					current_server--;
+				//at the end loop back around
+				}else if(current_server==0){
+					current_server=MAX_SERVERS-1;
+				}
+				
+				int index;
+				for(index=current_server;index>=0;index--){
+					if(servers[index]!=NULL){
+						current_server=index;
+						index=-1;
+					//if current index is negative there never was a server so just die and don't change it
+					}else if((index==0)&&(current_server>=0)){
+						//go back to the start, at worst we'll end up where we were
+						//note this is MAX_SERVERS because it gets decremented before the next loop iteration
+						index=MAX_SERVERS;
+					}
 				}
 			}
 		//move a server to the right
 		}else if(!strcmp(command,"sr")){
-			//pre-condition for the below loop, else we'd start where we are
-			if(current_server<(MAX_SERVERS-1)){
-				current_server++;
-			//at the end loop back around
-			}else if(current_server==MAX_SERVERS-1){
-				current_server=0;
-			}
-			
-			int index;
-			for(index=current_server;index<MAX_SERVERS;index++){
-				if(servers[index]!=NULL){
-					current_server=index;
-					index=MAX_SERVERS;
-				//if current index is negative there never was a server so just die and don't change it
-				}else if((index==(MAX_SERVERS-1))&&(current_server>=0)){
-					//go back to the start, at worst we'll end up where we were
-					//note this is -1 because it gets incremented before the next loop iteration
-					index=-1;
+			if(current_server>=0){
+				//reset scrollback
+				scrollback_end=-1;
+				
+				//pre-condition for the below loop, else we'd start where we are
+				if(current_server<(MAX_SERVERS-1)){
+					current_server++;
+				//at the end loop back around
+				}else if(current_server==MAX_SERVERS-1){
+					current_server=0;
+				}
+				
+				int index;
+				for(index=current_server;index<MAX_SERVERS;index++){
+					if(servers[index]!=NULL){
+						current_server=index;
+						index=MAX_SERVERS;
+					//if current index is negative there never was a server so just die and don't change it
+					}else if((index==(MAX_SERVERS-1))&&(current_server>=0)){
+						//go back to the start, at worst we'll end up where we were
+						//note this is -1 because it gets incremented before the next loop iteration
+						index=-1;
+					}
 				}
 			}
 		//move a channel to the left
 		}else if(!strcmp(command,"cl")){
 			if(current_server>=0){
+				//reset scrollback
+				scrollback_end=-1;
+				
 				int current_channel=servers[current_server]->current_channel;
 				//pre-condition for the below loop, else we'd start where we are
 				if(current_channel>0){
@@ -700,6 +758,9 @@ void parse_input(char *input_buffer, char keep_history){
 		//move a channel to the right
 		}else if(!strcmp(command,"cr")){
 			if(current_server>=0){
+				//reset scrollback
+				scrollback_end=-1;
+				
 				int current_channel=servers[current_server]->current_channel;
 				//pre-condition for the below loop, else we'd start where we are
 				if(current_channel<(MAX_CHANNELS-1)){
@@ -1187,8 +1248,15 @@ void parse_server(int server_index){
 
 //force resize detection
 void force_resize(char *input_buffer, int cursor_pos){
-	int width=80;
-	int height=24;
+	//de-allocate existing windows so as not to waste RAM
+	delwin(server_list);
+	delwin(channel_list);
+	delwin(channel_topic);
+	delwin(top_border);
+	delwin(channel_text);
+	delwin(bottom_border);
+	delwin(user_input);
+	
 	//restart ncurses interface
 	endwin();
 	refresh();
@@ -1199,6 +1267,13 @@ void force_resize(char *input_buffer, int cursor_pos){
 	raw();
 	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
 	getmaxyx(stdscr,height,width);
+	
+	if((height<MIN_HEIGHT)||(width<MIN_WIDTH)){
+		endwin();
+		fprintf(stderr,"Err: Window too small, would segfault if I stayed, exiting...");
+		exit(1);
+	}
+	
 	//allocate windows for our toolbars and the main chat
 	server_list=newwin(1,width,0,0);
 	channel_list=newwin(1,width,1,0);
@@ -1271,8 +1346,6 @@ void force_resize(char *input_buffer, int cursor_pos){
 	wrefresh(user_input);
 }
 
-
-
 //runtime
 int main(int argc, char *argv[]){
 	//handle special argument cases like --version, --help, etc.
@@ -1318,6 +1391,8 @@ int main(int argc, char *argv[]){
 	
 	//location in input history, starting at "not looking at history" state
 	input_line=-1;
+	//location in scrollback for the current channel, -1 meaning not scrolled back at all (and hence new messages are displayed as they come in)
+	scrollback_end=-1;
 	
 	//negative values mean the user is not connected to anything (this is the default)
 	current_server=-1;
@@ -1332,8 +1407,6 @@ int main(int argc, char *argv[]){
 		time_buffer[BUFFER_SIZE]='\0';
 	}
 	
-	int width=80;
-	int height=24;
 	//start ncurses interface
 	initscr();
 	clear();
@@ -1343,6 +1416,13 @@ int main(int argc, char *argv[]){
 	raw();
 	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
 	getmaxyx(stdscr,height,width);
+	
+	if((height<MIN_HEIGHT)||(width<MIN_WIDTH)){
+		endwin();
+		fprintf(stderr,"Err: Window too small, would segfault if I stayed, exiting...");
+		exit(1);
+	}
+	
 	//allocate windows for our toolbars and the main chat
 	server_list=newwin(1,width,0,0);
 	channel_list=newwin(1,width,1,0);
@@ -1452,11 +1532,54 @@ int main(int argc, char *argv[]){
 						cursor_pos--;
 					}
 					break;
-				//TODO: make scrollback actually capable of scrolling back (and forward)
+				//scroll back in the current channel
 //				case KEY_PGUP:
-//					break;
+				case 339:
+					//if we are connected to a server
+					if(current_server>=0){
+						int line_count;
+						char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+						for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
+						
+						//if there is more text than area to display allow it scrollback (else don't)
+						//the -6 here is because there are 6 character rows used to display things other than channel text
+						if(line_count>height-6){
+							//if we're already scrolled back and we can go further
+							//note: the +6 here is because there are 6 character rows used to display things other than channel text
+							if((scrollback_end-height+6)>0){
+								scrollback_end--;
+							//if we're not scrolled back start now
+							}else if(scrollback_end<0){
+								int n;
+								//note after this loop n will be one line AFTER the last valid line of scrollback
+								for(n=0;(n<MAX_SCROLLBACK)&&(scrollback[n]!=NULL);n++);
+								//so subtract one
+								n--;
+								//if there is scrollback to view
+								if(n>=0){
+									scrollback_end=n;
+								}
+							}
+						}
+						refresh_channel_text();
+					}
+					break;
+				//scroll forward in the current channel
 //				case KEY_PGDN:
-//					break;
+				case 338:
+					//if we are connected to a server
+					if(current_server>=0){
+						char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+						//if we're already scrolled back and there is valid scrollback below this
+						if((scrollback_end>=0)&&(scrollback_end<(MAX_SCROLLBACK-1))&&(scrollback[scrollback_end+1]!=NULL)){
+							scrollback_end++;
+						//if we're out of scrollback to view, re-set and make this display new data as it gets here
+						}else if(scrollback_end>=0){
+							scrollback_end=-1;
+						}
+						refresh_channel_text();
+					}
+					break;
 				//handle text entry history
 				case KEY_UP:
 					//reset cursor position always, since the strings in history are probably not the same length as the current input string
@@ -1492,7 +1615,7 @@ int main(int argc, char *argv[]){
 						input_line++;
 						//actually view that line
 						strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
-					//otherwise we're out of history, re-set and make this what the input was before history was viewed
+					//otherwise if we're out of history, re-set and make this what the input was before history was viewed
 					}else if(input_line>=0){
 						strncpy(input_buffer,pre_history,BUFFER_SIZE);
 						//note we are now not viewing history
