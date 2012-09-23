@@ -407,19 +407,20 @@ void refresh_channel_text(){
 		output_end=scrollback_end;
 	}
 	
+	//TODO: handle MIRC colors
 	//TODO: word wrap, and do it sanely (for the moment I'm just giving a line overflow error, which is not /terrible/ but not /great/ either)
 	int output_line;
 	for(output_line=(output_end-w_height);output_line<output_end;output_line++){
 		//if there's text to display on this line
 		if(scrollback[output_line]!=NULL){
+			char output_text[BUFFER_SIZE];
 			//start at the start of the line
 			wmove(channel_text,output_line-(output_end-w_height),0);
 			if(strlen(scrollback[output_line])<w_width){
-				wprintw(channel_text,scrollback[output_line]);
+				strncpy(output_text,scrollback[output_line],BUFFER_SIZE);
 			}else{
 				//NOTE: although we're not outputting the full line here, the full line WILL be in the logs for the user to view
 				//and WILL be in the scrollback should the user resize the window
-				char output_text[BUFFER_SIZE];
 				int n;
 				for(n=0;n<w_width;n++){
 					output_text[n]=scrollback[output_line][n];
@@ -430,6 +431,23 @@ void refresh_channel_text(){
 					output_text[n]=line_overflow_error[n-w_width+strlen(line_overflow_error)];
 				}
 				output_text[w_width]='\0';
+			}
+			if(has_colors()){
+				//TODO: handle MIRC colors
+				//if this line was a ping or included MIRC colors treat it specially (set attributes before output)
+				char find_buffer[BUFFER_SIZE];
+				sprintf(find_buffer,"%s",servers[current_server]->nick);
+				int ping_check=strfind(find_buffer,scrollback[output_line]);
+				//if our name was in the message and we didn't send the message and it's not an unhandled message type (those start with ":")
+				if((ping_check>=0)&&(strfind(">>",scrollback[output_line])!=0)&&(strfind(":",scrollback[output_line])!=0)){
+					init_pair(1,COLOR_GREEN,COLOR_BLACK);
+					wattron(channel_text,COLOR_PAIR(1));
+					wprintw(channel_text,output_text);
+					wattroff(channel_text,COLOR_PAIR(1));
+				}else{
+					wprintw(channel_text,output_text);
+				}
+			}else{
 				wprintw(channel_text,output_text);
 			}
 		}
@@ -443,20 +461,31 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 	//output the most recent text from the user so they can see what they're typing
 	wclear(user_input);
 	wmove(user_input,0,0);
-	if(strlen(input_buffer)<width){
-		wprintw(user_input,"%s",input_buffer);
-		wmove(user_input,0,cursor_pos);
-	}else{
-		int n;
-		for(n=input_display_start;(n<(input_display_start+width))&&(n<BUFFER_SIZE);n++){
-			if(input_buffer[n]!='\0'){
-				wprintw(user_input,"%c",input_buffer[n]);
-			}else{
-				n=input_display_start+width;
-			}
-		}
-		wmove(user_input,0,cursor_pos-input_display_start);
+	
+	//if we can output the whole string just do that no matter what
+	int length=strlen(input_buffer);
+	if(length<width){
+		input_display_start=0;
 	}
+	
+	int n;
+	for(n=input_display_start;(n<(input_display_start+width))&&(n<BUFFER_SIZE);n++){
+		//if we hit the end of the string before the end of the window stop outputting early
+		if(input_buffer[n]!='\0'){
+			//if this is not a special escape output it normally
+			if(input_buffer[n]!=0x03){
+				wprintw(user_input,"%c",input_buffer[n]);
+			//the MIRC color code is not output like other characters (make it a bolded ^)
+			}else{
+				wattron(user_input,A_BOLD);
+				wprintw(user_input,"^");
+				wattroff(user_input,A_BOLD);
+			}
+		}else{
+			n=input_display_start+width;
+		}
+	}
+	wmove(user_input,0,cursor_pos-input_display_start);
 	wrefresh(user_input);
 }
 
@@ -824,6 +853,15 @@ void parse_input(char *input_buffer, char keep_history){
 				
 				servers[current_server]->current_channel=current_channel;
 			}
+		//CTCP ACTION, bound to the common "/me"
+		}else if(!strcmp(command,"me")){
+			if(current_server>=0){
+				//attached the control data and recurse
+				char tmp_buffer[BUFFER_SIZE];
+				sprintf(tmp_buffer,"%cACTION %s%c",0x01,parameters,0x01);
+				//don't keep that in the history though
+				parse_input(tmp_buffer,FALSE);
+			}
 		}
 	//if it's a server command send the raw text to the server
 	}else if(server_command){
@@ -890,7 +928,16 @@ void parse_input(char *input_buffer, char keep_history){
 				safe_send(servers[current_server]->socket_fd,output_buffer);
 				
 				//then format the text for my viewing benefit (this is also what will go in logs, with a newline)
-				sprintf(output_buffer,">> %lu <%s> %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,input_buffer);
+				//accounting specially for if the user sent a CTCP ACTION
+				char ctcp[BUFFER_SIZE];
+				sprintf(ctcp,"%cACTION ",0x01);
+				if(strfind(ctcp,input_buffer)==0){
+					char tmp_buffer[BUFFER_SIZE];
+					substr(tmp_buffer,input_buffer,strlen(ctcp),strlen(input_buffer)-strlen(ctcp)-1);
+					sprintf(output_buffer,">> %lu *%s %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,tmp_buffer);
+				}else{
+					sprintf(output_buffer,">> %lu <%s> %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,input_buffer);
+				}
 				
 				//place my own text in the scrollback for this server and channel
 				
@@ -981,8 +1028,13 @@ void parse_server(int server_index){
 			//the start at 1 is to cut off the preceding ":"
 			//remember the second arguement to substr is a LENGTH, not an index
 			substr(command,servers[server_index]->read_buffer,1,first_space-1);
-			//if this message started with the server's name
-			if(!strcmp(command,servers[server_index]->server_name)){
+			
+			//TODO: make this less hacky, it works but... well, hacky
+			//NOTE:checking for the literal server name was giving me issues because sometimes a server will re-direct to another one, so this just checks in general "is any valid server name?"
+//			//if this message started with the server's name
+//			if(!strcmp(command,servers[server_index]->server_name)){
+			//check that it is NOT a user (meaning it must not have the delimeter chars for a username)
+			if(strfind("@",command)==-1){
 				//these messages have the form ":naos.foonetic.net 001 accirc_user :Welcome to the Foonetic IRC Network nick!realname@hostname.could.be.ipv6"
 				substr(command,servers[server_index]->read_buffer,1,strlen(servers[server_index]->read_buffer)-1);
 				
@@ -1137,11 +1189,37 @@ void parse_server(int server_index){
 							}
 						}
 					}
-					//TODO: handle CTCP ACTION, VERSION, and PING; also MIRC colors
+					//TODO: handle CTCP ACTION, VERSION, and PING
 					
-					//handle for a ping (when someone says our own nick)
+					//for pings
 					int name_index=strfind(servers[server_index]->nick,text);
-					if(name_index>=0){
+					
+					//for any CTCP message (which takes highest precedence)
+					char ctcp[BUFFER_SIZE];
+					sprintf(ctcp,"%c",0x01);
+					int ctcp_check=strfind(ctcp,text);
+					
+					//if there was a CTCP message
+					if(ctcp_check==0){
+						//the 1 here (and -1 in length) is to cut off the leading 0x01 to get the CTCP command
+						substr(ctcp,text,1,strfind(" ",text)-1);
+						if(!strcmp(ctcp,"ACTION")){
+							int offset=strlen("ACTION");
+							char tmp_buffer[BUFFER_SIZE];
+							//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
+							//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
+							substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
+							
+							//this accounts for a possible trailing byte
+							sprintf(ctcp,"%c",0x01);
+							if(strfind(ctcp,tmp_buffer)>=0){
+								tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
+							}
+							
+							sprintf(output_buffer,"%lu *%s %s",(uintmax_t)(time(NULL)),nick,tmp_buffer);
+						}
+					//handle for a ping (when someone says our own nick)
+					}else if(name_index>=0){
 						//TODO: take any desired additional steps upon ping here (notify-send or something)
 						//format the output to show that we were pingged
 						sprintf(output_buffer,"%lu ***<%s> %s",(uintmax_t)(time(NULL)),nick,text);
@@ -1180,12 +1258,11 @@ void parse_server(int server_index){
 								//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
 								servers[server_index]->log_file[channel_index]=fopen(file_location,"a");
 								
-#ifdef DEBUG
+								
 								if(servers[server_index]->log_file[channel_index]!=NULL){
-									//turn off buffering since I need this output for debugging and buffers annoy me for that
+									//turn off buffering since I need may this output immediately and buffers annoy me for that
 									setvbuf(servers[server_index]->log_file[channel_index],NULL,_IONBF,0);
 								}
-#endif
 							}
 							
 							//set this to be the current channel, we must want to be here if we joined
@@ -1339,6 +1416,9 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	clear();
 	//set some common options
 	noecho();
+	if(has_colors()){
+		start_color();
+	}
 	//get raw input
 	raw();
 	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
@@ -1483,6 +1563,9 @@ int main(int argc, char *argv[]){
 	clear();
 	//set some common options
 	noecho();
+	if(has_colors()){
+		start_color();
+	}
 	//get raw input
 	raw();
 	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
@@ -1554,6 +1637,10 @@ int main(int argc, char *argv[]){
 	//heh, pre-history; this is the dino-buffer, :P
 	char pre_history[BUFFER_SIZE];
 	
+	//this is a buffer for key combinations, since they are really just commands that get bound to keys
+	//so this sends them as a command to parse_input, then handles it as if it were typed in
+	char key_combo_buffer[BUFFER_SIZE];
+	
 	//the current position in the string, starting at 0
 	int cursor_pos=0;
 	//where in the string to start displaying (needed when the string being input is larger than the width of the window)
@@ -1583,9 +1670,36 @@ int main(int argc, char *argv[]){
 				case KEY_RESIZE:
 					force_resize(input_buffer,cursor_pos,input_display_start);
 					break;
+				//TODO: make another break command or change something else to add ^C to the buffer, it's needed for MIRC colors
 				//handle ctrl+c gracefully
-				case BREAK:
-					done=TRUE;
+//				case BREAK:
+//					done=TRUE;
+//					break;
+				//TODO: get the proper escape sequence for these, TEMPORARILY they are using f1,f2,f3,f4
+				//these are ALT+arrows to move between channels and servers
+//				case ALT_UP:
+				//f3
+				case 267:
+					strncpy(key_combo_buffer,"/sl",BUFFER_SIZE);
+					parse_input(key_combo_buffer,FALSE);
+					break;
+//				case ALT_DOWN:
+				//f4
+				case 268:
+					strncpy(key_combo_buffer,"/sr",BUFFER_SIZE);
+					parse_input(key_combo_buffer,FALSE);
+					break;
+//				case ALT_LEFT:
+				//f1
+				case 265:
+					strncpy(key_combo_buffer,"/cl",BUFFER_SIZE);
+					parse_input(key_combo_buffer,FALSE);
+					break;
+//				case ALT_RIGHT:
+				//f2
+				case 266:
+					strncpy(key_combo_buffer,"/cr",BUFFER_SIZE);
+					parse_input(key_combo_buffer,FALSE);
 					break;
 				//user hit enter, meaning parse and handle the user's input
 				case '\n':
@@ -1757,6 +1871,13 @@ int main(int argc, char *argv[]){
 							input_display_start++;
 						}
 					}
+					
+/* #ifdef DEBUG
+					wclear(channel_text);
+					wmove(channel_text,0,0);
+					wprintw(channel_text,"%i",c);
+					wrefresh(channel_text);
+#endif */
 					break;
 			}
 		}
