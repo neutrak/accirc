@@ -49,6 +49,10 @@
 //the number of lines of scrollback to store (per channel, and for input history) (each line being BUFFER_SIZE chars long)
 #define MAX_SCROLLBACK 200
 
+//for MIRC colors (these are indexes in an array)
+#define FOREGROUND 0
+#define BACKGROUND 1
+
 //some defaults in case the user forgets to give a nickname
 #define DEFAULT_NICK "accidental_irc_user"
 
@@ -60,6 +64,27 @@
 
 //the default directoryto save logs to
 #define LOGGING_DIRECTORY "logs"
+
+enum {
+	MIRC_WHITE,
+	MIRC_BLACK,
+	MIRC_BLUE,
+	MIRC_GREEN,
+	MIRC_RED,
+	MIRC_BROWN,
+	MIRC_PURPLE,
+	MIRC_ORANGE,
+	MIRC_YELLOW,
+	MIRC_LIGHT_GREEN,
+	MIRC_TEAL,
+	MIRC_LIGHT_CYAN,
+	MIRC_LIGHT_BLUE,
+	MIRC_PINK,
+	MIRC_GREY,
+	MIRC_LIGHT_GREY,
+	
+	MIRC_COLOR_MAX
+};
 
 //global variables
 typedef struct irc_connection irc_connection;
@@ -242,6 +267,14 @@ char verify_or_make_dir(char *path){
 	return TRUE;
 }
 
+void wcoloron(WINDOW *win, int fg, int bg){
+	wattron(win,COLOR_PAIR((fg<<4)|(bg<<0)));
+}
+
+void wcoloroff(WINDOW *win, int fg, int bg){
+	wattroff(win,COLOR_PAIR((fg<<4)|(bg<<0)));
+}
+
 //returns TRUE if successful
 //FALSE on error
 char safe_send(int socket, char *buffer){
@@ -407,7 +440,6 @@ void refresh_channel_text(){
 		output_end=scrollback_end;
 	}
 	
-	//TODO: handle MIRC colors
 	//TODO: word wrap, and do it sanely (for the moment I'm just giving a line overflow error, which is not /terrible/ but not /great/ either)
 	int output_line;
 	for(output_line=(output_end-w_height);output_line<output_end;output_line++){
@@ -432,21 +464,89 @@ void refresh_channel_text(){
 				}
 				output_text[w_width]='\0';
 			}
+			
 			if(has_colors()){
 				//TODO: handle MIRC colors
 				//if this line was a ping or included MIRC colors treat it specially (set attributes before output)
+				
+				char was_ping=FALSE;
+				
 				char find_buffer[BUFFER_SIZE];
 				sprintf(find_buffer,"%s",servers[current_server]->nick);
 				int ping_check=strfind(find_buffer,scrollback[output_line]);
 				//if our name was in the message and we didn't send the message and it's not an unhandled message type (those start with ":")
 				if((ping_check>=0)&&(strfind(">>",scrollback[output_line])!=0)&&(strfind(":",scrollback[output_line])!=0)){
-					init_pair(1,COLOR_GREEN,COLOR_BLACK);
-					wattron(channel_text,COLOR_PAIR(1));
-					wprintw(channel_text,output_text);
-					wattroff(channel_text,COLOR_PAIR(1));
-				}else{
-					wprintw(channel_text,output_text);
+					was_ping=TRUE;
 				}
+				
+				if(was_ping){
+					wcoloron(channel_text,MIRC_GREEN,MIRC_BLACK);
+				}
+				
+				//output the string a character at a time, taking into consideration MIRC colors
+				int n;
+				for(n=0;n<strlen(output_text);n++){
+					if(output_text[n]!=0x03){
+						wprintw(channel_text,"%c",output_text[n]);
+					}else{
+						n++;
+						int color_start=n;
+						
+						int colors[2];
+						colors[FOREGROUND]=0;
+						colors[BACKGROUND]=0;
+						
+						char input_background=FALSE;
+						while((output_text[n]!='\0')&&(isdigit(output_text[n])||(output_text[n]==','))){
+							//if we should start checking for a background color
+							if((output_text[n]==',')&&(!input_background)){
+								input_background=TRUE;
+							//if we've already gotten a background color then this is the end of our handling, break the loop
+							}else if(output_text[n]==','){
+								break;
+							//get the foreground
+							}else if(!input_background){
+								colors[FOREGROUND]*=10;
+								colors[FOREGROUND]+=(output_text[n]-'0');
+							//get the background
+							}else{
+								colors[BACKGROUND]*=10;
+								colors[BACKGROUND]+=(output_text[n]-'0');
+							}
+							n++;
+						}
+						
+						//if we never got a background
+						if(!input_background){
+							//treat it as MIRC code black
+							colors[BACKGROUND]=MIRC_BLACK;
+						}
+						//and decrement n because the next character is something we want to display as a normal char
+						n--;
+						
+						//if not one iteration of the loop was successful this is a reset escape, so reset
+						if(color_start==n){
+							wattrset(channel_text,0);
+							wcoloron(channel_text,0,1);
+						}else{
+							if((colors[FOREGROUND]>=0)&&(colors[FOREGROUND]<MIRC_COLOR_MAX)&&(colors[BACKGROUND]>=0)&&(colors[BACKGROUND]<MIRC_COLOR_MAX)){
+								//okay, we know what we're setting now so set it and display
+								wcoloron(channel_text,colors[FOREGROUND],colors[BACKGROUND]);
+								wprintw(channel_text,"%c",output_text[n]);
+								wcoloroff(channel_text,colors[FOREGROUND],colors[BACKGROUND]);
+							}else{
+								wprintw(channel_text,"%c",output_text[n]);
+							}
+						}
+					}
+				}
+				
+				if(was_ping){
+					wcoloroff(channel_text,MIRC_GREEN,MIRC_BLACK);
+				}
+				
+				//reset all attributes before we start outputting the next line in case they didn't properly terminate their colors
+//				wattrset(channel_text,0);
 			}else{
 				wprintw(channel_text,output_text);
 			}
@@ -472,14 +572,19 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 	for(n=input_display_start;(n<(input_display_start+width))&&(n<BUFFER_SIZE);n++){
 		//if we hit the end of the string before the end of the window stop outputting early
 		if(input_buffer[n]!='\0'){
-			//if this is not a special escape output it normally
-			if(input_buffer[n]!=0x03){
-				wprintw(user_input,"%c",input_buffer[n]);
 			//the MIRC color code is not output like other characters (make it a bolded ^)
-			}else{
+			if(input_buffer[n]==0x03){
 				wattron(user_input,A_BOLD);
 				wprintw(user_input,"^");
 				wattroff(user_input,A_BOLD);
+			//the CTCP escape is also output specially, as a bold "\\"
+			}else if(input_buffer[n]==0x01){
+				wattron(user_input,A_BOLD);
+				wprintw(user_input,"\\");
+				wattroff(user_input,A_BOLD);
+			//if this is not a special escape output it normally
+			}else{
+				wprintw(user_input,"%c",input_buffer[n]);
 			}
 		}else{
 			n=input_display_start+width;
@@ -976,6 +1081,16 @@ void parse_input(char *input_buffer, char keep_history){
 				//refresh the display, since we're always going to be on the current channel when this happens
 				refresh_channel_text();
 			}
+		}else{
+#ifdef DEBUG
+			int foreground,background;
+			sscanf(input_buffer,"%i %i",&foreground,&background);
+			wclear(channel_text);
+			wcoloron(channel_text,foreground,background);
+			wprintw(channel_text,"This is a sample string in fg=%i bg=%i",foreground,background);
+			wcoloroff(channel_text,foreground,background);
+			wrefresh(channel_text);
+#endif
 		}
 	}
 fail:	
@@ -1401,14 +1516,17 @@ void parse_server(int server_index){
 
 //force resize detection
 void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
-	//de-allocate existing windows so as not to waste RAM
-	delwin(server_list);
-	delwin(channel_list);
-	delwin(channel_topic);
-	delwin(top_border);
-	delwin(channel_text);
-	delwin(bottom_border);
-	delwin(user_input);
+	//if we had windows allocated to start with
+	if(server_list!=NULL){
+		//de-allocate existing windows so as not to waste RAM
+		delwin(server_list);
+		delwin(channel_list);
+		delwin(channel_topic);
+		delwin(top_border);
+		delwin(channel_text);
+		delwin(bottom_border);
+		delwin(user_input);
+	}
 	
 	//restart ncurses interface
 	endwin();
@@ -1417,7 +1535,37 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	//set some common options
 	noecho();
 	if(has_colors()){
-		start_color();
+//		start_color();
+		//init colors (for MIRC color support, among other things)
+		init_color(MIRC_WHITE,1000,1000,1000);
+		init_color(MIRC_BLACK,0,0,0);
+		init_color(MIRC_BLUE,0,0,1000);
+		init_color(MIRC_GREEN,0,1000,0);
+		init_color(MIRC_RED,1000,0,0);
+		init_color(MIRC_BROWN,400,400,0);
+		init_color(MIRC_PURPLE,600,300,900);
+		init_color(MIRC_ORANGE,900,400,0);
+		init_color(MIRC_YELLOW,1000,1000,0);
+		init_color(MIRC_LIGHT_GREEN,400,900,400);
+		init_color(MIRC_TEAL,0,1000,1000);
+		init_color(MIRC_LIGHT_CYAN,600,1000,1000);
+		init_color(MIRC_LIGHT_BLUE,400,400,1000);
+		init_color(MIRC_PINK,1000,200,1000);
+		init_color(MIRC_GREY,400,400,400);
+		init_color(MIRC_LIGHT_GREY,700,700,700);
+		
+		int n0;
+		for(n0=0;n0<MIRC_COLOR_MAX;n0++){
+			int n1;
+			for(n1=0;n1<MIRC_COLOR_MAX;n1++){
+				int foreground=n0;
+				int background=n1;
+				init_pair((foreground<<4)|(background<<0),n0,n1);
+			}
+		}
+		
+		//start with a sane default color
+		wcoloron(stdscr,MIRC_WHITE,MIRC_BLACK);
 	}
 	//get raw input
 	raw();
@@ -1438,6 +1586,16 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	channel_text=newwin((height-6),width,4,0);
 	bottom_border=newwin(1,width,(height-2),0);
 	user_input=newwin(1,width,(height-1),0);
+	
+/*	//set sane default colors
+	wcoloron(server_list,MIRC_WHITE,MIRC_BLACK);
+	wcoloron(channel_list,MIRC_WHITE,MIRC_BLACK);
+	wcoloron(channel_topic,MIRC_WHITE,MIRC_BLACK);
+	wcoloron(top_border,MIRC_WHITE,MIRC_BLACK);
+	wcoloron(channel_text,MIRC_WHITE,MIRC_BLACK);
+	wcoloron(bottom_border,MIRC_WHITE,MIRC_BLACK);
+	wcoloron(user_input,MIRC_WHITE,MIRC_BLACK);
+*/
 	
 	keypad(user_input,TRUE);
 	//set timeouts for non-blocking
@@ -1560,74 +1718,21 @@ int main(int argc, char *argv[]){
 	
 	//start ncurses interface
 	initscr();
-	clear();
-	//set some common options
-	noecho();
-	if(has_colors()){
-		start_color();
-	}
-	//get raw input
-	raw();
-	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
-	getmaxyx(stdscr,height,width);
-	
-	if((height<MIN_HEIGHT)||(width<MIN_WIDTH)){
-		endwin();
-		fprintf(stderr,"Err: Window too small, would segfault if I stayed, exiting...");
-		exit(1);
-	}
 	
 	//allocate windows for our toolbars and the main chat
-	server_list=newwin(1,width,0,0);
-	channel_list=newwin(1,width,1,0);
-	channel_topic=newwin(1,width,2,0);
-	top_border=newwin(1,width,3,0);
-	channel_text=newwin((height-6),width,4,0);
-	bottom_border=newwin(1,width,(height-2),0);
-	user_input=newwin(1,width,(height-1),0);
+	server_list=NULL;
+	channel_list=NULL;
+	channel_topic=NULL;
+	top_border=NULL;
+	channel_text=NULL;
+	bottom_border=NULL;
+	user_input=NULL;
 	
-	keypad(user_input,TRUE);
-	//set timeouts for non-blocking
-	timeout(1);
-	wtimeout(user_input,5);
+	//force a re-detection of the window and a re-allocation of resources
+	force_resize("",0,0);
 	
-	wclear(server_list);
-	wclear(channel_list);
-	wclear(channel_topic);
-	wclear(top_border);
-	wclear(channel_text);
-	wclear(bottom_border);
-	wclear(user_input);
-	
-	//always bold the borders
-	wattron(top_border,A_BOLD);
-	wattron(bottom_border,A_BOLD);
-	
-	wprintw(server_list,"(no servers)");
-	wprintw(channel_list,"(no channels)");
-	wprintw(channel_topic,"(no channel topic)");
-	wprintw(channel_text,"(no channel text)");
-	
-	for(n=0;n<width;n++){
-		wprintw(top_border,"-");
-	}
-	
-	//unix epoch clock (initialization)
+	//start the clock
 	long unsigned int old_time=(uintmax_t)(time(NULL));
-	sprintf(time_buffer,"[%lu]",old_time);
-	wprintw(bottom_border,time_buffer);
-	
-	for(n=strlen(time_buffer);n<width;n++){
-		wprintw(bottom_border,"-");
-	}
-	
-	wrefresh(server_list);
-	wrefresh(channel_list);
-	wrefresh(channel_topic);
-	wrefresh(top_border);
-	wrefresh(channel_text);
-	wrefresh(bottom_border);
-	wrefresh(user_input);
 	
 	//start the cursor in the user input area
 	wmove(user_input,0,0);
