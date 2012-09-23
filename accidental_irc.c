@@ -356,7 +356,25 @@ void refresh_channel_topic(){
 	
 	//start at the start of the line
 	wmove(channel_topic,0,0);
-	wprintw(channel_topic,servers[current_server]->channel_topic[servers[current_server]->current_channel]);
+	char topic[BUFFER_SIZE];
+	strncpy(topic,servers[current_server]->channel_topic[servers[current_server]->current_channel],BUFFER_SIZE);
+	if(strlen(topic)<width){
+		wprintw(channel_topic,topic);
+	}else{
+		//NOTE: although we're not outputting the full line here, the full line WILL be in the logs for the user to view
+		//and WILL be in the server information should the user resize the window
+		int n;
+		for(n=0;n<width;n++){
+			topic[n]=servers[current_server]->channel_topic[servers[current_server]->current_channel][n];
+		}
+		char line_overflow_error[BUFFER_SIZE];
+		strncpy(line_overflow_error,LINE_OVERFLOW_ERROR,BUFFER_SIZE);
+		for(n=width-strlen(line_overflow_error);n<width;n++){
+			topic[n]=line_overflow_error[n-width+strlen(line_overflow_error)];
+		}
+		topic[width]='\0';
+		wprintw(channel_topic,topic);
+	}
 	
 	//refresh the channel topic window
 	wrefresh(channel_topic);
@@ -418,6 +436,28 @@ void refresh_channel_text(){
 	}
 	//refresh the channel text window
 	wrefresh(channel_text);
+}
+
+//refresh the user's input, duh
+void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_start){
+	//output the most recent text from the user so they can see what they're typing
+	wclear(user_input);
+	wmove(user_input,0,0);
+	if(strlen(input_buffer)<width){
+		wprintw(user_input,"%s",input_buffer);
+		wmove(user_input,0,cursor_pos);
+	}else{
+		int n;
+		for(n=input_display_start;(n<(input_display_start+width))&&(n<BUFFER_SIZE);n++){
+			if(input_buffer[n]!='\0'){
+				wprintw(user_input,"%c",input_buffer[n]);
+			}else{
+				n=input_display_start+width;
+			}
+		}
+		wmove(user_input,0,cursor_pos-input_display_start);
+	}
+	wrefresh(user_input);
 }
 
 //parse user's input (note this is conextual based on current server and channel)
@@ -965,8 +1005,8 @@ void parse_server(int server_index){
 					
 					//let the user know his nick is recognized
 					refresh_server_list();
-				//current channel topic and associated information that uses a similar format (so I don't have to re-write code)
-				}else if((!strcmp(command,"332"))||(!strcmp(command,"333"))){
+				//current channel topic
+				}else if(!strcmp(command,"332")){
 					char channel[BUFFER_SIZE];
 					char topic[BUFFER_SIZE];
 					
@@ -1000,18 +1040,14 @@ void parse_server(int server_index){
 							
 							if(!strcmp(channel,lower_case_channel)){
 								output_channel=channel_index;
-								if(!strcmp(command,"332")){
-									sprintf(output_buffer,"TOPIC for %s :%s",channel,topic);
-									
-									//store the topic in the general data structure
-									strncpy(servers[server_index]->channel_topic[channel_index],topic,BUFFER_SIZE);
-									
-									//and output
-									refresh_channel_topic();
-								//this is who set the topic and when
-								}else if(!strcmp(command,"333")){
-									sprintf(output_buffer,"topic set information :%s",topic);
-								}
+								
+								sprintf(output_buffer,"TOPIC for %s :%s",channel,topic);
+								
+								//store the topic in the general data structure
+								strncpy(servers[server_index]->channel_topic[channel_index],topic,BUFFER_SIZE);
+								
+								//and output
+								refresh_channel_topic();
 								
 								channel_index=MAX_CHANNELS;
 							}
@@ -1024,6 +1060,7 @@ void parse_server(int server_index){
 			//default is of the form ":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
 			//or ":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 			//or ":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
+			//or ":accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking"
 			}else{
 				//a temporary buffer to store intermediate results during parsing
 				char tmp_buffer[BUFFER_SIZE];
@@ -1194,6 +1231,45 @@ void parse_server(int server_index){
 						//and update the display to reflect this change
 						refresh_server_list();
 					}
+				//handle for topic changes
+				}else if(!strcmp(command,"TOPIC")){
+					char channel[BUFFER_SIZE];
+					int space_colon_index=strfind(" :",tmp_buffer);
+					substr(channel,tmp_buffer,0,space_colon_index);
+					
+					substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
+					
+					strncpy(text,tmp_buffer,BUFFER_SIZE);
+					
+					//lower case the channel so we can do a case-insensitive string match against it
+					for(n=0;n<BUFFER_SIZE;n++){
+						if(channel[n]!='\0'){
+							channel[n]=tolower(channel[n]);
+						}else{
+							n=BUFFER_SIZE;
+						}
+					}
+					
+					//go through the channels, find out the one to output to, set "output_channel" to that index
+					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
+					int channel_index;
+					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+						if(servers[server_index]->channel_name[channel_index]!=NULL){
+							char lower_case_channel[BUFFER_SIZE];
+							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+							strtolower(lower_case_channel,BUFFER_SIZE);
+							
+							if(!strcmp(channel,lower_case_channel)){
+								//reset topic information for that channel
+								strncpy(servers[server_index]->channel_topic[channel_index],text,BUFFER_SIZE);
+								//and output
+								refresh_channel_topic();
+								
+								output_channel=channel_index;
+								channel_index=MAX_CHANNELS;
+							}
+						}
+					}
 				}
 			}
 		}
@@ -1247,7 +1323,7 @@ void parse_server(int server_index){
 }
 
 //force resize detection
-void force_resize(char *input_buffer, int cursor_pos){
+void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	//de-allocate existing windows so as not to waste RAM
 	delwin(server_list);
 	delwin(channel_list);
@@ -1338,12 +1414,7 @@ void force_resize(char *input_buffer, int cursor_pos){
 	wrefresh(bottom_border);
 	wrefresh(user_input);
 	
-	//output the most recent text from the user so they can see what they're typing
-	wclear(user_input);
-	wmove(user_input,0,0);
-	wprintw(user_input,"%s",input_buffer);
-	wmove(user_input,0,cursor_pos);
-	wrefresh(user_input);
+	refresh_user_input(input_buffer,cursor_pos,input_display_start);
 }
 
 //runtime
@@ -1485,6 +1556,8 @@ int main(int argc, char *argv[]){
 	
 	//the current position in the string, starting at 0
 	int cursor_pos=0;
+	//where in the string to start displaying (needed when the string being input is larger than the width of the window)
+	int input_display_start=0;
 	//one character of input
 	int c;
 	//determine if we're done
@@ -1508,7 +1581,7 @@ int main(int argc, char *argv[]){
 			switch(c){
 				//handle for resize events
 				case KEY_RESIZE:
-					force_resize(input_buffer,cursor_pos);
+					force_resize(input_buffer,cursor_pos,input_display_start);
 					break;
 				//handle ctrl+c gracefully
 				case BREAK:
@@ -1520,17 +1593,27 @@ int main(int argc, char *argv[]){
 					parse_input(input_buffer,TRUE);
 					//reset the cursor for the next round of input
 					cursor_pos=0;
+					//and the input display start
+					input_display_start=0;
 					break;
 				//movement within the input line
 				case KEY_RIGHT:
 					if(cursor_pos<strlen(input_buffer)){
 						cursor_pos++;
+						if(cursor_pos>width){
+							input_display_start++;
+						}
 					}
+					refresh_user_input(input_buffer,cursor_pos,input_display_start);
 					break;
 				case KEY_LEFT:
 					if(cursor_pos>0){
 						cursor_pos--;
+						if(cursor_pos<input_display_start){
+							input_display_start--;
+						}
 					}
+					refresh_user_input(input_buffer,cursor_pos,input_display_start);
 					break;
 				//scroll back in the current channel
 //				case KEY_PGUP:
@@ -1584,6 +1667,7 @@ int main(int argc, char *argv[]){
 				case KEY_UP:
 					//reset cursor position always, since the strings in history are probably not the same length as the current input string
 					cursor_pos=0;
+					input_display_start=0;
 					
 					if(input_line>0){
 						input_line--;
@@ -1604,11 +1688,13 @@ int main(int argc, char *argv[]){
 							strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
 						}
 					}
+					refresh_user_input(input_buffer,cursor_pos,input_display_start);
 					break;
 				//handle text entry history
 				case KEY_DOWN:
 					//reset cursor position always, since the strings in history are probably not the same length as the current input string
 					cursor_pos=0;
+					input_display_start=0;
 					
 					//if there is valid history below this go there
 					if((input_line>=0)&&(input_line<(MAX_SCROLLBACK-1))&&(input_history[input_line+1]!=NULL)){
@@ -1621,15 +1707,24 @@ int main(int argc, char *argv[]){
 						//note we are now not viewing history
 						input_line=-1;
 					}
+					refresh_user_input(input_buffer,cursor_pos,input_display_start);
 					break;
 				//TODO: handle user name completion (make ctrl+tab actually send a tab)
 				case '\t':
 					break;
 				case KEY_HOME:
 					cursor_pos=0;
+					input_display_start=0;
+					refresh_user_input(input_buffer,cursor_pos,input_display_start);
 					break;
 				case KEY_END:
 					cursor_pos=strlen(input_buffer);
+					if(strlen(input_buffer)>width){
+						input_display_start=strlen(input_buffer)-width;
+					}else{
+						input_display_start=0;
+					}
+					refresh_user_input(input_buffer,cursor_pos,input_display_start);
 					break;
 				//this accounts for some odd-ness in terminals, it's just backspace (^H)
 				case 127:
@@ -1639,6 +1734,9 @@ int main(int argc, char *argv[]){
 						if(strremove(input_buffer,cursor_pos-1)){
 							//and update the cursor position upon success
 							cursor_pos--;
+							if(cursor_pos<input_display_start){
+								input_display_start--;
+							}
 						}
 					}
 					break;
@@ -1653,6 +1751,11 @@ int main(int argc, char *argv[]){
 				default:
 					if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
 						cursor_pos++;
+						//if we would go off the end
+						if((cursor_pos-input_display_start)>width){
+							//make the end one char further down
+							input_display_start++;
+						}
 					}
 					break;
 			}
@@ -1762,6 +1865,9 @@ int main(int argc, char *argv[]){
 			
 			//re-set for next iteration
 			old_time=current_time;
+			
+			//make sure the user doesn't see their cursor move
+			wrefresh(user_input);
 		}
 		
 		//output the most up-to-date information about servers, channels, topics, and various whatnot
@@ -1783,12 +1889,11 @@ int main(int argc, char *argv[]){
 		
 		//if the user typed something
 		if(strcmp(input_buffer,old_input_buffer)!=0){
-			//output the most recent text from the user so they can see what they're typing
-			wclear(user_input);
-			wmove(user_input,0,0);
-			wprintw(user_input,"%s",input_buffer);
-			wmove(user_input,0,cursor_pos);
-			wrefresh(user_input);
+			//if the string is not as wide as the display allows re-set the input display starting point to show the whole string always
+			if(strlen(input_buffer)<width){
+				input_display_start=0;
+			}
+			refresh_user_input(input_buffer,cursor_pos,input_display_start);
 		}
 	}
 	//TODO: figure out what's segfaulting on ^C, I think it's in here somewhere
