@@ -312,9 +312,6 @@ void refresh_server_list(){
 	for(n=0;n<MAX_SERVERS;n++){
 		//if the server is connected
 		if(servers[n]!=NULL){
-			//TODO: fix the new_server_content handling, right now this line is temporary to ignore it entirely
-			servers[current_server]->new_server_content=FALSE;
-			
 			//if it's the active server bold it
 			if(current_server==n){
 				wattron(server_list,A_BOLD);
@@ -323,8 +320,8 @@ void refresh_server_list(){
 				
 				//if we're viewing this server any content that would be considered "new" is no longer there
 				servers[current_server]->new_server_content=FALSE;
-			//else if there is new data, display differently to show that to the user
-			}else if(servers[current_server]->new_server_content==TRUE){
+			//else if there is new data on this server we're currently iterating on, display differently to show that to the user
+			}else if(servers[n]->new_server_content==TRUE){
 				wattron(server_list,A_UNDERLINE);
 				wprintw(server_list,servers[n]->server_name);
 				wattroff(server_list,A_UNDERLINE);
@@ -480,7 +477,8 @@ void refresh_channel_text(){
 				}
 				
 				if(was_ping){
-					wcoloron(channel_text,MIRC_GREEN,MIRC_BLACK);
+//					wcoloron(channel_text,MIRC_GREEN,MIRC_BLACK);
+					wcoloron(channel_text,2,0);
 				}
 				
 				//output the string a character at a time, taking into consideration MIRC colors
@@ -542,7 +540,8 @@ void refresh_channel_text(){
 				}
 				
 				if(was_ping){
-					wcoloroff(channel_text,MIRC_GREEN,MIRC_BLACK);
+//					wcoloroff(channel_text,MIRC_GREEN,MIRC_BLACK);
+					wcoloroff(channel_text,2,0);
 				}
 				
 				//reset all attributes before we start outputting the next line in case they didn't properly terminate their colors
@@ -1126,9 +1125,6 @@ void parse_server(int server_index){
 		}
 		//NOTE: I can set this to be a substring of itself since I'm not overwriting anything during copy that I'll need
 		substr(servers[server_index]->read_buffer,servers[server_index]->read_buffer,0,newline_index);
-		
-		//set this to show as having new data, it must since we're getting something on it
-		servers[server_index]->new_server_content=TRUE;
 		
 		//what gets shown in logs and user scrollback, which may differ from the raw server data
 		char output_buffer[BUFFER_SIZE];
@@ -2057,6 +2053,9 @@ int main(int argc, char *argv[]){
 					if(strinsert(servers[server_index]->read_buffer,one_byte_buffer[0],strlen(servers[server_index]->read_buffer),BUFFER_SIZE)){
 						//a newline ends the reading and makes us start from scratch for the next byte
 						if(one_byte_buffer[0]=='\n'){
+							//set this to show as having new data, it must since we're getting something on it
+							servers[server_index]->new_server_content=TRUE;
+							refresh_server_list();
 							//parse a line from the server, with the only relevant information needed being the server_index
 							//(everything else needed is global)
 							parse_server(server_index);
