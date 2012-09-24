@@ -1118,6 +1118,10 @@ void parse_server(int server_index){
 		servers[server_index]->read_buffer[1]='O';
 		safe_send(servers[server_index]->socket_fd,servers[server_index]->read_buffer);
 	}else{
+		//set this to show as having new data, it must since we're getting something on it
+		servers[server_index]->new_server_content=TRUE;
+		refresh_server_list();
+		
 		//take out the trailing newline (accounting for the possibility of windows newlines
 		int newline_index=strfind("\r\n",servers[server_index]->read_buffer);
 		if(newline_index<0){
@@ -1220,10 +1224,7 @@ void parse_server(int server_index){
 				}else if(!strcmp(command,"376")){
 					
 				}
-			//default is of the form ":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
-			//or ":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
-			//or ":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
-			//or ":accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking"
+			//a message from another user
 			}else{
 				//a temporary buffer to store intermediate results during parsing
 				char tmp_buffer[BUFFER_SIZE];
@@ -1267,6 +1268,7 @@ void parse_server(int server_index){
 				
 				//start of command handling
 				//the most common message, the PM
+				//":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
 				if(!strcmp(command,"PRIVMSG")){
 					char channel[BUFFER_SIZE];
 					int space_colon_index=strfind(" :",tmp_buffer);
@@ -1300,7 +1302,7 @@ void parse_server(int server_index){
 							}
 						}
 					}
-					//TODO: handle CTCP ACTION, VERSION, and PING
+					//TODO: handle CTCP VERSION and PING
 					
 					//for pings
 					int name_index=strfind(servers[server_index]->nick,text);
@@ -1338,6 +1340,7 @@ void parse_server(int server_index){
 						//format the output of a PM in a very pretty way
 						sprintf(output_buffer,"%lu <%s> %s",(uintmax_t)(time(NULL)),nick,text);
 					}
+				//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 				}else if(!strcmp(command,"JOIN")){
 					//if it was us doing the join-ing
 					if(!strcmp(servers[server_index]->nick,nick)){
@@ -1408,6 +1411,86 @@ void parse_server(int server_index){
 							}
 						}
 					}
+				//or ":neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz"
+				}else if(!strcmp(command,"PART")){
+					char channel[BUFFER_SIZE];
+					
+					int space_colon_index=strfind(" :",text);
+					if(space_colon_index<0){
+						strncpy(channel,text,BUFFER_SIZE);
+					}else{
+						substr(channel,text,0,space_colon_index);
+					}
+					
+					//lower case for case-insensitive string matching
+					strtolower(channel,BUFFER_SIZE);
+					
+					//if it was us doing the part
+					if(!strcmp(servers[server_index]->nick,nick)){
+						//go through the channels, find out the one to remove from our structures
+						//note that we start at 1, 0 is always the reserved server channel
+						int channel_index;
+						for(channel_index=1;channel_index<MAX_CHANNELS;channel_index++){
+							if(servers[server_index]->channel_name[channel_index]!=NULL){
+								char lower_case_channel[BUFFER_SIZE];
+								strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+								strtolower(lower_case_channel,BUFFER_SIZE);
+								
+								if(!strcmp(channel,lower_case_channel)){
+									//free any associated RAM, and NULL those pointers
+									free(servers[server_index]->channel_name[channel_index]);
+									servers[server_index]->channel_name[channel_index]=NULL;
+									free(servers[server_index]->channel_topic[channel_index]);
+									servers[server_index]->channel_topic[channel_index]=NULL;
+									
+									int n;
+									for(n=0;n<MAX_SCROLLBACK;n++){
+										if(servers[server_index]->channel_content[channel_index][n]!=NULL){
+											free(servers[server_index]->channel_content[channel_index][n]);
+											servers[server_index]->channel_content[channel_index][n]=NULL;
+										}
+									}
+									
+									//if we were keeping logs close them
+									if((servers[server_index]->keep_logs)&&(servers[server_index]->log_file[channel_index]!=NULL)){
+										fclose(servers[server_index]->log_file[channel_index]);
+										servers[server_index]->log_file[channel_index]=NULL;
+									}
+									
+									//if we were in this channel kick back to the reserved SERVER channel
+									if(servers[current_server]->current_channel==channel_index){
+										servers[current_server]->current_channel=0;
+									}
+									
+									//output the part to the server channel
+									output_channel=0;
+									
+									//and refresh the channel list
+									refresh_channel_list();
+								}
+							}
+						}
+					//else it wasn't us doing the part so just output the join message to that channel (which presumably we're in)
+					}else{
+						//lower case the channel so we can do a case-insensitive string match against it
+						strtolower(text,BUFFER_SIZE);
+						
+						int channel_index;
+						for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+							if(servers[server_index]->channel_name[channel_index]!=NULL){
+								char lower_case_channel[BUFFER_SIZE];
+								strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+								strtolower(lower_case_channel,BUFFER_SIZE);
+								
+								if(!strcmp(lower_case_channel,text)){
+									output_channel=channel_index;
+									channel_index=MAX_CHANNELS;
+								}
+							}
+						}
+					}
+					
+				//":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
 				//TODO: handle for NICK changes, especially the special case of our own, where server[server_index]->nick should get reset
 				//NICK changes are server-wide so I'll only be able to handle this better once I have a list of users in each channel
 				}else if(!strcmp(command,"NICK")){
@@ -1420,6 +1503,7 @@ void parse_server(int server_index){
 						refresh_server_list();
 					}
 				//handle for topic changes
+				//":accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking"
 				}else if(!strcmp(command,"TOPIC")){
 					char channel[BUFFER_SIZE];
 					int space_colon_index=strfind(" :",tmp_buffer);
@@ -2053,9 +2137,6 @@ int main(int argc, char *argv[]){
 					if(strinsert(servers[server_index]->read_buffer,one_byte_buffer[0],strlen(servers[server_index]->read_buffer),BUFFER_SIZE)){
 						//a newline ends the reading and makes us start from scratch for the next byte
 						if(one_byte_buffer[0]=='\n'){
-							//set this to show as having new data, it must since we're getting something on it
-							servers[server_index]->new_server_content=TRUE;
-							refresh_server_list();
 							//parse a line from the server, with the only relevant information needed being the server_index
 							//(everything else needed is global)
 							parse_server(server_index);
