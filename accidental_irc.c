@@ -1329,16 +1329,18 @@ void parse_server(int server_index){
 								tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
 							}
 							
-							sprintf(output_buffer,"%lu *%s %s",(uintmax_t)(time(NULL)),nick,tmp_buffer);
+							//note: timestamps are added at the end
+//							sprintf(output_buffer,"%lu *%s %s",(uintmax_t)(time(NULL)),nick,tmp_buffer);
+							sprintf(output_buffer,"*%s %s",nick,tmp_buffer);
 						}
 					//handle for a ping (when someone says our own nick)
 					}else if(name_index>=0){
 						//TODO: take any desired additional steps upon ping here (notify-send or something)
 						//format the output to show that we were pingged
-						sprintf(output_buffer,"%lu ***<%s> %s",(uintmax_t)(time(NULL)),nick,text);
+						sprintf(output_buffer,"***<%s> %s",nick,text);
 					}else{
 						//format the output of a PM in a very pretty way
-						sprintf(output_buffer,"%lu <%s> %s",(uintmax_t)(time(NULL)),nick,text);
+						sprintf(output_buffer,"<%s> %s",nick,text);
 					}
 				//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 				}else if(!strcmp(command,"JOIN")){
@@ -1472,9 +1474,6 @@ void parse_server(int server_index){
 						}
 					//else it wasn't us doing the part so just output the join message to that channel (which presumably we're in)
 					}else{
-						//lower case the channel so we can do a case-insensitive string match against it
-						strtolower(text,BUFFER_SIZE);
-						
 						int channel_index;
 						for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
 							if(servers[server_index]->channel_name[channel_index]!=NULL){
@@ -1482,7 +1481,7 @@ void parse_server(int server_index){
 								strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
 								strtolower(lower_case_channel,BUFFER_SIZE);
 								
-								if(!strcmp(lower_case_channel,text)){
+								if(!strcmp(lower_case_channel,channel)){
 									output_channel=channel_index;
 									channel_index=MAX_CHANNELS;
 								}
@@ -1545,6 +1544,11 @@ void parse_server(int server_index){
 				}
 			}
 		}
+		
+		//regardless of what our output was, timestamp it
+		char time_buffer[BUFFER_SIZE];
+		sprintf(time_buffer,"%lu %s",(uintmax_t)(time(NULL)),output_buffer);
+		strncpy(output_buffer,time_buffer,BUFFER_SIZE);
 		
 		//add the message to the relevant channel scrollback structure
 		char **scrollback=servers[server_index]->channel_content[output_channel];
