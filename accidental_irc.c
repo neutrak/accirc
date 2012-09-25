@@ -99,6 +99,10 @@ struct irc_connection {
 	//logging information
 	char keep_logs;
 	FILE *log_file[MAX_CHANNELS];
+	//the channels we're waiting to join when ready
+	char *autojoin_channel[MAX_CHANNELS];
+	//the password to give NickServ once connected
+	char ident[BUFFER_SIZE];
 	
 	//this data is what the user sees (but is also used for other things)
 	char server_name[BUFFER_SIZE];
@@ -136,6 +140,9 @@ WINDOW *channel_text;
 WINDOW *user_input;
 WINDOW *top_border;
 WINDOW *bottom_border;
+
+//forward declarations (trying to be minimal with these)
+void parse_input(char *input_buffer, char keep_history);
 
 //helper functions for common tasks
 
@@ -264,6 +271,33 @@ char verify_or_make_dir(char *path){
 		return FALSE;
 	}
 	//if we got here and didn't return we succeeded
+	return TRUE;
+}
+
+//load the configuration file at path, returns TRUE on success, FALSE on failure
+char load_rc(char *rc_file){
+	FILE *rc=fopen(rc_file,"r");
+	if(!rc){
+//		fprintf(stderr,"Warn: rc file not found, not executing anything on startup\n");
+		return FALSE;
+	}else{
+		//read in the .rc, parse_input each line until the end
+		char rc_line[BUFFER_SIZE];
+		while(!feof(rc)){
+			fgets(rc_line,BUFFER_SIZE,rc);
+			if(!feof(rc)){
+				//cut off the trailing newline
+				int newline_index=strfind("\n",rc_line);
+				if(newline_index>=0){
+					substr(rc_line,rc_line,0,newline_index);
+				}
+				parse_input(rc_line,FALSE);
+			}
+		}
+		
+		fclose(rc);
+		return TRUE;
+	}
 	return TRUE;
 }
 
@@ -803,7 +837,11 @@ void parse_input(char *input_buffer, char keep_history){
 							servers[server_index]->channel_topic[n]=NULL;
 							servers[server_index]->new_channel_content[n]=FALSE;
 							servers[server_index]->log_file[n]=NULL;
+							servers[server_index]->autojoin_channel[n]=NULL;
 						}
+						
+						//clear out the ident information (the user will provide it in a startup (.rc) file if they so desire)
+						strncpy(servers[server_index]->ident,"",BUFFER_SIZE);
 						
 						//by default there is no new content on this server
 						servers[server_index]->new_server_content=FALSE;
@@ -965,6 +1003,32 @@ void parse_input(char *input_buffer, char keep_history){
 				sprintf(tmp_buffer,"%cACTION %s%c",0x01,parameters,0x01);
 				//don't keep that in the history though
 				parse_input(tmp_buffer,FALSE);
+			}
+		//sleep command
+		}else if(!strcmp(command,"sleep")){
+			//sleep as requested (in seconds)
+			sleep(atoi(parameters));
+		//usleep command
+		}else if(!strcmp(command,"usleep")){
+			//sleep as requested (in milliseconds)
+			usleep(atoi(parameters));
+		//comment command (primarily for the .rc file)
+		}else if(!strcmp(command,"comment")){
+			//ignore it
+		//automatically join this channel when possible (after the server sends us a message saying we're connected)
+		}else if(!strcmp(command,"autojoin")){
+			if(current_server>=0){
+				int ch;
+				for(ch=0;(ch<MAX_CHANNELS)&&(servers[current_server]->autojoin_channel[ch]!=NULL);ch++);
+				if(ch<MAX_CHANNELS){
+					servers[current_server]->autojoin_channel[ch]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+					strncpy(servers[current_server]->autojoin_channel[ch],parameters,BUFFER_SIZE);
+				}
+			}
+		//automatically identify when the server is ready to recieve that information
+		}else if(!strcmp(command,"autoident")){
+			if(current_server>=0){
+				strncpy(servers[current_server]->ident,parameters,BUFFER_SIZE);
 			}
 		}
 	//if it's a server command send the raw text to the server
@@ -1222,7 +1286,44 @@ void parse_server(int server_index){
 					}
 				//end of message of the day (useful as a delimeter)
 				}else if(!strcmp(command,"376")){
+					//if we got here the server recognized us, go through the autojoin channels and join them, then remove them from the autojoin array
+					int ch;
+					for(ch=0;ch<MAX_CHANNELS;ch++){
+						if(servers[server_index]->autojoin_channel[ch]!=NULL){
+							//remember what server we were on
+							int old_server=current_server;
+							
+							//parse a message headed to the server to autojoin on
+							current_server=server_index;
+							
+							char to_parse[BUFFER_SIZE];
+							sprintf(to_parse,":join :%s",servers[server_index]->autojoin_channel[ch]);
+							parse_input(to_parse,FALSE);
+							
+							//remove this from autojoin channels from that server, we've now at least attempted to join
+							free(servers[server_index]->autojoin_channel[ch]);
+							servers[server_index]->autojoin_channel[ch]=NULL;
+							
+							//reset our server to whatever it used to be on
+							current_server=old_server;
+						}
+					}
 					
+					//if there is associated identification with this nickname send it to nickserv now
+					if(strcmp(servers[server_index]->ident,"")!=0){
+						//remember what server we were on
+						int old_server=current_server;
+						
+						//parse a message headed to the server to autojoin on
+						current_server=server_index;
+						
+						char to_parse[BUFFER_SIZE];
+						sprintf(to_parse,":privmsg NickServ :IDENTIFY %s",servers[server_index]->ident);
+						parse_input(to_parse,FALSE);
+						
+						//reset our server to whatever it used to be on
+						current_server=old_server;
+					}
 				}
 			//a message from another user
 			}else{
@@ -1541,6 +1642,9 @@ void parse_server(int server_index){
 							}
 						}
 					}
+				//TODO: add proper NOTICE handling
+//				}else if(!strcmp(command,"NOTICE")){
+//					
 				}
 			}
 		}
@@ -1760,22 +1864,6 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 	
-	//TODO: store config in ~/.config/accirc/config.ini
-//	if(!verify_or_make_dir("accirc")){
-//		fprintf(stderr,"Err: Could not find or create the config directory\n");
-//		exit(1);
-//	}
-	char *config_file="config.ini";
-	
-	FILE *settings=fopen(config_file,"r");
-	if(!settings){
-		fprintf(stderr,"Warn: Settings file not found, assuming defaults\n");
-	}else{
-		//TODO: read in the ini settings file
-		fclose(settings);
-	}
-
-	
 	//initialize the global variables appropriately
 	int n;
 	for(n=0;n<MAX_SERVERS;n++){
@@ -1814,6 +1902,15 @@ int main(int argc, char *argv[]){
 	
 	//force a re-detection of the window and a re-allocation of resources
 	force_resize("",0,0);
+	
+	//TODO: store config in ~/.config/accirc/config.rc
+//	if(!verify_or_make_dir("accirc")){
+//		fprintf(stderr,"Err: Could not find or create the config directory\n");
+//		exit(1);
+//	}
+	char *rc_file="config.rc";
+	
+	load_rc(rc_file);
 	
 	//start the clock
 	long unsigned int old_time=(uintmax_t)(time(NULL));

@@ -1,0 +1,22 @@
+/comment this is a file that is run at startup; by making all settings commands I am able to make this startup file, avoid re-doing some parsing, and make all settings user-changeable at runtime
+
+/connect naos.foonetic.net 80
+:nick neutrak
+:user neutrak 2 3 4
+/comment automatically tell NickServ we are who we say we are
+/autoident %90PzzXC_
+/comment join channels as soon as we get the chance
+/autojoin #faid
+/autojoin #faid3.0
+/autojoin #neurotoxin
+/autojoin #phlegethos
+
+/connect irc.silverirc.com 80
+:nick neutrak
+:user neutrak 2 3 4
+/comment automatically tell NickServ we are who we say we are
+/autoident %90PzzXC_
+/comment join channels as soon as we get the chance
+/autojoin #randomz
+
+
