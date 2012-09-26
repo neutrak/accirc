@@ -667,6 +667,7 @@ void parse_input(char *input_buffer, char keep_history){
 	char server_command=FALSE;
 	char client_command=FALSE;
 	
+	//TODO: make the client and server command escapes a setting
 	if((input_buffer[0]==':')||(input_buffer[0]=='/')||(input_buffer[0]=='\\')){
 		//server command
 		if(input_buffer[0]==':'){
@@ -817,9 +818,9 @@ void parse_input(char *input_buffer, char keep_history){
 						if(servers[server_index]->keep_logs){
 							//first make a directory for this server
 							char file_location[BUFFER_SIZE];
-							sprintf(file_location,"%s/%s",LOGGING_DIRECTORY,servers[server_index]->server_name);
+							sprintf(file_location,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name);
 							if(verify_or_make_dir(file_location)){
-								sprintf(file_location,"%s/%s/%s",LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[0]);
+								sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[0]);
 								//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
 								servers[server_index]->log_file[0]=fopen(file_location,"a");
 							//TODO: make this fail in a non-silent way, the user should know there was a problem
@@ -1471,7 +1472,7 @@ void parse_server(int server_index){
 							//if we should be keeping logs make sure we are
 							if(servers[server_index]->keep_logs){
 								char file_location[BUFFER_SIZE];
-								sprintf(file_location,"%s/%s/%s",LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[channel_index]);
+								sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[channel_index]);
 								//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
 								servers[server_index]->log_file[channel_index]=fopen(file_location,"a");
 								
@@ -1497,8 +1498,12 @@ void parse_server(int server_index){
 						}
 					//else it wasn't us doing the join so just output the join message to that channel (which presumably we're in)
 					}else{
+						char channel[BUFFER_SIZE];
+						//cut the leading : from the channel name
+						substr(channel,text,1,strlen(text)-1);
+						
 						//lower case the channel so we can do a case-insensitive string match against it
-						strtolower(text,BUFFER_SIZE);
+						strtolower(channel,BUFFER_SIZE);
 						
 						int channel_index;
 						for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
@@ -1507,7 +1512,7 @@ void parse_server(int server_index){
 								strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
 								strtolower(lower_case_channel,BUFFER_SIZE);
 								
-								if(!strcmp(lower_case_channel,text)){
+								if(!strcmp(lower_case_channel,channel)){
 									output_channel=channel_index;
 									channel_index=MAX_CHANNELS;
 								}
@@ -1857,9 +1862,23 @@ int main(int argc, char *argv[]){
 		}
 	}
 	
-	//TODO: store logs in ~/.local/share/accirc/logs/
+	//store logs in ~/.local/share/accirc/logs/
 	//ensure appropriate directories exist for config and logs
-	if(!verify_or_make_dir("logs")){
+	char log_dir[BUFFER_SIZE];
+	char *home_dir=getenv("HOME");
+	if(home_dir!=NULL){
+		sprintf(log_dir,"%s/.local/",home_dir);
+		verify_or_make_dir(log_dir);
+		sprintf(log_dir,"%s/.local/share",home_dir);
+		verify_or_make_dir(log_dir);
+		sprintf(log_dir,"%s/.local/share/accirc",home_dir);
+		verify_or_make_dir(log_dir);
+		sprintf(log_dir,"%s/.local/share/accirc/%s",home_dir,LOGGING_DIRECTORY);
+	}else{
+		sprintf(log_dir,LOGGING_DIRECTORY);
+	}
+	
+	if(!verify_or_make_dir(log_dir)){
 		fprintf(stderr,"Err: Could not find or create the log directory\n");
 		exit(1);
 	}
@@ -1903,13 +1922,20 @@ int main(int argc, char *argv[]){
 	//force a re-detection of the window and a re-allocation of resources
 	force_resize("",0,0);
 	
-	//TODO: store config in ~/.config/accirc/config.rc
-//	if(!verify_or_make_dir("accirc")){
-//		fprintf(stderr,"Err: Could not find or create the config directory\n");
-//		exit(1);
-//	}
-	char *rc_file="config.rc";
+	//store config in ~/.config/accirc/config.rc
+	char rc_file[BUFFER_SIZE];
+	//char *home_dir=getenv("HOME");
+	if(home_dir!=NULL){
+		sprintf(rc_file,"%s/.config",home_dir);
+		verify_or_make_dir(rc_file);
+		sprintf(rc_file,"%s/.config/accirc",home_dir);
+		verify_or_make_dir(rc_file);
+		sprintf(rc_file,"%s/.config/accirc/config.rc",home_dir);
+	}else{
+		sprintf(rc_file,"config.rc");
+	}
 	
+	//if this fails no rc will be used
 	load_rc(rc_file);
 	
 	//start the clock
