@@ -1417,7 +1417,7 @@ void parse_server(int server_index){
 							substr(names,names,space_index+1,strlen(names)-space_index-1);
 							
 							//trim this user's name
-							if((strfind("@",this_name)==0)||(strfind("~",this_name)==0)||(strfind("%",this_name)==0)){
+							if((strfind("@",this_name)==0)||(strfind("~",this_name)==0)||(strfind("%",this_name)==0)||(strfind("&",this_name)==0)){
 								substr(this_name,this_name,1,strlen(this_name)-1);
 							}
 							
@@ -1885,14 +1885,20 @@ void parse_server(int server_index){
 										//remove this user from that channel's names array
 										free(servers[server_index]->user_names[channel_index][name_index]);
 										servers[server_index]->user_names[channel_index][name_index]=NULL;
+										
+										//for handling later; just let us know we found a channel to output to
+										output_channel=channel_index;
 									}
 								}
 							}
 						}
 					}
 					
-					//don't output this to the system channel
-					special_output=TRUE;
+					//if we found the channel this user was in
+					if(output_channel!=0){
+						//don't output this to the system channel
+						special_output=TRUE;
+					}
 				}
 			}
 		}
