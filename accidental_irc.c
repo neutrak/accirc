@@ -1380,15 +1380,23 @@ void parse_server(int server_index){
 							}
 						}
 					}
+				//TODO: handle time set information for a channel topic
+				}else if(!strcmp(command,"333")){
+					
 				//names list
 				//(like this: ":naos.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user @neutrak @NieXS @cheese @MonkeyofDoom @L @Data @Spock ~Shishichi davean")
+				//(or this: ":naos.foonetic.net 353 neutrak = #FaiD :neutrak mo0 Decarabia Gelsamel_ NieXS JoeyJo0 cheese")
 				}else if(!strcmp(command,"353")){
 					strncpy(tmp_buffer,servers[server_index]->read_buffer,BUFFER_SIZE);
 					char channel[BUFFER_SIZE];
-					int at_index=strfind("@",tmp_buffer);
 					int space_colon_index=strfind(" :",tmp_buffer);
-					//skip the @ and the " " right after it
-					substr(channel,tmp_buffer,at_index+2,space_colon_index-at_index-2);
+					int channel_start_index=space_colon_index-1;
+					while(tmp_buffer[channel_start_index]!=' '){
+						channel_start_index--;
+					}
+					channel_start_index++;
+					
+					substr(channel,tmp_buffer,channel_start_index,space_colon_index-channel_start_index);
 					//lower case the channel name
 					strtolower(channel,BUFFER_SIZE);
 					
@@ -1437,6 +1445,35 @@ void parse_server(int server_index){
 //							}
 //						}
 #endif
+					}
+				//end of names list
+				}else if(!strcmp(command,"366")){
+					//just output to the right channel
+					strncpy(tmp_buffer,servers[server_index]->read_buffer,BUFFER_SIZE);
+					char channel[BUFFER_SIZE];
+					int space_colon_index=strfind(" :",tmp_buffer);
+					int channel_start_index=space_colon_index-1;
+					while(tmp_buffer[channel_start_index]!=' '){
+						channel_start_index--;
+					}
+					channel_start_index++;
+					
+					substr(channel,tmp_buffer,channel_start_index,space_colon_index-channel_start_index);
+					//lower case the channel name
+					strtolower(channel,BUFFER_SIZE);
+					
+					int channel_index;
+					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+						if(servers[server_index]->channel_name[channel_index]!=NULL){
+							char lower_case_channel[BUFFER_SIZE];
+							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+							strtolower(lower_case_channel,BUFFER_SIZE);
+							
+							if(!strcmp(channel,lower_case_channel)){
+								output_channel=channel_index;
+								channel_index=MAX_CHANNELS;
+							}
+						}
 					}
 				//end of message of the day (useful as a delimeter)
 				}else if(!strcmp(command,"376")){
@@ -1497,13 +1534,7 @@ void parse_server(int server_index){
 					strncpy(text,tmp_buffer,BUFFER_SIZE);
 					
 					//lower case the channel so we can do a case-insensitive string match against it
-					for(n=0;n<BUFFER_SIZE;n++){
-						if(channel[n]!='\0'){
-							channel[n]=tolower(channel[n]);
-						}else{
-							n=BUFFER_SIZE;
-						}
-					}
+					strtolower(channel,BUFFER_SIZE);
 					
 					//go through the channels, find out the one to output to, set "output_channel" to that index
 					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
@@ -1520,6 +1551,17 @@ void parse_server(int server_index){
 							}
 						}
 					}
+					
+					char tmp_nick[BUFFER_SIZE];
+					strncpy(tmp_nick,servers[server_index]->nick,BUFFER_SIZE);
+					strtolower(tmp_nick,BUFFER_SIZE);
+					
+					if(!strcmp(tmp_nick,channel)){
+						char sys_call_buffer[BUFFER_SIZE];
+						sprintf(sys_call_buffer,"echo \"%lu <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+						system(sys_call_buffer);
+					}
+					
 					//TODO: handle CTCP VERSION and PING
 					
 					//for pings
@@ -1554,6 +1596,9 @@ void parse_server(int server_index){
 					//handle for a ping (when someone says our own nick)
 					}else if(name_index>=0){
 						//TODO: take any desired additional steps upon ping here (notify-send or something)
+						char sys_call_buffer[BUFFER_SIZE];
+						sprintf(sys_call_buffer,"echo \"%lu <%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+						system(sys_call_buffer);
 						//format the output to show that we were pingged
 						sprintf(output_buffer,"***<%s> %s",nick,text);
 					}else{
