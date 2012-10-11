@@ -105,6 +105,10 @@ struct irc_connection {
 	char *autojoin_channel[MAX_CHANNELS];
 	//the password to give NickServ once connected
 	char ident[BUFFER_SIZE];
+	//whether, on this server, to rejoin channels when kicked
+	char rejoin_on_kick;
+	//the nick to use if the user's nick is already in use
+	char fallback_nick[BUFFER_SIZE];
 	
 	//this data is what the user sees (but is also used for other things)
 	char server_name[BUFFER_SIZE];
@@ -940,6 +944,12 @@ void parse_input(char *input_buffer, char keep_history){
 							}
 						}
 						
+						//by default don't rejoin on kick
+						servers[server_index]->rejoin_on_kick=FALSE;
+						
+						//by default the fallback nick is null
+						strncpy(servers[server_index]->fallback_nick,"",BUFFER_SIZE);
+						
 						//there are no users in the SERVER channel
 						servers[server_index]->user_names[0]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
 						for(n=0;n<MAX_NAMES;n++){
@@ -1124,10 +1134,12 @@ void parse_input(char *input_buffer, char keep_history){
 			}
 		//sleep command
 		}else if(!strcmp(command,"sleep")){
+			scrollback_output(current_server,0,"accirc: sleeping...");
 			//sleep as requested (in seconds)
 			sleep(atoi(parameters));
 		//usleep command
 		}else if(!strcmp(command,"usleep")){
+			scrollback_output(current_server,0,"accirc: usleeping...");
 			//sleep as requested (in milliseconds)
 			usleep(atoi(parameters));
 		//comment command (primarily for the .rc file)
@@ -1141,12 +1153,32 @@ void parse_input(char *input_buffer, char keep_history){
 				if(ch<MAX_CHANNELS){
 					servers[current_server]->autojoin_channel[ch]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 					strncpy(servers[current_server]->autojoin_channel[ch],parameters,BUFFER_SIZE);
+					scrollback_output(current_server,0,"accirc: autojoin channel added, will join when possible");
+				}else{
+					scrollback_output(current_server,0,"accirc: autojoin channel could not be added, would overflow");
 				}
 			}
 		//automatically identify when the server is ready to recieve that information
 		}else if(!strcmp(command,"autoident")){
 			if(current_server>=0){
 				strncpy(servers[current_server]->ident,parameters,BUFFER_SIZE);
+				scrollback_output(current_server,0,"accirc: autoident given, will ident when possible");
+			}
+		//a nick to fall back to if the nick you want is taken
+		}else if(!strcmp(command,"fallback_nick")){
+			if(current_server>=0){
+				strncpy(servers[current_server]->fallback_nick,parameters,BUFFER_SIZE);
+				scrollback_output(current_server,0,"accirc: fallback_nick set");
+			}
+		}else if(!strcmp(command,"rejoin_on_kick")){
+			if(current_server>=0){
+				servers[current_server]->rejoin_on_kick=TRUE;
+				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to TRUE");
+			}
+		}else if(!strcmp(command,"no_rejoin_on_kick")){
+			if(current_server>=0){
+				servers[current_server]->rejoin_on_kick=FALSE;
+				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to FALSE");
 			}
 		}
 	//if it's a server command send the raw text to the server
@@ -1478,6 +1510,15 @@ void parse_server(int server_index){
 				//end of message of the day (useful as a delimeter)
 				}else if(!strcmp(command,"376")){
 					
+				//nick already in use, so try a new one
+				}else if(!strcmp(command,"433")){
+					char new_nick[BUFFER_SIZE];
+					sprintf(new_nick,"%s_",servers[server_index]->fallback_nick);
+					//in case this fails again start with another _ for the next try
+					strncpy(servers[server_index]->fallback_nick,new_nick,BUFFER_SIZE);
+					
+					sprintf(new_nick,"NICK %s\n",servers[server_index]->fallback_nick);
+					safe_send(servers[server_index]->socket_fd,new_nick);
 				}
 			//a message from another user
 			}else{
@@ -1767,6 +1808,20 @@ void parse_server(int server_index){
 					if(!strcmp(kicked_user,servers[server_index]->nick)){
 						leave_channel(server_index,channel);
 						output_channel=0;
+						
+						//if we're to rejoin on a kick do that now
+						if(servers[server_index]->rejoin_on_kick){
+							int old_server=current_server;
+							current_server=server_index;
+							char to_parse[BUFFER_SIZE];
+							sprintf(to_parse,":join %s",channel);
+							parse_input(to_parse,FALSE);
+							current_server=old_server;
+							
+							refresh_server_list();
+							refresh_channel_list();
+							refresh_channel_text();
+						}
 					//else it wasn't us getting kicked so just output the join message to that channel (which presumably we're in)
 					}else{
 						strtolower(channel,BUFFER_SIZE);
