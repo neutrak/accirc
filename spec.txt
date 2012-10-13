@@ -5,7 +5,7 @@ irc client (accidental IRC) (// indicates "tentatively done")
 //		: in client window at start of message will send that raw text to the server
 //		/ will send it to client command handling code
 //		\: or \/ for a literal
-	tab-completed nicks (using a system very similar to what apathy IRC already does)
+//	tab-completed nicks (using a system very similar to what apathy IRC already does)
 	needs a live search feature
 	needs to be tolerant to disconnects
 		attempt to reconnect

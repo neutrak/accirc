@@ -54,6 +54,34 @@ for channels on current server, rejoin when kicked
 .TP
 \fB/no_rejoin_on_kick\fP
 for channels on current server, don't rejoin when kicked
+.SS "Key Bindings"
+.TP
+\fBf1\fP
+channel left (see /cl)
+.TP
+\fBf2\fP
+channel right (see /cr)
+.TP
+\fBf3\fP
+server left (see /sl)
+.TP
+\fBf4\fP
+server right (see /sr)
+.TP
+\fB<tab>\fP
+complete a nickname based on nicks in current channel
+.TP
+\fBPgUp\fP
+scroll up one line in the channel scrollback, if possible
+.TP
+\fBPgDn\fP
+scroll down one line in the channel scrollback, if possible
+.TP
+\fBUp\fP
+scroll up one line in the input history, if possible
+.TP
+\fBDown\fP
+scroll down one line in the input history, if possible
 .SH FILES
 .TP
 \fC~/.config/accirc/config.rc\fR
@@ -79,6 +107,6 @@ The location of all logs from all servers
 .SH "SEE ALSO"
 ncurses(3)
 .SH BUGS
-MODE not yet handled for; ncurses colors don't work in screen; dropped connections not handled for; CTCP PING and VERSION not yet handled for; This is slow because it reads a byte at a time
+MODE not yet handled for; MIRC colors don't work under screen; dropped connections not handled for; CTCP PING and VERSION not yet handled for; This is slow because it reads a byte at a time and the kernel reschedules that each byte
 .SH WWW
-http://somegenericsite.dyndns.org/
+http://somegenericsite.dyndns.org/index.php?p=code

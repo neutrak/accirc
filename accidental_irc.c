@@ -149,7 +149,12 @@ WINDOW *top_border;
 WINDOW *bottom_border;
 
 //forward declarations (trying to be minimal with these)
+void scrollback_output(int server_index, int output_channel, char *to_output);
 void parse_input(char *input_buffer, char keep_history);
+void refresh_server_list();
+void refresh_channel_list();
+void refresh_channel_topic();
+void refresh_channel_text();
 
 //helper functions for common tasks
 
@@ -299,6 +304,11 @@ char load_rc(char *rc_file){
 					substr(rc_line,rc_line,0,newline_index);
 				}
 				parse_input(rc_line,FALSE);
+				
+				refresh_server_list();
+				refresh_channel_list();
+				refresh_channel_topic();
+				refresh_channel_text();
 			}
 		}
 		
@@ -346,6 +356,11 @@ char safe_recv(int socket, char *buffer){
 
 //display server list updates as needed; bolding the current server
 void refresh_server_list(){
+	//if we're not connected to anything don't bother
+	if(current_server<0){
+		return;
+	}
+	
 	//update the display of the server list
 	wclear(server_list);
 	wmove(server_list,0,0);
@@ -396,6 +411,11 @@ void refresh_server_list(){
 
 //display channel list updates as needed; bolding the current channel
 void refresh_channel_list(){
+	//if we're not connected to anything don't bother
+	if(current_server<0){
+		return;
+	}
+	
 	//update the display of the channel list
 	wclear(channel_list);
 	wmove(channel_list,0,0);
@@ -430,6 +450,11 @@ void refresh_channel_list(){
 
 //display channel topic as needed 
 void refresh_channel_topic(){
+	//if we're not connected to anything don't bother
+	if(current_server<0){
+		return;
+	}
+	
 	//print out the channel topic
 	//first clearing that window
 	wclear(channel_topic);
@@ -462,57 +487,77 @@ void refresh_channel_topic(){
 
 //display channel text as needed using current server and severs[current_server]->current_channel to tell what to display
 void refresh_channel_text(){
-	//number of lines of scrollback available
-	int line_count;
+	//if we're not connected to anything don't bother
+	if(current_server<0){
+		return;
+	}
+	
+	//number of messages in scrollback available
+	int message_count;
 	char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
-	for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
+	for(message_count=0;(message_count<MAX_SCROLLBACK)&&(scrollback[message_count]!=NULL);message_count++);
 	
 	int w_height,w_width;
 	getmaxyx(channel_text,w_height,w_width);
-	
-	//if there's not enough lines to fill the whole window
-	if(line_count<w_height){
-		//fill a sub-window only
-		w_height=line_count;
-	}
 	
 	//print out the channel text
 	//first clearing that window
 	wclear(channel_text);
 	
 	//where to stop outputting, by default this is the last line available
-	int output_end=line_count;
+	int output_end=message_count;
 	
+	//if we're scrolled up stop where we're scrolled to
 	if(scrollback_end>=0){
 		output_end=scrollback_end;
 	}
 	
-	//TODO: word wrap, and do it sanely (for the moment I'm just giving a line overflow error, which is not /terrible/ but not /great/ either)
+	//account for word wrapping (figure out how many lines to ignore here)
+	//store this in a structure because I'll be re-using it
+	int overflow_lines[MAX_SCROLLBACK];
+	int n;
+	for(n=0;n<output_end;n++){
+		overflow_lines[n]=0;
+		if(strlen(scrollback[n])>w_width){
+			//note this is integer division, which is floor of regular division
+			overflow_lines[n]+=(strlen(scrollback[n])/width);
+		}
+	}
+	
+	int output_start=output_end;
+	//available lines left to output to
+	int lines_left=w_height;
+	while((lines_left>0)&&(output_start>0)){
+		output_start--;
+		lines_left-=(overflow_lines[output_start]+1);
+	}
+	
+	//account for if the first line is wrapped
+	if(lines_left<0){
+		output_start++;
+	}
+	
+	//word wrap, and do it sanely
 	int output_line;
-	for(output_line=(output_end-w_height);output_line<output_end;output_line++){
+	for(output_line=output_start;output_line<output_end;output_line++){
 		//if there's text to display on this line
 		if(scrollback[output_line]!=NULL){
 			char output_text[BUFFER_SIZE];
 			//start at the start of the line
-			wmove(channel_text,output_line-(output_end-w_height),0);
-			if(strlen(scrollback[output_line])<w_width){
-				strncpy(output_text,scrollback[output_line],BUFFER_SIZE);
-			}else{
-				//NOTE: although we're not outputting the full line here, the full line WILL be in the logs for the user to view
-				//and WILL be in the scrollback should the user resize the window
-				int n;
-				for(n=0;n<w_width;n++){
-					output_text[n]=scrollback[output_line][n];
-				}
-				char line_overflow_error[BUFFER_SIZE];
-				strncpy(line_overflow_error,LINE_OVERFLOW_ERROR,BUFFER_SIZE);
-				for(n=w_width-strlen(line_overflow_error);n<w_width;n++){
-					output_text[n]=line_overflow_error[n-w_width+strlen(line_overflow_error)];
-				}
-				output_text[w_width]='\0';
+//			wmove(channel_text,output_line-(output_end-w_height),0);
+			int overflow_line_count=0;
+			int n;
+			for(n=output_start;n<output_line;n++){
+				overflow_line_count+=overflow_lines[n];
 			}
+			int y_start=(output_line-output_start)+overflow_line_count;
+			wmove(channel_text,y_start,0);
 			
-			if(has_colors()){
+			//instead of a line overflow error, WRAP! (this is a straight-up character wrap)
+			strncpy(output_text,scrollback[output_line],BUFFER_SIZE);
+			
+//			if(has_colors()){
+/*
 				//TODO: handle MIRC colors
 				//if this line was a ping or included MIRC colors treat it specially (set attributes before output)
 				
@@ -596,9 +641,21 @@ void refresh_channel_text(){
 				
 				//reset all attributes before we start outputting the next line in case they didn't properly terminate their colors
 //				wattrset(channel_text,0);
-			}else{
-				wprintw(channel_text,output_text);
-			}
+*/
+//			}else{
+//				wprintw(channel_text,output_text);
+				
+				//instead of a line overflow error, WRAP! (this is a straight-up character wrap)
+				int wrapped_line=0;
+//				int n;
+				for(n=0;n<strlen(output_text);n++){
+					wprintw(channel_text,"%c",output_text[n]);
+					if(((n+1)<strlen(output_text))&&((n+1)%width==0)){
+						wrapped_line++;
+						wmove(channel_text,(y_start+wrapped_line),0);
+					}
+				}
+//			}
 		}
 	}
 	//refresh the channel text window
@@ -1712,10 +1769,12 @@ void parse_server(int server_index){
 						}
 					//handle for a ping (when someone says our own nick)
 					}else if(name_index>=0){
-						//TODO: take any desired additional steps upon ping here (notify-send or something)
+						//take any desired additional steps upon ping here (could add notify-send or something, if desired)
 						char sys_call_buffer[BUFFER_SIZE];
+#ifdef DEBUG
 						sprintf(sys_call_buffer,"echo \"%lu <%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
 						system(sys_call_buffer);
+#endif
 						//audio output
 						beep();
 						//format the output to show that we were pingged
@@ -2264,6 +2323,7 @@ int main(int argc, char *argv[]){
 		sprintf(log_dir,LOGGING_DIRECTORY);
 	}
 	
+	//TODO: make not making log dir a non-fatal error
 	if(!verify_or_make_dir(log_dir)){
 		fprintf(stderr,"Err: Could not find or create the log directory\n");
 		exit(1);
@@ -2366,6 +2426,8 @@ int main(int argc, char *argv[]){
 			switch(c){
 				//handle for resize events
 				case KEY_RESIZE:
+					//if we were scrolled back we're not anymore!
+					scrollback_end=-1;
 					force_resize(input_buffer,cursor_pos,input_display_start);
 					break;
 				//TODO: make another break command or change something else to add ^C to the buffer, it's needed for MIRC colors
@@ -2428,6 +2490,7 @@ int main(int argc, char *argv[]){
 					refresh_user_input(input_buffer,cursor_pos,input_display_start);
 					break;
 				//scroll back in the current channel
+				//TODO: compute correct stop scrolling bound in this case
 //				case KEY_PGUP:
 				case 339:
 					//if we are connected to a server
@@ -2438,10 +2501,12 @@ int main(int argc, char *argv[]){
 						
 						//if there is more text than area to display allow it scrollback (else don't)
 						//the -6 here is because there are 6 character rows used to display things other than channel text
-						if(line_count>height-6){
+//						if(line_count>height-6){
+						if(line_count>0){
 							//if we're already scrolled back and we can go further
 							//note: the +6 here is because there are 6 character rows used to display things other than channel text
-							if((scrollback_end-height+6)>0){
+//							if((scrollback_end-height+6)>0){
+							if(scrollback_end>1){
 								scrollback_end--;
 							//if we're not scrolled back start now
 							}else if(scrollback_end<0){
