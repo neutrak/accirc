@@ -1412,9 +1412,57 @@ void parse_server(int server_index){
 							}
 						}
 					}
-				//TODO: handle time set information for a channel topic
+				//handle time set information for a channel topic
 				}else if(!strcmp(command,"333")){
+					char channel[BUFFER_SIZE];
 					
+					//go a space at a time until we get to the relevant field
+					int n;
+					for(n=0;n<2;n++){
+						//note I can set tmp_buffer to a substring of itself here because I'm never overwriting data I'll later need
+						//it's just a left shift
+						first_space=strfind(" ",tmp_buffer);
+						substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
+					}
+					
+					//now we're at the channel, get it and lower-case it
+					first_space=strfind(" ",tmp_buffer);
+					substr(channel,tmp_buffer,0,first_space);
+					strtolower(channel,BUFFER_SIZE);
+					
+					substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
+					
+					//now we're at the user who set this topic
+					first_space=strfind(" ",tmp_buffer);
+					char setting_user[BUFFER_SIZE];
+					substr(setting_user,tmp_buffer,0,first_space);
+					
+					substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
+					
+					//now we're at the timestamp
+					time_t timestamp=atoi(tmp_buffer);
+					
+					//go through the channels, find out the one to output to, set "output_channel" to that index
+					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
+					int channel_index;
+					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+						if(servers[server_index]->channel_name[channel_index]!=NULL){
+							char lower_case_channel[BUFFER_SIZE];
+							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+							strtolower(lower_case_channel,BUFFER_SIZE);
+							
+							if(!strcmp(channel,lower_case_channel)){
+								output_channel=channel_index;
+								
+								sprintf(output_buffer,"Topic set by %s at %s",setting_user,ctime(&timestamp));
+								
+								//and output
+								refresh_channel_topic();
+								
+								channel_index=MAX_CHANNELS;
+							}
+						}
+					}
 				//names list
 				//(like this: ":naos.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user @neutrak @NieXS @cheese @MonkeyofDoom @L @Data @Spock ~Shishichi davean")
 				//(or this: ":naos.foonetic.net 353 neutrak = #FaiD :neutrak mo0 Decarabia Gelsamel_ NieXS JoeyJo0 cheese")
@@ -1640,6 +1688,8 @@ void parse_server(int server_index){
 						char sys_call_buffer[BUFFER_SIZE];
 						sprintf(sys_call_buffer,"echo \"%lu <%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
 						system(sys_call_buffer);
+						//audio output
+						beep();
 						//format the output to show that we were pingged
 						sprintf(output_buffer,"***<%s> %s",nick,text);
 					}else{
@@ -2444,9 +2494,72 @@ int main(int argc, char *argv[]){
 					}
 					refresh_user_input(input_buffer,cursor_pos,input_display_start);
 					break;
-				//TODO: handle user name completion (make ctrl+tab actually send a tab)
+				//handle user name completion
 				case '\t':
+					if(current_server>=0){
+						//a portion of the nickname to complete
+						char partial_nick[BUFFER_SIZE];
+						//where the nickname starts
+						int partial_nick_start_index=(cursor_pos-1);
+						while((partial_nick_start_index>=0)&&(input_buffer[partial_nick_start_index]!=' ')){
+							partial_nick_start_index--;
+						}
+						//don't count the delimeter
+						partial_nick_start_index++;
+						
+						//chomp up the nickname start
+						int n;
+						for(n=partial_nick_start_index;n<cursor_pos;n++){
+							partial_nick[n-partial_nick_start_index]=input_buffer[n];
+						}
+						//always null terminate
+						partial_nick[n]='\0';
+						
+						//lower case for case-insensitive matching
+						strtolower(partial_nick,BUFFER_SIZE);
+						
+						//this counts the number of matches we got, we only want to complete on UNIQUE matches
+						int matching_nicks=0;
+						char last_matching_nick[BUFFER_SIZE];
+						//iterate through all tne nicks in this channel, if we find a unique match, complete it
+						for(n=0;n<MAX_NAMES;n++){
+							if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+								char nick_to_match[BUFFER_SIZE];
+								strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+								strtolower(nick_to_match,BUFFER_SIZE);
+								
+								//if this nick started with the partial_nick
+								if(strfind(partial_nick,nick_to_match)==0){
+									matching_nicks++;
+									strncpy(last_matching_nick,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+								}
+							}
+						}
+						
+						//if this was a unique match
+						if(matching_nicks==1){
+							//fill in the rest of the name
+							//where to start inserting from in the full nick
+							int insert_start_pos=cursor_pos-partial_nick_start_index;
+							
+							int n;
+							for(n=insert_start_pos;n<strlen(last_matching_nick);n++){
+								if(strinsert(input_buffer,last_matching_nick[n],cursor_pos,BUFFER_SIZE)){
+									cursor_pos++;
+									//if we would go off the end
+									if((cursor_pos-input_display_start)>width){
+										//make the end one char further down
+										input_display_start++;
+									}
+								}
+							}
+						//this was either not a match or not a unique match
+						}else{
+							beep();
+						}
+					}
 					break;
+				//TODO: make ctrl+tab actually send a tab
 				case KEY_HOME:
 					cursor_pos=0;
 					input_display_start=0;
