@@ -1,0 +1,84 @@
+.TH ACCIRC 1 "12 Oct 2012"
+.SH NAME
+accirc \- The accidental ncurses irc client
+.SH SYNOPSIS
+\fBaccirc\fP [ --help | --version ]
+.SH DESCRIPTION
+\fBaccirc\fP starts ncurses; functionality is available from there; config is read from ~/.config/accirc/config.rc ; logs are stored in ~/.local/share/accirc/logs/
+.SS Commands
+.TP
+\fB:\fP
+sends raw data to the current server (if there is one)
+.TP
+\fB/connect\fP \fIhost\fP \fIport\fP
+connects to an irc server at <host> on port <port>
+.TP
+\fB/exit\fP [ message ]
+sends a QUIT to every irc server you're connected to
+.TP
+\fB/sl\fP
+sets active server one left of current server
+.TP
+\fB/sr\fP
+sets active server one right of current server
+.TP
+\fB/cl\fP
+sets active channel one left of current channel
+.TP
+\fB/cr\fP
+sets active channel one right of current channel
+.TP
+\fB/me\fP
+sends CTCP ACTION message
+.TP
+\fB/sleep\fP \fIseconds\fP
+sleeps a given number of seconds
+.TP
+\fB/usleep\fP \fImicroseconds\fP
+sleeps a given number of microseconds
+.TP
+\fB/comment\fP
+ignore this line, a comment (for an rc file)
+.TP
+\fB/autojoin\fP \fIchannel\fP
+join this channel on the last server connected to as soon as we can (for an rc file)
+.TP
+\fB/autoident\fP \fIpassword\fP
+auth for this nick on the last server connected to as soon as we can (for an rc file)
+.TP
+\fB/fallback_nick\fP \fInick\fP
+set this as the backup nick if the nick specified is taken; if this nick is also taken _ is appended until one is unclaimed or we run out of characters allowed in the nick (for an rc file)
+.TP
+\fB/rejoin_on_kick\fP
+for channels on current server, rejoin when kicked
+.TP
+\fB/no_rejoin_on_kick\fP
+for channels on current server, don't rejoin when kicked
+.SH FILES
+.TP
+\fC~/.config/accirc/config.rc\fR
+The startup file to run
+.TP
+\fC~/.local/share/accirc/logs/\fR
+The location of all logs from all servers
+.SH "EXAMPLE RC FILE
+.TP
+\fB~/.config/accirc/config.rc\fR
+/connect daemonic.foonetic.net 6667
+
+:nick accirc_user
+
+:user 1 2 3 4
+
+/autojoin #faid3.0
+
+/fallback_nick accirc_user
+
+/rejoin_on_kick
+
+.SH "SEE ALSO"
+ncurses(3)
+.SH BUGS
+MODE not yet handled for; ncurses colors don't work in screen; dropped connections not handled for; CTCP PING and VERSION not yet handled for; This is slow because it reads a byte at a time
+.SH WWW
+http://somegenericsite.dyndns.org/

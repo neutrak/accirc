@@ -777,7 +777,6 @@ void parse_input(char *input_buffer, char keep_history){
 	}
 	
 	//flags to tell if this is any kind of command
-	//TODO: these are mutually exclusive, see if I can get by with just one flag
 	char server_command=FALSE;
 	char client_command=FALSE;
 	
@@ -1505,16 +1504,45 @@ void parse_server(int server_index){
 							substr(names,names,space_index+1,strlen(names)-space_index-1);
 							
 							//trim this user's name
-							if((strfind("@",this_name)==0)||(strfind("~",this_name)==0)||(strfind("%",this_name)==0)||(strfind("&",this_name)==0)){
+							if((strfind("@",this_name)==0)||(strfind("~",this_name)==0)||(strfind("%",this_name)==0)||(strfind("&",this_name)==0)||(strfind("+",this_name)==0)){
 								substr(this_name,this_name,1,strlen(this_name)-1);
 							}
 							
-							//find a spot for a new user
+							//check if this user is already in the list for this channel
+							int matches=0;
+							
+							char this_lower_case_name[BUFFER_SIZE];
+							strncpy(this_lower_case_name,this_name,BUFFER_SIZE);
+							strtolower(this_lower_case_name,BUFFER_SIZE);
+							
 							int n;
-							for(n=0;((servers[server_index]->user_names[output_channel][n]!=NULL)&&(n<MAX_NAMES));n++);
-							if(n<MAX_NAMES){
-								servers[server_index]->user_names[output_channel][n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-								strncpy(servers[server_index]->user_names[output_channel][n],this_name,BUFFER_SIZE);
+							for(n=0;n<MAX_NAMES;n++){
+								if(servers[server_index]->user_names[output_channel][n]!=NULL){
+									char matching_name[BUFFER_SIZE];
+									strncpy(matching_name,servers[server_index]->user_names[output_channel][n],BUFFER_SIZE);
+									strtolower(matching_name,BUFFER_SIZE);
+									
+									//found this nick
+									if(!strcmp(this_lower_case_name,matching_name)){
+										matches++;
+										//if it was a duplicate remove this copy
+										if(matches>1){
+											free(servers[server_index]->user_names[output_channel][n]);
+											servers[server_index]->user_names[output_channel][n]=NULL;
+											matches--;
+										}
+									}
+								}
+							}
+							
+							//if the user wasn't already there
+							if(matches==0){
+								//find a spot for a new user
+								for(n=0;((servers[server_index]->user_names[output_channel][n]!=NULL)&&(n<MAX_NAMES));n++);
+								if(n<MAX_NAMES){
+									servers[server_index]->user_names[output_channel][n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+									strncpy(servers[server_index]->user_names[output_channel][n],this_name,BUFFER_SIZE);
+								}
 							}
 						}
 #ifdef DEBUG
@@ -2212,11 +2240,10 @@ int main(int argc, char *argv[]){
 	//handle special argument cases like --version, --help, etc.
 	if(argc>1){
 		if(!strcmp(argv[1],"--version")){
-			printf("accidental_irc version %f\n",VERSION);
+			printf("accidental_irc, the accidental irc client, version %f\n",VERSION);
 			exit(0);
 		}else if(!strcmp(argv[1],"--help")){
-			//TODO: make a man page
-			printf("accidental_irc, the irc client that accidentally got written; MAN PAGE COMING SOON!\n");
+			printf("accidental_irc, the irc client that accidentally got written; see man page for docs\n");
 			exit(0);
 		}
 	}
