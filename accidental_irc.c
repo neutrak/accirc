@@ -1236,6 +1236,13 @@ void parse_input(char *input_buffer, char keep_history){
 				servers[current_server]->rejoin_on_kick=FALSE;
 				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to FALSE");
 			}
+		//unknown command error
+		}else{
+			if(current_server>=0){
+				char error_buffer[BUFFER_SIZE];
+				sprintf(error_buffer,"accirc: unknown command \"%s\"",command);
+				scrollback_output(current_server,0,error_buffer);
+			}
 		}
 	//if it's a server command send the raw text to the server
 	}else if(server_command){
@@ -1287,13 +1294,13 @@ void parse_input(char *input_buffer, char keep_history){
 			}
 		}else{
 #ifdef DEBUG
-			int foreground,background;
-			sscanf(input_buffer,"%i %i",&foreground,&background);
-			wclear(channel_text);
-			wcoloron(channel_text,foreground,background);
-			wprintw(channel_text,"This is a sample string in fg=%i bg=%i",foreground,background);
-			wcoloroff(channel_text,foreground,background);
-			wrefresh(channel_text);
+//			int foreground,background;
+//			sscanf(input_buffer,"%i %i",&foreground,&background);
+//			wclear(channel_text);
+//			wcoloron(channel_text,foreground,background);
+//			wprintw(channel_text,"This is a sample string in fg=%i bg=%i",foreground,background);
+//			wcoloroff(channel_text,foreground,background);
+//			wrefresh(channel_text);
 #endif
 		}
 	}
@@ -1731,12 +1738,12 @@ void parse_server(int server_index){
 					strtolower(tmp_nick,BUFFER_SIZE);
 					
 					if(!strcmp(tmp_nick,channel)){
+#ifdef DEBUG
 						char sys_call_buffer[BUFFER_SIZE];
 						sprintf(sys_call_buffer,"echo \"%lu <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
 						system(sys_call_buffer);
+#endif
 					}
-					
-					//TODO: handle CTCP VERSION and PING
 					
 					//for pings
 					int name_index=strfind(servers[server_index]->nick,text);
@@ -1748,10 +1755,33 @@ void parse_server(int server_index){
 					
 					//if there was a CTCP message
 					if(ctcp_check==0){
-						//the 1 here (and -1 in length) is to cut off the leading 0x01 to get the CTCP command
-						substr(ctcp,text,1,strfind(" ",text)-1);
-						if(!strcmp(ctcp,"ACTION")){
-							int offset=strlen("ACTION");
+						//if there's a space take the command to be until there
+						if(strfind(" ",text)>=0){
+							//the 1 here (and -1 in length) is to cut off the leading 0x01 to get the CTCP command
+							substr(ctcp,text,1,strfind(" ",text)-1);
+						//otherwise take it to be to the end, then check for a trailing 0x01 and cut it off if it's there
+						//(this ctcp command had no arguments)
+						}else{
+							//the 1 here (and -1 in length) is to cut off the leading 0x01 to get the CTCP command
+							substr(ctcp,text,1,strlen(text)-1);
+							
+							char tmp_buffer[BUFFER_SIZE];
+							strncpy(tmp_buffer,ctcp,BUFFER_SIZE);
+							
+							//this accounts for a possible trailing byte
+							sprintf(ctcp,"%c",0x01);
+							if(strfind(ctcp,tmp_buffer)>=0){
+								tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
+							}
+							strncpy(ctcp,tmp_buffer,BUFFER_SIZE);
+						}
+						
+						//be case-insensitive
+						strtolower(ctcp,BUFFER_SIZE);
+						
+						//handle CTCP ACTION
+						if(!strcmp(ctcp,"action")){
+							int offset=strlen("action");
 							char tmp_buffer[BUFFER_SIZE];
 							//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
 							//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
@@ -1764,15 +1794,54 @@ void parse_server(int server_index){
 							}
 							
 							//note: timestamps are added at the end
-//							sprintf(output_buffer,"%lu *%s %s",(uintmax_t)(time(NULL)),nick,tmp_buffer);
 							sprintf(output_buffer,"*%s %s",nick,tmp_buffer);
+						//handle CTCP VERSION
+						}else if(!strcmp(ctcp,"version")){
+							int offset=strlen("version");
+							char tmp_buffer[BUFFER_SIZE];
+							//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
+							//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
+							substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
+							
+							//some clients prefer privmsg responses, others prefer notice response
+							int old_server=current_server;
+							current_server=server_index;
+//							sprintf(ctcp,":privmsg %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
+//							parse_input(ctcp,FALSE);
+							sprintf(ctcp,":notice %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
+							parse_input(ctcp,FALSE);
+							current_server=old_server;
+							
+							refresh_server_list();
+							refresh_channel_list();
+							refresh_channel_topic();
+							refresh_channel_text();
+						//handle CTCP PING
+						}else if(!strcmp(ctcp,"ping")){
+							int offset=strlen("ping");
+							char tmp_buffer[BUFFER_SIZE];
+							//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
+							//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
+							substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
+							
+							//this response is a notice in the spec
+							int old_server=current_server;
+							current_server=server_index;
+							sprintf(ctcp,":notice %s :%s",nick,text);
+							parse_input(ctcp,FALSE);
+							current_server=old_server;
+							
+							refresh_server_list();
+							refresh_channel_list();
+							refresh_channel_topic();
+							refresh_channel_text();
 						}
 					//handle for a ping (when someone says our own nick)
 					}else if(name_index>=0){
 						//take any desired additional steps upon ping here (could add notify-send or something, if desired)
 						char sys_call_buffer[BUFFER_SIZE];
 #ifdef DEBUG
-						sprintf(sys_call_buffer,"echo \"%lu <%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+						sprintf(sys_call_buffer,"echo \"%lu ***<%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
 						system(sys_call_buffer);
 #endif
 						//audio output
