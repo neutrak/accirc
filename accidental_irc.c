@@ -34,7 +34,7 @@
 #define MIN_HEIGHT 7
 #define MIN_WIDTH 12
 
-#define VERSION 0.1
+#define VERSION "0.1"
 
 //these are for ncurses' benefit
 #define KEY_ESCAPE 0x1b
@@ -2299,7 +2299,7 @@ int main(int argc, char *argv[]){
 	//handle special argument cases like --version, --help, etc.
 	if(argc>1){
 		if(!strcmp(argv[1],"--version")){
-			printf("accidental_irc, the accidental irc client, version %f\n",VERSION);
+			printf("accidental_irc, the accidental irc client, version %s\n",VERSION);
 			exit(0);
 		}else if(!strcmp(argv[1],"--help")){
 			printf("accidental_irc, the irc client that accidentally got written; see man page for docs\n");
