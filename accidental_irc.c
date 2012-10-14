@@ -354,6 +354,75 @@ char safe_recv(int socket, char *buffer){
 	return TRUE;
 }
 
+void properly_close(int server_index){
+	close(servers[server_index]->socket_fd);
+	//free RAM null this sucker out
+	int n;
+	for(n=0;n<MAX_CHANNELS;n++){
+		if(servers[server_index]->channel_name[n]!=NULL){
+			free(servers[server_index]->channel_name[n]);
+			free(servers[server_index]->channel_topic[n]);
+			free(servers[server_index]->autojoin_channel[n]);
+			
+			int n1;
+			for(n1=0;n1<MAX_SCROLLBACK;n1++){
+				if(servers[server_index]->channel_content[n][n1]!=NULL){
+					free(servers[server_index]->channel_content[n][n1]);
+				}
+			}
+			free(servers[server_index]->channel_content[n]);
+			
+			if(servers[server_index]->log_file[n]!=NULL){
+				fclose(servers[server_index]->log_file[n]);
+			}
+			
+			for(n1=0;n1<MAX_NAMES;n1++){
+				if(servers[server_index]->user_names[n][n1]!=NULL){
+					free(servers[server_index]->user_names[n][n1]);
+				}
+			}
+			free(servers[server_index]->user_names[n]);
+		}
+	}
+					
+	free(servers[server_index]);
+	servers[server_index]=NULL;
+	
+	//set a new current_server if we were on that one
+	if(current_server==server_index){
+		current_server=-1;
+		int n;
+		for(n=0;n<MAX_SERVERS;n++){
+			if(servers[n]!=NULL){
+				current_server=n;
+			}
+		}
+	}
+	
+	//output
+	if(current_server<0){
+		wclear(server_list);
+		wclear(channel_list);
+		wclear(channel_topic);
+		wclear(channel_text);
+		
+		wprintw(server_list,"(no servers)");
+		wprintw(channel_list,"(no channels)");
+		wprintw(channel_topic,"(no channel topic)");
+		wprintw(channel_text,"(no channel text)");
+		
+		wrefresh(server_list);
+		wrefresh(channel_list);
+		wrefresh(channel_topic);
+		wrefresh(channel_text);
+	}else{
+		refresh_server_list();
+		refresh_channel_list();
+		refresh_channel_topic();
+		refresh_channel_text();
+	}
+}
+
 //display server list updates as needed; bolding the current server
 void refresh_server_list(){
 	//if we're not connected to anything don't bother
@@ -1341,72 +1410,7 @@ void parse_server(int server_index){
 		safe_send(servers[server_index]->socket_fd,servers[server_index]->read_buffer);
 	//if we got an error, close the link and clean up the structures
 	}else if(!strcmp(command,"ERROR")){
-		close(servers[server_index]->socket_fd);
-		//free RAM null this sucker out
-		int n;
-		for(n=0;n<MAX_CHANNELS;n++){
-			if(servers[server_index]->channel_name[n]!=NULL){
-				free(servers[server_index]->channel_name[n]);
-				free(servers[server_index]->channel_topic[n]);
-				free(servers[server_index]->autojoin_channel[n]);
-				
-				int n1;
-				for(n1=0;n1<MAX_SCROLLBACK;n1++){
-					if(servers[server_index]->channel_content[n][n1]!=NULL){
-						free(servers[server_index]->channel_content[n][n1]);
-					}
-				}
-				free(servers[server_index]->channel_content[n]);
-				
-				if(servers[server_index]->log_file[n]!=NULL){
-					fclose(servers[server_index]->log_file[n]);
-				}
-				
-				for(n1=0;n1<MAX_NAMES;n1++){
-					if(servers[server_index]->user_names[n][n1]!=NULL){
-						free(servers[server_index]->user_names[n][n1]);
-					}
-				}
-				free(servers[server_index]->user_names[n]);
-			}
-		}
-						
-		free(servers[server_index]);
-		servers[server_index]=NULL;
-		
-		//set a new current_server if we were on that one
-		if(current_server==server_index){
-			current_server=-1;
-			int n;
-			for(n=0;n<MAX_SERVERS;n++){
-				if(servers[n]!=NULL){
-					current_server=n;
-				}
-			}
-		}
-		
-		//output
-		if(current_server<0){
-			wclear(server_list);
-			wclear(channel_list);
-			wclear(channel_topic);
-			wclear(channel_text);
-			
-			wprintw(server_list,"(no servers)");
-			wprintw(channel_list,"(no channels)");
-			wprintw(channel_topic,"(no channel topic)");
-			wprintw(channel_text,"(no channel text)");
-			
-			wrefresh(server_list);
-			wrefresh(channel_list);
-			wrefresh(channel_topic);
-			wrefresh(channel_text);
-		}else{
-			refresh_server_list();
-			refresh_channel_list();
-			refresh_channel_topic();
-			refresh_channel_text();
-		}
+		properly_close(server_index);
 	}else{
 		//set this to show as having new data, it must since we're getting something on it
 		servers[server_index]->new_server_content=TRUE;
@@ -2890,61 +2894,7 @@ int main(int argc, char *argv[]){
 				int bytes_transferred=recv(servers[server_index]->socket_fd,one_byte_buffer,1,0);
 				if((bytes_transferred<=0)&&(errno!=EAGAIN)){
 					//TODO: handle connection errors gracefully here
-					close(servers[server_index]->socket_fd);
-					
-					//at the moment this just de-allocates associated memory
-					int n;
-					for(n=0;n<MAX_CHANNELS;n++){
-						if((servers[server_index]->channel_name[n])!=NULL){
-							free(servers[server_index]->channel_name[n]);
-							int n1;
-							for(n1=0;n1<MAX_SCROLLBACK;n1++){
-								if(servers[server_index]->channel_content[n][n1]!=NULL){
-									free(servers[server_index]->channel_content[n][n1]);
-								}
-							}
-							free(servers[server_index]->channel_content[n]);
-						}
-					}
-					free(servers[server_index]);
-					//reset that entry to null for subsequent iterations
-					servers[server_index]=NULL;
-					
-					//if we were on that server we'd better switch because it's not there anymore
-					if(server_index==current_server){
-						for(n=0;n<MAX_SERVERS;n++){
-							if(servers[n]!=NULL){
-								//reset the current server (note if there are still >1 connected servers it'll hit the last one)
-								current_server=n;
-							//if there are no servers connected any more
-							}else if(n==(MAX_SERVERS-1)){
-								//go back to the generic unconnected view
-								current_server=-1;
-							}
-						}
-					}
-					
-					//if there are no servers left display a depressing message
-					if(current_server==-1){
-						wclear(server_list);
-						wclear(channel_list);
-						wclear(channel_topic);
-						wclear(channel_text);
-						
-						wprintw(server_list,"(no servers)");
-						wprintw(channel_list,"(no channels)");
-						wprintw(channel_topic,"(no channel topic)");
-						wprintw(channel_text,"(no channel text)");
-						
-						wrefresh(server_list);
-						wrefresh(channel_list);
-						wrefresh(channel_topic);
-						wrefresh(channel_text);
-					//if there are servers left show that
-					}else{
-						//update the server list display to reflect this server no longer being there (EVEN IF this wasn't the currently selected server, which is why I can't combine this with the above loop)
-						refresh_server_list();
-					}
+					properly_close(server_index);
 				}else if(bytes_transferred>0){
 					//add this byte to the total buffer
 					if(strinsert(servers[server_index]->read_buffer,one_byte_buffer[0],strlen(servers[server_index]->read_buffer),BUFFER_SIZE)){
@@ -3015,39 +2965,15 @@ int main(int argc, char *argv[]){
 			refresh_user_input(input_buffer,cursor_pos,input_display_start);
 		}
 	}
-	//TODO: figure out what's segfaulting on ^C, I think it's in here somewhere
+	
 	//free all the RAM we allocated for anything
 	int server_index;
 	for(server_index=0;server_index<MAX_SERVERS;server_index++){
 		//if this is a valid server connection
 		if(servers[server_index]!=NULL){
-//			safe_send(servers[server_index]->socket_fd,"QUIT :accidental_irc exited\n");
-//			close(servers[server_index]->socket_fd);
-			
-			int n;
-			for(n=0;n<MAX_CHANNELS;n++){
-				if((servers[server_index]->channel_name[n])!=NULL){
-					free(servers[server_index]->channel_name[n]);
-					free(servers[server_index]->channel_topic[n]);
-					
-					int n1;
-					for(n1=0;n1<MAX_SCROLLBACK;n1++){
-						if(servers[server_index]->channel_content[n][n1]!=NULL){
-							free(servers[server_index]->channel_content[n][n1]);
-						}
-					}
-					free(servers[server_index]->channel_content[n]);
-					
-					//properly close log files
-					if((servers[server_index]->keep_logs)&&(servers[server_index]->log_file[n]!=NULL)){
-						fclose(servers[server_index]->log_file[n]);
-					}
-				}
-			}
-			free(servers[server_index]);
+			properly_close(server_index);
 		}
 	}
-	
 	
 	//end ncurses cleanly
 	endwin();
