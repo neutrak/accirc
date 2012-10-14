@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "13 Oct 2012"
+.TH ACCIRC 1 "14 Oct 2012"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -51,10 +51,10 @@ sleeps a given number of microseconds
 ignore this line, a comment (for an rc file)
 .TP
 \fB/autojoin\fP \fIchannel\fP
-join this channel on the last server connected to as soon as we can (for an rc file)
+join this channel on the current server as soon as we can (for an rc file)
 .TP
 \fB/autoident\fP \fIpassword\fP
-auth for this nick on the last server connected to as soon as we can (for an rc file)
+auth for this nick on the current server as soon as we can (for an rc file)
 .TP
 \fB/fallback_nick\fP \fInick\fP
 set this as the backup nick if the nick specified is taken; if this nick is also taken _ is appended until one is unclaimed or we run out of characters allowed in the nick (for an rc file)
@@ -77,6 +77,9 @@ server left (see /sl)
 .TP
 \fBf4\fP
 server right (see /sr)
+.TP
+\fBf5\fP
+literal tab character (hopefully this is only temporary until I can get a better binding)
 .TP
 \fB<tab>\fP
 complete a nickname based on nicks in current channel
@@ -117,6 +120,6 @@ The location of all logs from all servers
 .SH "SEE ALSO"
 ncurses(3)
 .SH BUGS
-MODE not yet handled for; MIRC colors don't work under screen; dropped connections not handled for; CTCP PING and VERSION not yet handled for; This is slow because it reads a byte at a time and the kernel reschedules that each byte
+MIRC colors don't work under screen; dropped connections not handled for; This is slow because it reads a byte at a time and the kernel reschedules that each byte
 .SH WWW
 http://somegenericsite.dyndns.org/index.php?p=code

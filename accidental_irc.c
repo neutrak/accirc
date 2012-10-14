@@ -881,7 +881,13 @@ void parse_input(char *input_buffer, char keep_history){
 			char port_buffer[BUFFER_SIZE];
 			int first_space=strfind(" ",parameters);
 			if(first_space<0){
-				//TODO: handle for insufficient parameters
+				//handle for insufficient parameters
+				//note text output cannot be done here (except maybe to stdout or stderr) since we not be connected to any server
+				int n;
+				for(n=0;n<3;n++){
+					beep();
+					usleep(100000);
+				}
 			}else{
 				substr(host,parameters,0,first_space);
 				substr(port_buffer,parameters,first_space+1,strlen(parameters)-(first_space+1));
@@ -993,9 +999,13 @@ void parse_input(char *input_buffer, char keep_history){
 								sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[0]);
 								//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
 								servers[server_index]->log_file[0]=fopen(file_location,"a");
-							//TODO: make this fail in a non-silent way, the user should know there was a problem
+								if(servers[server_index]->log_file[0]==NULL){
+									scrollback_output(server_index,0,"accirc: Err: could not make log file");
+								}
+							//this fails in a non-silent way, the user should know there was a problem
 							//if we couldn't make the directory then don't keep logs rather than failing hard
 							}else{
+								scrollback_output(server_index,0,"accirc: Err: could not make logging directory");
 								servers[server_index]->keep_logs=FALSE;
 							}
 						}
@@ -1240,7 +1250,7 @@ void parse_input(char *input_buffer, char keep_history){
 		}else{
 			if(current_server>=0){
 				char error_buffer[BUFFER_SIZE];
-				sprintf(error_buffer,"accirc: unknown command \"%s\"",command);
+				sprintf(error_buffer,"accirc: Err: unknown command \"%s\"",command);
 				scrollback_output(current_server,0,error_buffer);
 			}
 		}
@@ -1838,9 +1848,9 @@ void parse_server(int server_index){
 						}
 					//handle for a ping (when someone says our own nick)
 					}else if(name_index>=0){
+#ifdef DEBUG
 						//take any desired additional steps upon ping here (could add notify-send or something, if desired)
 						char sys_call_buffer[BUFFER_SIZE];
-#ifdef DEBUG
 						sprintf(sys_call_buffer,"echo \"%lu ***<%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
 						system(sys_call_buffer);
 #endif
@@ -2136,13 +2146,7 @@ void parse_server(int server_index){
 					strncpy(text,tmp_buffer,BUFFER_SIZE);
 					
 					//lower case the channel so we can do a case-insensitive string match against it
-					for(n=0;n<BUFFER_SIZE;n++){
-						if(channel[n]!='\0'){
-							channel[n]=tolower(channel[n]);
-						}else{
-							n=BUFFER_SIZE;
-						}
-					}
+					strtolower(channel,BUFFER_SIZE);
 					
 					//go through the channels, find out the one to output to, set "output_channel" to that index
 					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
@@ -2159,6 +2163,28 @@ void parse_server(int server_index){
 								//and output
 								refresh_channel_topic();
 								
+								output_channel=channel_index;
+								channel_index=MAX_CHANNELS;
+							}
+						}
+					}
+				//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
+				}else if(!strcmp(command,"MODE")){
+					char channel[BUFFER_SIZE];
+					substr(channel,text,0,strfind(" ",text));
+					
+					//lower case the channel so we can do a case-insensitive string match against it
+					strtolower(channel,BUFFER_SIZE);
+					//go through the channels, find out the one to output to, set "output_channel" to that index
+					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
+					int channel_index;
+					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+						if(servers[server_index]->channel_name[channel_index]!=NULL){
+							char lower_case_channel[BUFFER_SIZE];
+							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+							strtolower(lower_case_channel,BUFFER_SIZE);
+							
+							if(!strcmp(channel,lower_case_channel)){
 								output_channel=channel_index;
 								channel_index=MAX_CHANNELS;
 							}
@@ -2756,6 +2782,10 @@ int main(int argc, char *argv[]){
 						//note cursor position doesn't change here
 					}
 					break;
+				//TODO: make this ctrl+tab if possible, or something else that makes more sense
+				//temporarily f5 sends a literal tab
+				case 269:
+					c='\t';
 				//normal input
 				default:
 					if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
@@ -2767,12 +2797,14 @@ int main(int argc, char *argv[]){
 						}
 					}
 					
-/* #ifdef DEBUG
-					wclear(channel_text);
-					wmove(channel_text,0,0);
-					wprintw(channel_text,"%i",c);
-					wrefresh(channel_text);
-#endif */
+#ifdef DEBUG
+					if(current_server<0){
+						wclear(channel_text);
+						wmove(channel_text,0,0);
+						wprintw(channel_text,"%i",c);
+						wrefresh(channel_text);
+					}
+#endif
 					break;
 			}
 		}
