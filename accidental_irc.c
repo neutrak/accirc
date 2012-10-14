@@ -1339,6 +1339,74 @@ void parse_server(int server_index){
 		//switch the I in ping for an O in pong
 		servers[server_index]->read_buffer[1]='O';
 		safe_send(servers[server_index]->socket_fd,servers[server_index]->read_buffer);
+	//if we got an error, close the link and clean up the structures
+	}else if(!strcmp(command,"ERROR")){
+		close(servers[server_index]->socket_fd);
+		//free RAM null this sucker out
+		int n;
+		for(n=0;n<MAX_CHANNELS;n++){
+			if(servers[server_index]->channel_name[n]!=NULL){
+				free(servers[server_index]->channel_name[n]);
+				free(servers[server_index]->channel_topic[n]);
+				free(servers[server_index]->autojoin_channel[n]);
+				
+				int n1;
+				for(n1=0;n1<MAX_SCROLLBACK;n1++){
+					if(servers[server_index]->channel_content[n][n1]!=NULL){
+						free(servers[server_index]->channel_content[n][n1]);
+					}
+				}
+				free(servers[server_index]->channel_content[n]);
+				
+				if(servers[server_index]->log_file[n]!=NULL){
+					fclose(servers[server_index]->log_file[n]);
+				}
+				
+				for(n1=0;n1<MAX_NAMES;n1++){
+					if(servers[server_index]->user_names[n][n1]!=NULL){
+						free(servers[server_index]->user_names[n][n1]);
+					}
+				}
+				free(servers[server_index]->user_names[n]);
+			}
+		}
+						
+		free(servers[server_index]);
+		servers[server_index]=NULL;
+		
+		//set a new current_server if we were on that one
+		if(current_server==server_index){
+			current_server=-1;
+			int n;
+			for(n=0;n<MAX_SERVERS;n++){
+				if(servers[n]!=NULL){
+					current_server=n;
+				}
+			}
+		}
+		
+		//output
+		if(current_server<0){
+			wclear(server_list);
+			wclear(channel_list);
+			wclear(channel_topic);
+			wclear(channel_text);
+			
+			wprintw(server_list,"(no servers)");
+			wprintw(channel_list,"(no channels)");
+			wprintw(channel_topic,"(no channel topic)");
+			wprintw(channel_text,"(no channel text)");
+			
+			wrefresh(server_list);
+			wrefresh(channel_list);
+			wrefresh(channel_topic);
+			wrefresh(channel_text);
+		}else{
+			refresh_server_list();
+			refresh_channel_list();
+			refresh_channel_topic();
+			refresh_channel_text();
+		}
 	}else{
 		//set this to show as having new data, it must since we're getting something on it
 		servers[server_index]->new_server_content=TRUE;
@@ -2242,9 +2310,12 @@ void parse_server(int server_index){
 		}
 	}
 	
-	//clear out the real buffer for the next line from the server
-	for(n=0;n<BUFFER_SIZE;n++){
-		servers[server_index]->read_buffer[n]='\0';
+	//if we didn't close the connection up there
+	if(servers[server_index]!=NULL){
+		//clear out the real buffer for the next line from the server
+		for(n=0;n<BUFFER_SIZE;n++){
+			servers[server_index]->read_buffer[n]='\0';
+		}
 	}
 }
 
