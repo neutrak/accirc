@@ -2860,7 +2860,14 @@ int main(int argc, char *argv[]){
 				//TODO: make this ctrl+tab if possible, or something else that makes more sense
 				//temporarily f5 sends a literal tab
 				case 269:
-					c='\t';
+				//and f6 sends a 0x01 (since screen catches the real one)
+				case 270:
+					//these are mutually exclusive, so an if is needed
+					if(c==269){
+						c='\t';
+					}else if(c==270){
+						c=0x01;
+					}
 				//normal input
 				default:
 					if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){

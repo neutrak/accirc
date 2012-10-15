@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "14 Oct 2012"
+.TH ACCIRC 1 "15 Oct 2012"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -81,6 +81,9 @@ server right (see /sr)
 \fBf5\fP
 literal tab character (hopefully this is only temporary until I can get a better binding)
 .TP
+\fBf6\fP
+0x01 character, since screen intercepts literal ^A (for manually sending CTCP messages other than ACTION); displays as a bold \\ in input area
+.TP
 \fB<tab>\fP
 complete a nickname based on nicks in current channel
 .TP
@@ -120,6 +123,6 @@ The location of all logs from all servers
 .SH "SEE ALSO"
 ncurses(3)
 .SH BUGS
-MIRC colors don't work under screen; dropped connections not handled for; This is slow because it reads a byte at a time and the kernel reschedules that each byte
+MIRC colors don't work under screen; auto-reconnecting on drop not yet handled for; This is slow because it reads a byte at a time and the kernel reschedules that each byte
 .SH WWW
 http://somegenericsite.dyndns.org/index.php?p=code
