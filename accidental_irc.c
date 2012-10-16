@@ -61,11 +61,17 @@
 //and in case the user doesn't give a proper quit message
 #define DEFAULT_QUIT_MESSAGE "accidental_irc exited"
 
+//for reconnecting we should re-send user information, it'll use this
+#define DEFAULT_USER "1 2 3 4"
+
 //the error to display when a line overflows
 #define LINE_OVERFLOW_ERROR "<<etc.>>"
 
 //the default directoryto save logs to
 #define LOGGING_DIRECTORY "logs"
+
+//the number of seconds to try to reconnect before giving up
+#define RECONNECT_TIMEOUT 2
 
 enum {
 	MIRC_WHITE,
@@ -109,6 +115,8 @@ struct irc_connection {
 	char rejoin_on_kick;
 	//the nick to use if the user's nick is already in use
 	char fallback_nick[BUFFER_SIZE];
+	//whether to try to reconnect to this server if connection is lost
+	char reconnect;
 	
 	//this data is what the user sees (but is also used for other things)
 	char server_name[BUFFER_SIZE];
@@ -355,6 +363,42 @@ char safe_recv(int socket, char *buffer){
 }
 
 void properly_close(int server_index){
+	//if we're not connected in the first place just leave, we're done here
+	if(server_index<0){
+		return;
+	}
+	
+	//if we want to reconnect to this server handle that
+	char reconnect_this=servers[server_index]->reconnect;
+	
+	char reconnect_host[BUFFER_SIZE];
+	int reconnect_port;
+	char *reconnect_channels[MAX_CHANNELS];
+	char reconnect_nick[BUFFER_SIZE];
+	char reconnect_ident[BUFFER_SIZE];
+	//if we'll be reconnecting to this server
+	if(reconnect_this){
+		//remember all the necessary information in order to reconnect
+		strncpy(reconnect_host,servers[server_index]->server_name,BUFFER_SIZE);
+		reconnect_port=servers[server_index]->port;
+		
+		//we'll automatically rejoin the channels we were already in
+		int n;
+		reconnect_channels[0]=NULL; //never reconnect to the reserved system channel
+		for(n=1;n<MAX_CHANNELS;n++){
+			if(servers[server_index]->channel_name[n]!=NULL){
+				reconnect_channels[n]=malloc(BUFFER_SIZE*sizeof(char));
+				strncpy(reconnect_channels[n],servers[server_index]->channel_name[n],BUFFER_SIZE);
+			}else{
+				reconnect_channels[n]=NULL;
+			}
+		}
+		
+		strncpy(reconnect_nick,servers[server_index]->nick,BUFFER_SIZE);
+		strncpy(reconnect_ident,servers[server_index]->ident,BUFFER_SIZE);
+	}
+	
+	//clean up the server
 	close(servers[server_index]->socket_fd);
 	//free RAM null this sucker out
 	int n;
@@ -396,6 +440,75 @@ void properly_close(int server_index){
 			if(servers[n]!=NULL){
 				current_server=n;
 			}
+		}
+	}
+	
+	//if we'll be reconnecting to this server
+	if(reconnect_this){
+		char reconnect_command[BUFFER_SIZE];
+		sprintf(reconnect_command,"/connect %s %i",reconnect_host,reconnect_port);
+		
+		//find where the next connection will go so we know if the command was successful
+		int next_server;
+		for(next_server=0;(next_server<MAX_SERVERS)&&(servers[next_server]!=NULL);next_server++);
+		
+		if(next_server<MAX_SERVERS){
+			//try to reconnect again and again until we're either connected or we timed out
+			char timeout=FALSE;
+			uintmax_t start_time=time(NULL);
+			while((!timeout)&&(servers[next_server]==NULL)){
+				uintmax_t current_time=time(NULL);
+				if((current_time-start_time)>RECONNECT_TIMEOUT){
+					timeout=TRUE;
+				}else{
+					//send the connect command (if this works then servers[next_server] should no longer be NULL, breaking the loop)
+					parse_input(reconnect_command,FALSE);
+				}
+			}
+			
+			//because there wasn't a timeout, implicitly we successfully connected
+			if(!timeout){
+				int old_server;
+				if(current_server>=0){
+					old_server=current_server;
+				}else{
+					old_server=next_server;
+				}
+				
+				//we're connected, so time to do some stuff
+				current_server=next_server;
+				
+				char command_buffer[BUFFER_SIZE];
+				sprintf(command_buffer,":nick %s",reconnect_nick);
+				parse_input(command_buffer,FALSE);
+				sprintf(command_buffer,":user %s",DEFAULT_USER);
+				parse_input(command_buffer,FALSE);
+				if(strcmp(reconnect_ident,"")!=0){
+					sprintf(command_buffer,"/autoident %s",reconnect_ident);
+					parse_input(command_buffer,FALSE);
+				}
+				
+				//rejoin the channels we were in when possible
+				int n;
+				for(n=0;n<MAX_CHANNELS;n++){
+					if(reconnect_channels[n]!=NULL){
+						sprintf(command_buffer,"/autojoin %s",reconnect_channels[n]);
+						parse_input(command_buffer,FALSE);
+						//free the memory
+						free(reconnect_channels[n]);
+						reconnect_channels[n]=NULL;
+					}
+				}
+				
+				//if you wanted to reconnect before you probably still want to
+				//this segfaults with parse_input but doesn't fail at all with just setting the value, not sure why that is
+//				parse_input("/reconnect",FALSE);
+				servers[next_server]->reconnect=TRUE;
+				
+				//go back to whatever server you were on
+				current_server=old_server;
+			}
+			//else it was a timeout, so sorry, can't do anything, give up
 		}
 	}
 	
@@ -1058,6 +1171,9 @@ void parse_input(char *input_buffer, char keep_history){
 							servers[server_index]->channel_content[0][n]=NULL;
 						}
 						
+						//by default don't reconnect if connnection is lost
+						servers[server_index]->reconnect=FALSE;
+						
 						//TODO: make keeping logs a setting, not just always true
 						servers[server_index]->keep_logs=TRUE;
 						if(servers[server_index]->keep_logs){
@@ -1314,6 +1430,16 @@ void parse_input(char *input_buffer, char keep_history){
 			if(current_server>=0){
 				servers[current_server]->rejoin_on_kick=FALSE;
 				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to FALSE");
+			}
+		}else if(!strcmp(command,"reconnect")){
+			if(current_server>=0){
+				servers[current_server]->reconnect=TRUE;
+				scrollback_output(current_server,0,"accirc: reconnect set to TRUE");
+			}
+		}else if(!strcmp(command,"no_reconnect")){
+			if(current_server>=0){
+				servers[current_server]->reconnect=FALSE;
+				scrollback_output(current_server,0,"accirc: reconnect set to FALSE");
 			}
 		//unknown command error
 		}else{

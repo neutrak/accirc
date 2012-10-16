@@ -26,6 +26,12 @@ connects to an irc server at <host> on port <port>
 \fB/exit\fP [ message ]
 sends a QUIT to every irc server you're connected to
 .TP
+\fB/reconnect\fP
+reconnect to the currently selected server if connection is lost for any reason
+.TP
+\fB/no_reconnect\fP
+don't reconnect to the currently selected server
+.TP
 \fB/sl\fP
 sets active server one left of current server
 .TP
