@@ -1089,7 +1089,7 @@ void parse_input(char *input_buffer, char keep_history){
 				if(new_socket_fd<0){
 					//TODO: handle failed socket openings gracefully here
 #ifdef DEBUG
-					fprintf(stderr,"Err: Could not open socket\n");
+//					fprintf(stderr,"Err: Could not open socket\n");
 #endif
 					goto fail;
 				}
@@ -1099,7 +1099,7 @@ void parse_input(char *input_buffer, char keep_history){
 				if(server==NULL){
 					//TODO: handle failed hostname lookups gracefully here
 #ifdef DEBUG
-					fprintf(stderr,"Err: Could not find server\n");
+//					fprintf(stderr,"Err: Could not find server\n");
 #endif
 					goto fail;
 				}
@@ -1114,7 +1114,7 @@ void parse_input(char *input_buffer, char keep_history){
 				if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
 					//TODO: handle failed connections gracefully here
 #ifdef DEBUG
-					fprintf(stderr,"Err: Could not connect to server\n");
+//					fprintf(stderr,"Err: Could not connect to server\n");
 #endif
 					goto fail;
 				}
@@ -1451,20 +1451,23 @@ void parse_input(char *input_buffer, char keep_history){
 		}
 	//if it's a server command send the raw text to the server
 	}else if(server_command){
-		char to_send[BUFFER_SIZE];
-		sprintf(to_send,"%s\n",input_buffer);
-		safe_send(servers[current_server]->socket_fd,to_send);
-		
-		//format the text for my viewing benefit (this is also what will go in logs, with a newline)
-		char output_buffer[BUFFER_SIZE];
-//		sprintf(output_buffer,"%lu %s",(uintmax_t)(time(NULL)),input_buffer);
-		sprintf(output_buffer,"%s",input_buffer);
-		
-		//place my own text in the scrollback for this server and channel
-		scrollback_output(current_server,0,output_buffer);
-		
-		//refresh the channel text just in case
-		refresh_channel_text();
+		//if we're connected to a server
+		if(current_server>=0){
+			char to_send[BUFFER_SIZE];
+			sprintf(to_send,"%s\n",input_buffer);
+			safe_send(servers[current_server]->socket_fd,to_send);
+			
+			//format the text for my viewing benefit (this is also what will go in logs, with a newline)
+			char output_buffer[BUFFER_SIZE];
+	//		sprintf(output_buffer,"%lu %s",(uintmax_t)(time(NULL)),input_buffer);
+			sprintf(output_buffer,"%s",input_buffer);
+			
+			//place my own text in the scrollback for this server and channel
+			scrollback_output(current_server,0,output_buffer);
+			
+			//refresh the channel text just in case
+			refresh_channel_text();
+		}
 	//if it's not a command of any kind send it as a PM to current channel and server
 	}else{
 		if(current_server>=0){
