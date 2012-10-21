@@ -888,7 +888,7 @@ void scrollback_output(int server_index, int output_channel, char *to_output){
 	
 	//regardless of what our output was, timestamp it
 	char time_buffer[BUFFER_SIZE];
-	sprintf(time_buffer,"%lu %s",(uintmax_t)(time(NULL)),output_buffer);
+	sprintf(time_buffer,"%ju %s",(uintmax_t)(time(NULL)),output_buffer);
 	strncpy(output_buffer,time_buffer,BUFFER_SIZE);
 	
 	//add the message to the relevant channel scrollback structure
@@ -979,6 +979,90 @@ void leave_channel(int server_index, char *ch){
 		}
 	}
 }
+
+//add a name to the names list for a channel
+void add_name(int server_index, int channel_index, char *name){
+	if(server_index<0){
+		return;
+	}
+	
+	//check if this user is already in the list for this channel
+	int matches=0;
+	
+	char this_lower_case_name[BUFFER_SIZE];
+	strncpy(this_lower_case_name,name,BUFFER_SIZE);
+	strtolower(this_lower_case_name,BUFFER_SIZE);
+	
+	int n;
+	for(n=0;n<MAX_NAMES;n++){
+		if(servers[server_index]->user_names[channel_index][n]!=NULL){
+			char matching_name[BUFFER_SIZE];
+			strncpy(matching_name,servers[server_index]->user_names[channel_index][n],BUFFER_SIZE);
+			strtolower(matching_name,BUFFER_SIZE);
+			
+			//found this nick
+			if(!strcmp(this_lower_case_name,matching_name)){
+				matches++;
+				//if it was a duplicate remove this copy
+				if(matches>1){
+					free(servers[server_index]->user_names[channel_index][n]);
+					servers[server_index]->user_names[channel_index][n]=NULL;
+					matches--;
+				}
+			}
+		}
+	}
+	
+	//if the user wasn't already there
+	if(matches==0){
+		//find a spot for a new user
+		for(n=0;((servers[server_index]->user_names[channel_index][n]!=NULL)&&(n<MAX_NAMES));n++);
+		if(n<MAX_NAMES){
+			servers[server_index]->user_names[channel_index][n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+			strncpy(servers[server_index]->user_names[channel_index][n],name,BUFFER_SIZE);
+		}
+	}
+}
+
+//remove a name to the names list for a channel
+void del_name(int server_index, int channel_index, char *name){
+	if(server_index<0){
+		return;
+	}
+	
+	char nick[BUFFER_SIZE];
+	strncpy(nick,name,BUFFER_SIZE);
+	
+	//set the user's nick to be lower-case for case-insensitive string matching
+	strtolower(nick,BUFFER_SIZE);
+	
+	//remove this user from the names array of the channel she/he parted
+	if(servers[server_index]->channel_name[channel_index]!=NULL){
+		int name_index;
+		for(name_index=0;name_index<MAX_NAMES;name_index++){
+			if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
+				char this_name[BUFFER_SIZE];
+				strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
+				strtolower(this_name,BUFFER_SIZE);
+				if(!strcmp(this_name,nick)){
+					//remove this user from that channel's names array
+					free(servers[server_index]->user_names[channel_index][name_index]);
+					servers[server_index]->user_names[channel_index][name_index]=NULL;
+				}
+			}
+		}
+	}
+}
+
+/*
+//search for a name in the names list for a channel
+void search_name(int server_index, int channel_index, char *name){
+	if(server_index<0){
+		return;
+	}
+	
+}
+*/
 
 //parse user's input (note this is conextual based on current server and channel)
 //because some input may be given recursively or from key bindings, there is a history flag to tell if we should actually consider this input in the history
@@ -1459,7 +1543,7 @@ void parse_input(char *input_buffer, char keep_history){
 			
 			//format the text for my viewing benefit (this is also what will go in logs, with a newline)
 			char output_buffer[BUFFER_SIZE];
-	//		sprintf(output_buffer,"%lu %s",(uintmax_t)(time(NULL)),input_buffer);
+	//		sprintf(output_buffer,"%ju %s",(uintmax_t)(time(NULL)),input_buffer);
 			sprintf(output_buffer,"%s",input_buffer);
 			
 			//place my own text in the scrollback for this server and channel
@@ -1490,10 +1574,10 @@ void parse_input(char *input_buffer, char keep_history){
 				if(strfind(ctcp,input_buffer)==0){
 					char tmp_buffer[BUFFER_SIZE];
 					substr(tmp_buffer,input_buffer,strlen(ctcp),strlen(input_buffer)-strlen(ctcp)-1);
-//					sprintf(output_buffer,">> %lu *%s %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,tmp_buffer);
+//					sprintf(output_buffer,">> %ju *%s %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,tmp_buffer);
 					sprintf(output_buffer,">> *%s %s",servers[current_server]->nick,tmp_buffer);
 				}else{
-//					sprintf(output_buffer,">> %lu <%s> %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,input_buffer);
+//					sprintf(output_buffer,">> %ju <%s> %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,input_buffer);
 					sprintf(output_buffer,">> <%s> %s",servers[current_server]->nick,input_buffer);
 				}
 				
@@ -1772,9 +1856,15 @@ void parse_server(int server_index){
 					if(output_channel>0){
 						char names[BUFFER_SIZE];
 						substr(names,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
-						while(strfind(" ",names)>=0){
+						while(strlen(names)>0){
 							char this_name[BUFFER_SIZE];
 							int space_index=strfind(" ",names);
+							
+							//if there wasn't a space left, we're on the last name, just pretend there was a space after it, k?
+							if(space_index==-1){
+								space_index=strlen(names);
+							}
+							
 							substr(this_name,names,0,space_index);
 							substr(names,names,space_index+1,strlen(names)-space_index-1);
 							
@@ -1783,42 +1873,7 @@ void parse_server(int server_index){
 								substr(this_name,this_name,1,strlen(this_name)-1);
 							}
 							
-							//check if this user is already in the list for this channel
-							int matches=0;
-							
-							char this_lower_case_name[BUFFER_SIZE];
-							strncpy(this_lower_case_name,this_name,BUFFER_SIZE);
-							strtolower(this_lower_case_name,BUFFER_SIZE);
-							
-							int n;
-							for(n=0;n<MAX_NAMES;n++){
-								if(servers[server_index]->user_names[output_channel][n]!=NULL){
-									char matching_name[BUFFER_SIZE];
-									strncpy(matching_name,servers[server_index]->user_names[output_channel][n],BUFFER_SIZE);
-									strtolower(matching_name,BUFFER_SIZE);
-									
-									//found this nick
-									if(!strcmp(this_lower_case_name,matching_name)){
-										matches++;
-										//if it was a duplicate remove this copy
-										if(matches>1){
-											free(servers[server_index]->user_names[output_channel][n]);
-											servers[server_index]->user_names[output_channel][n]=NULL;
-											matches--;
-										}
-									}
-								}
-							}
-							
-							//if the user wasn't already there
-							if(matches==0){
-								//find a spot for a new user
-								for(n=0;((servers[server_index]->user_names[output_channel][n]!=NULL)&&(n<MAX_NAMES));n++);
-								if(n<MAX_NAMES){
-									servers[server_index]->user_names[output_channel][n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-									strncpy(servers[server_index]->user_names[output_channel][n],this_name,BUFFER_SIZE);
-								}
-							}
+							add_name(server_index,output_channel,this_name);
 						}
 #ifdef DEBUG
 //						int n;
@@ -1951,7 +2006,7 @@ void parse_server(int server_index){
 					if(!strcmp(tmp_nick,channel)){
 #ifdef DEBUG
 						char sys_call_buffer[BUFFER_SIZE];
-						sprintf(sys_call_buffer,"echo \"%lu <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+						sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
 						system(sys_call_buffer);
 #endif
 					}
@@ -2052,7 +2107,7 @@ void parse_server(int server_index){
 #ifdef DEBUG
 						//take any desired additional steps upon ping here (could add notify-send or something, if desired)
 						char sys_call_buffer[BUFFER_SIZE];
-						sprintf(sys_call_buffer,"echo \"%lu ***<%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+						sprintf(sys_call_buffer,"echo \"%ju ***<%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
 						system(sys_call_buffer);
 #endif
 						//audio output
@@ -2184,26 +2239,7 @@ void parse_server(int server_index){
 							}
 						}
 						
-						//set the user's nick to be lower-case for case-insensitive string matching
-						strtolower(nick,BUFFER_SIZE);
-						
-						//remove this user from the names array of the channel she/he parted
-						channel_index=output_channel;
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							int name_index;
-							for(name_index=0;name_index<MAX_NAMES;name_index++){
-								if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
-									char this_name[BUFFER_SIZE];
-									strncpy(servers[server_index]->user_names[channel_index][name_index],this_name,BUFFER_SIZE);
-									strtolower(this_name,BUFFER_SIZE);
-									if(!strcmp(this_name,nick)){
-										//remove this user from that channel's names array
-										free(servers[server_index]->user_names[channel_index][name_index]);
-										servers[server_index]->user_names[channel_index][name_index]=NULL;
-									}
-								}
-							}
-						}
+						del_name(server_index,output_channel,nick);
 						//note special_output is still false here, we never output up there
 					}
 				//or ":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
@@ -2257,26 +2293,7 @@ void parse_server(int server_index){
 							}
 						}
 						
-						//set the user's nick to be lower-case for case-insensitive string matching
-						strtolower(nick,BUFFER_SIZE);
-						
-						//remove this user from the names array of the channel she/he was kicked out of
-						channel_index=output_channel;
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							int name_index;
-							for(name_index=0;name_index<MAX_NAMES;name_index++){
-								if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
-									char this_name[BUFFER_SIZE];
-									strncpy(servers[server_index]->user_names[channel_index][name_index],this_name,BUFFER_SIZE);
-									strtolower(this_name,BUFFER_SIZE);
-									if(!strcmp(this_name,nick)){
-										//remove this user from that channel's names array
-										free(servers[server_index]->user_names[channel_index][name_index]);
-										servers[server_index]->user_names[channel_index][name_index]=NULL;
-									}
-								}
-							}
-						}
+						del_name(server_index,output_channel,nick);
 					}
 				//":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
 				//handle for NICK changes, especially the special case of our own, where server[server_index]->nick should get reset
@@ -2574,8 +2591,8 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	
 	//unix epoch clock (initialization)
 	char time_buffer[BUFFER_SIZE];
-	long unsigned int old_time=(uintmax_t)(time(NULL));
-	sprintf(time_buffer,"[%lu]",old_time);
+	uintmax_t old_time=(uintmax_t)(time(NULL));
+	sprintf(time_buffer,"[%ju]",old_time);
 	wprintw(bottom_border,time_buffer);
 	
 	for(n=strlen(time_buffer);n<width;n++){
@@ -2684,7 +2701,7 @@ int main(int argc, char *argv[]){
 	load_rc(rc_file);
 	
 	//start the clock
-	long unsigned int old_time=(uintmax_t)(time(NULL));
+	uintmax_t old_time=(uintmax_t)(time(NULL));
 	
 	//start the cursor in the user input area
 	wmove(user_input,0,0);
@@ -3053,12 +3070,12 @@ int main(int argc, char *argv[]){
 		}
 		
 		//unix epoch clock in bottom_border, update it when the time changes
-		long unsigned int current_time=(uintmax_t)(time(NULL));
+		uintmax_t current_time=(uintmax_t)(time(NULL));
 		//if the time has changed
 		if(current_time>old_time){
 			wclear(bottom_border);
 			
-			sprintf(time_buffer,"[%lu]",old_time);
+			sprintf(time_buffer,"[%ju]",old_time);
 			wmove(bottom_border,0,0);
 			wprintw(bottom_border,time_buffer);
 			
