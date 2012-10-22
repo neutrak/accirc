@@ -918,9 +918,10 @@ void scrollback_output(int server_index, int output_channel, char *to_output){
 	strncpy(scrollback[scrollback_line],output_buffer,BUFFER_SIZE);
 	
 	//indicate that there is new text if the user is not currently in this channel
-	//through the channel_list
+	//through the channel_list and server_list
 	servers[server_index]->new_channel_content[output_channel]=TRUE;
 	refresh_channel_list();
+	refresh_server_list();
 	
 	//if we're keeping logs write to them
 	if((servers[server_index]->keep_logs)&&(servers[server_index]->log_file[output_channel]!=NULL)){
