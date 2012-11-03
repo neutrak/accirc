@@ -99,6 +99,10 @@ typedef struct irc_connection irc_connection;
 struct irc_connection {
 	//behind-the-scenes data, the user never sees it
 	int socket_fd;
+	//a temporary buffer until we get the end of a line we were waiting for
+	//2* the normal buffer size since it may have to store two read buffer's worth of data concatenated together
+	char parse_queue[2*BUFFER_SIZE];
+	//the buffer to store what we're going to parse
 	char read_buffer[BUFFER_SIZE];
 	//this data is stored in case the connection dies and we need to re-connect
 	int port;
@@ -1230,6 +1234,9 @@ void parse_input(char *input_buffer, char keep_history){
 							servers[server_index]->read_buffer[n]='\0';
 						}
 						servers[server_index]->socket_fd=new_socket_fd;
+						
+						//initially we are not in the middle of a line and the parse queue is empty
+						strncpy(servers[server_index]->parse_queue,"",BUFFER_SIZE);
 						
 						//set the port information (in case we need to re-connect)
 						servers[server_index]->port=port;
@@ -3043,29 +3050,43 @@ int main(int argc, char *argv[]){
 		for(server_index=0;server_index<MAX_SERVERS;server_index++){
 			//if this is a valid server connection we have a buffer allocated
 			if(servers[server_index]!=NULL){
-				//can't make a more descriptive name than that; go ahead, I dare you to try
-				char one_byte_buffer[1];
-				int bytes_transferred=recv(servers[server_index]->socket_fd,one_byte_buffer,1,0);
+				//read a buffer_size at a time for speed (if you read a character at a time the kernel re-schedules that each operation)
+				char server_in_buffer[BUFFER_SIZE];
+				//the -1 here is so we always have a byte for null-termination
+				int bytes_transferred=recv(servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1,0);
 				if((bytes_transferred<=0)&&(errno!=EAGAIN)){
 					//TODO: handle connection errors gracefully here
 					properly_close(server_index);
 				}else if(bytes_transferred>0){
-					//add this byte to the total buffer
-					if(strinsert(servers[server_index]->read_buffer,one_byte_buffer[0],strlen(servers[server_index]->read_buffer),BUFFER_SIZE)){
-						//a newline ends the reading and makes us start from scratch for the next byte
-						if(one_byte_buffer[0]=='\n'){
-							//parse a line from the server, with the only relevant information needed being the server_index
-							//(everything else needed is global)
-							parse_server(server_index);
-						}//else do nothing, we'll handle it when we get some more bytes
-					//oh shit, we overflowed the buffer
-					}else{
-						//TODO: handle this more gracefully than just clearing the buffer and ignoring what was in it
-						int n;
-						for(n=0;n<BUFFER_SIZE;n++){
-							servers[server_index]->read_buffer[n]='\0';
+					//null-terminate the C string
+					server_in_buffer[bytes_transferred]='\0';
+					
+					//note: if there's nothing in the parse_queue wating then this does nothing but a copy from server_in_buffer
+					char tmp_buffer[2*BUFFER_SIZE];
+					sprintf(tmp_buffer,"%s%s",servers[server_index]->parse_queue,server_in_buffer);
+					strncpy(servers[server_index]->parse_queue,tmp_buffer,2*BUFFER_SIZE);
+					
+					int queue_index;
+					char accumulator[BUFFER_SIZE];
+					for(queue_index=0;servers[server_index]->parse_queue[queue_index]!='\0';queue_index++){
+						if(strinsert(accumulator,servers[server_index]->parse_queue[queue_index],strlen(accumulator),BUFFER_SIZE)){
+							if(servers[server_index]->parse_queue[queue_index]=='\n'){
+								strncpy(servers[server_index]->read_buffer,accumulator,BUFFER_SIZE);
+								parse_server(server_index);
+								strncpy(accumulator,"",BUFFER_SIZE);
+							}
+						//oh shit, we overflowed the buffer
+						}else{
+							//TODO: handle this more gracefully than just clearing the buffer and ignoring what was in it
+							int n;
+							for(n=0;n<BUFFER_SIZE;n++){
+								servers[server_index]->read_buffer[n]='\0';
+							}
 						}
 					}
+					
+					//the parse queue is everything between the last newline and the end of the string
+					strncpy(servers[server_index]->parse_queue,accumulator,BUFFER_SIZE);
 				}
 			}
 		}

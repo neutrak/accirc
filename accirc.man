@@ -129,6 +129,6 @@ The location of all logs from all servers
 .SH "SEE ALSO"
 ncurses(3)
 .SH BUGS
-MIRC colors don't work under screen; auto-reconnecting on drop not yet handled for; This is slow because it reads a byte at a time and the kernel reschedules that each byte
+MIRC colors don't work under screen; auto-reconnecting on drop not yet handled for
 .SH WWW
 http://somegenericsite.dyndns.org/index.php?p=code
