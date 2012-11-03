@@ -3068,9 +3068,22 @@ int main(int argc, char *argv[]){
 					
 					int queue_index;
 					char accumulator[BUFFER_SIZE];
+					
+					//clear the accumulator to initialize it
+					int n;
+					for(n=0;n<BUFFER_SIZE;n++){
+						accumulator[n]='\0';
+					}
+					
 					for(queue_index=0;servers[server_index]->parse_queue[queue_index]!='\0';queue_index++){
 						if(strinsert(accumulator,servers[server_index]->parse_queue[queue_index],strlen(accumulator),BUFFER_SIZE)){
 							if(servers[server_index]->parse_queue[queue_index]=='\n'){
+								//clear the existing read buffer
+								int n;
+								for(n=0;n<BUFFER_SIZE;n++){
+									servers[server_index]->read_buffer[n]='\0';
+								}
+								
 								strncpy(servers[server_index]->read_buffer,accumulator,BUFFER_SIZE);
 								parse_server(server_index);
 								strncpy(accumulator,"",BUFFER_SIZE);
