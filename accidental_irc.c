@@ -99,7 +99,8 @@ typedef struct irc_connection irc_connection;
 struct irc_connection {
 	//behind-the-scenes data, the user never sees it
 	int socket_fd;
-	//a temporary buffer until we get the end of a line we were waiting for
+	//a buffer for everything that's read from a socket
+	//this carries over unterminated lines from the previous read
 	//2* the normal buffer size since it may have to store two read buffer's worth of data concatenated together
 	char parse_queue[2*BUFFER_SIZE];
 	//the buffer to store what we're going to parse
@@ -2915,6 +2916,12 @@ int main(int argc, char *argv[]){
 					if(current_server>=0){
 						//a portion of the nickname to complete
 						char partial_nick[BUFFER_SIZE];
+						//clear out this buffer to start with
+						int n;
+						for(n=0;n<BUFFER_SIZE;n++){
+							partial_nick[n]='\0';
+						}
+						
 						//where the nickname starts
 						int partial_nick_start_index=(cursor_pos-1);
 						while((partial_nick_start_index>=0)&&(input_buffer[partial_nick_start_index]!=' ')){
@@ -2924,7 +2931,6 @@ int main(int argc, char *argv[]){
 						partial_nick_start_index++;
 						
 						//chomp up the nickname start
-						int n;
 						for(n=partial_nick_start_index;n<cursor_pos;n++){
 							partial_nick[n-partial_nick_start_index]=input_buffer[n];
 						}
@@ -2973,9 +2979,19 @@ int main(int argc, char *argv[]){
 						}else{
 							beep();
 						}
+#ifdef DEBUG
+/*
+						fprintf(stderr,"tab-complete debug, attempting to match \"%s\" to array [",partial_nick);
+						for(n=0;n<MAX_NAMES;n++){
+							if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+								fprintf(stderr,"\"%s\" ",servers[current_server]->user_names[servers[current_server]->current_channel][n]);
+							}
+						}
+						fprintf(stderr,"]\n");
+*/
+#endif
 					}
 					break;
-				//TODO: make ctrl+tab actually send a tab
 				case KEY_HOME:
 					cursor_pos=0;
 					input_display_start=0;
