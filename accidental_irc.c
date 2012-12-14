@@ -1163,7 +1163,7 @@ void parse_input(char *input_buffer, char keep_history){
 			int first_space=strfind(" ",parameters);
 			if(first_space<0){
 				//handle for insufficient parameters
-				//note text output cannot be done here (except maybe to stdout or stderr) since we not be connected to any server
+				//note text output cannot be done here (except maybe to stdout or stderr) since we may not be connected to any server
 				int n;
 				for(n=0;n<3;n++){
 					beep();
@@ -1276,7 +1276,7 @@ void parse_input(char *input_buffer, char keep_history){
 						//by default don't reconnect if connnection is lost
 						servers[server_index]->reconnect=FALSE;
 						
-						//TODO: make keeping logs a setting, not just always true
+						//note that keeping logs is true by default, but can be set with client commands log and no_log
 						servers[server_index]->keep_logs=TRUE;
 						if(servers[server_index]->keep_logs){
 							//first make a directory for this server
@@ -1610,6 +1610,46 @@ void parse_input(char *input_buffer, char keep_history){
 			if(current_server>=0){
 				servers[current_server]->reconnect=FALSE;
 				scrollback_output(current_server,0,"accirc: reconnect set to FALSE");
+			}
+		}else if(!strcmp(command,"log")){
+			if(current_server>=0){
+				servers[current_server]->keep_logs=TRUE;
+				scrollback_output(current_server,0,"accirc: keep_logs set to TRUE (opening log files)");
+				
+				//open any log files we may need
+				//look through the channels
+				int channel_index;
+				for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+					if(servers[current_server]->channel_name[channel_index]!=NULL){
+						//try to open a file for every channel
+						
+						char file_location[BUFFER_SIZE];
+						sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->channel_name[channel_index]);
+						//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
+						servers[current_server]->log_file[channel_index]=fopen(file_location,"a");
+						
+						
+						if(servers[current_server]->log_file[channel_index]!=NULL){
+							//turn off buffering since I need may this output immediately and buffers annoy me for that
+							setvbuf(servers[current_server]->log_file[channel_index],NULL,_IONBF,0);
+						}
+					}
+				}
+			}
+		}else if(!strcmp(command,"no_log")){
+			if(current_server>=0){
+				servers[current_server]->keep_logs=FALSE;
+				scrollback_output(current_server,0,"accirc: keep_logs set to FALSE (closing log files)");
+				
+				//close any open logs we were writing to
+				int n;
+				for(n=0;n<MAX_CHANNELS;n++){
+					if(servers[current_server]->log_file[n]!=NULL){
+						fclose(servers[current_server]->log_file[n]);
+						//reset the structure to hold NULL
+						servers[current_server]->log_file[n]=NULL;
+					}
+				}
 			}
 		//unknown command error
 		}else{

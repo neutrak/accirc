@@ -38,6 +38,12 @@ reconnect to the currently selected server if connection is lost for any reason
 \fB/no_reconnect\fP
 don't reconnect to the currently selected server
 .TP
+\fB/log\fP
+keep logs for the currently selected server (this is the default)
+.TP
+\fB/no_log\fP
+don't keep logs for the currently selected server
+.TP
 \fB/sl\fP
 sets active server one left of current server
 .TP
