@@ -1118,7 +1118,7 @@ void parse_input(char *input_buffer, char keep_history){
 	char server_command=FALSE;
 	char client_command=FALSE;
 	
-	//TODO: make the client and server command escapes a setting
+	//note that the client and server command escapes are settings
 	if((input_buffer[0]==server_escape)||(input_buffer[0]==client_escape)||(input_buffer[0]=='\\')){
 		//server command
 		if(input_buffer[0]==server_escape){
@@ -1742,9 +1742,11 @@ void parse_server(int server_index){
 			substr(command,servers[server_index]->read_buffer,1,first_space-1);
 			
 			//TODO: make this less hacky, it works but... well, hacky
-			//NOTE:checking for the literal server name was giving me issues because sometimes a server will re-direct to another one, so this just checks in general "is any valid server name?"
+			//NOTE: checking for the literal server name was giving me issues because sometimes a server will re-direct to another one, so this just checks in general "is it any valid server name?"
+			
 //			//if this message started with the server's name
 //			if(!strcmp(command,servers[server_index]->server_name)){
+			
 			//check that it is NOT a user (meaning it must not have the delimiter chars for a username)
 			if(strfind("@",command)==-1){
 				//these messages have the form ":naos.foonetic.net 001 accirc_user :Welcome to the Foonetic IRC Network nick!realname@hostname.could.be.ipv6"
@@ -2256,10 +2258,13 @@ void parse_server(int server_index){
 							
 							//and refresh the channel list
 							refresh_channel_list();
-							
-						//TODO: handle being out of available channels more gracefully
-						//at the moment this will just not have the new channel available, and as a result redirect all output to the system channel
-						//which is not terrible I guess but not ideal
+						
+						//handle being out of available channels (we can't do anything, so we just have to tell the user)
+						//this will just not have the new channel available, and as a result redirect all output to the system channel
+						}else{
+							char error_buffer[BUFFER_SIZE];
+							sprintf(error_buffer,"accirc: Err: out of available channels in structure (limit is %i); output will go to the SERVER channel; use %cprivmsg to send data",MAX_CHANNELS,server_escape);
+							scrollback_output(server_index,0,error_buffer);
 						}
 					//else it wasn't us doing the join so just output the join message to that channel (which presumably we're in)
 					}else{
@@ -3154,7 +3159,7 @@ int main(int argc, char *argv[]){
 					//null-terminate the C string
 					server_in_buffer[bytes_transferred]='\0';
 					
-					//note: if there's nothing in the parse_queue wating then this does nothing but a copy from server_in_buffer
+					//note: if there's nothing in the parse_queue waiting then this does nothing but a copy from server_in_buffer
 					char tmp_buffer[2*BUFFER_SIZE];
 					sprintf(tmp_buffer,"%s%s",servers[server_index]->parse_queue,server_in_buffer);
 					strncpy(servers[server_index]->parse_queue,tmp_buffer,2*BUFFER_SIZE);
@@ -3183,7 +3188,12 @@ int main(int argc, char *argv[]){
 							}
 						//oh shit, we overflowed the buffer
 						}else{
-							//TODO: handle this more gracefully than just clearing the buffer and ignoring what was in it
+							//tell the user this happened
+							char error_buffer[BUFFER_SIZE];
+							sprintf(error_buffer,"accirc: Err: read queue has overflowed (nothing we can do), clearing");
+							scrollback_output(server_index,0,error_buffer);
+							
+							//we can't do anything but clear this and ignore it, since we could end up reading garbage data
 							int n;
 							for(n=0;n<BUFFER_SIZE;n++){
 								servers[server_index]->read_buffer[n]='\0';
