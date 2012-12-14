@@ -64,6 +64,10 @@
 //for reconnecting we should re-send user information, it'll use this
 #define DEFAULT_USER "1 2 3 4"
 
+//default leading characters to send raw data and run client commands, respectively
+#define DEFAULT_SERVER_ESCAPE ':'
+#define DEFAULT_CLIENT_ESCAPE '/'
+
 //the error to display when a line overflows
 #define LINE_OVERFLOW_ERROR "<<etc.>>"
 
@@ -134,6 +138,10 @@ struct irc_connection {
 	char new_channel_content[MAX_CHANNELS];
 	int current_channel;
 };
+
+//characters to escape commands for the server and client, respectively
+char server_escape=DEFAULT_SERVER_ESCAPE;
+char client_escape=DEFAULT_CLIENT_ESCAPE;
 
 int current_server;
 irc_connection *servers[MAX_SERVERS];
@@ -448,8 +456,8 @@ void properly_close(int server_index){
 		}
 	}
 	
-	//if we'll be reconnecting to this server
-	if(reconnect_this){
+	//if we'll be reconnecting to this server, and we didn't exit yet
+	if(reconnect_this && (!done)){
 		char reconnect_command[BUFFER_SIZE];
 		sprintf(reconnect_command,"/connect %s %i",reconnect_host,reconnect_port);
 		
@@ -484,12 +492,12 @@ void properly_close(int server_index){
 				current_server=next_server;
 				
 				char command_buffer[BUFFER_SIZE];
-				sprintf(command_buffer,":nick %s",reconnect_nick);
+				sprintf(command_buffer,"%cnick %s",server_escape,reconnect_nick);
 				parse_input(command_buffer,FALSE);
-				sprintf(command_buffer,":user %s",DEFAULT_USER);
+				sprintf(command_buffer,"%cuser %s",server_escape,DEFAULT_USER);
 				parse_input(command_buffer,FALSE);
 				if(strcmp(reconnect_ident,"")!=0){
-					sprintf(command_buffer,"/autoident %s",reconnect_ident);
+					sprintf(command_buffer,"%cautoident %s",client_escape,reconnect_ident);
 					parse_input(command_buffer,FALSE);
 				}
 				
@@ -497,7 +505,7 @@ void properly_close(int server_index){
 				int n;
 				for(n=0;n<MAX_CHANNELS;n++){
 					if(reconnect_channels[n]!=NULL){
-						sprintf(command_buffer,"/autojoin %s",reconnect_channels[n]);
+						sprintf(command_buffer,"%cautojoin %s",client_escape,reconnect_channels[n]);
 						parse_input(command_buffer,FALSE);
 						//free the memory
 						free(reconnect_channels[n]);
@@ -589,7 +597,7 @@ void refresh_server_list(){
 				wprintw(server_list,")");
 			}
 			
-			//add a delimeter for formatting purposes
+			//add a delimiter for formatting purposes
 			wprintw(server_list," | ");
 		}
 	}
@@ -628,7 +636,7 @@ void refresh_channel_list(){
 				wprintw(channel_list,servers[current_server]->channel_name[n]);
 			}
 			
-			//add a delimeter for formatting purposes
+			//add a delimiter for formatting purposes
 			wprintw(channel_list," | ");
 		}
 	}
@@ -750,6 +758,7 @@ void refresh_channel_text(){
 				
 				char was_ping=FALSE;
 				
+				//TODO: update this now that timestamps are prepended to all lines (unhandled lines no longer start with :, they start with <timestamp> :)
 				char find_buffer[BUFFER_SIZE];
 				sprintf(find_buffer,"%s",servers[current_server]->nick);
 				int ping_check=strfind(find_buffer,scrollback[output_line]);
@@ -1110,13 +1119,13 @@ void parse_input(char *input_buffer, char keep_history){
 	char client_command=FALSE;
 	
 	//TODO: make the client and server command escapes a setting
-	if((input_buffer[0]==':')||(input_buffer[0]=='/')||(input_buffer[0]=='\\')){
+	if((input_buffer[0]==server_escape)||(input_buffer[0]==client_escape)||(input_buffer[0]=='\\')){
 		//server command
-		if(input_buffer[0]==':'){
+		if(input_buffer[0]==server_escape){
 			server_command=TRUE;
 			client_command=FALSE;
 		//client command	
-		}else if(input_buffer[0]=='/'){
+		}else if(input_buffer[0]==client_escape){
 			server_command=FALSE;
 			client_command=TRUE;
 		//escape
@@ -1355,6 +1364,74 @@ void parse_input(char *input_buffer, char keep_history){
 					safe_send(servers[n]->socket_fd,quit_message);
 				}
 			}
+		//reset the escape character for client
+		}else if(!strcmp(command,"cli_escape")){
+			//if there's no server we can still set the escape, but we can't tell the user about it
+			//since we can't give good output in this case, we instead ignore it so there is no silent behavior
+			//this is intentional behavior
+			if(current_server>=0){
+				if(!strcmp(parameters,"")){
+					//too few arguments given, do nothing (give up)
+					
+					//tell the user there were too few arguments
+					char error_buffer[BUFFER_SIZE];
+					sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+					scrollback_output(current_server,0,error_buffer);
+				}else{
+					//we got an argument, since this is always a 1-character escape take the first char
+					char tmp_client_escape=parameters[0];
+					
+					//a buffer to use when replying to the user
+					char reply_buffer[BUFFER_SIZE];
+					
+					//if this isn't already the server escape
+					if(tmp_client_escape!=server_escape){
+						//set it to be the new client escape (discarding the old one)
+						client_escape=tmp_client_escape;
+						
+						//tell the user we set the escape
+						sprintf(reply_buffer,"accirc: client escape set to \"%c\"",client_escape);
+					}else{
+						sprintf(reply_buffer,"accirc: Err: client escape could not be set to \"%c\", that escape is already in use",tmp_client_escape);
+					}
+					
+					scrollback_output(current_server,0,reply_buffer);
+				}
+			}
+		//reset the escape character for server
+		}else if(!strcmp(command,"ser_escape")){
+			//if there's no server we can still set the escape, but we can't tell the user about it
+			//since we can't give good output in this case, we instead ignore it so there is no silent behavior
+			//this is intentional behavior
+			if(current_server>=0){
+				if(!strcmp(parameters,"")){
+					//too few arguments given, do nothing (give up)
+					
+					//tell the user there were too few arguments
+					char error_buffer[BUFFER_SIZE];
+					sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+					scrollback_output(current_server,0,error_buffer);
+				}else{
+					//we got an argument, since this is always a 1-character escape take the first char
+					char tmp_server_escape=parameters[0];
+					
+					//a buffer to use when replying to the user
+					char reply_buffer[BUFFER_SIZE];
+					
+					//if this isn't already the client escape
+					if(tmp_server_escape!=client_escape){
+						//set it to be the new server escape (discarding the old one)
+						server_escape=tmp_server_escape;
+						
+						//tell the user we set the escape
+						sprintf(reply_buffer,"accirc: server escape set to \"%c\"",server_escape);
+					}else{
+						sprintf(reply_buffer,"accirc: Err: server escape could not be set to \"%c\", that escape is already in use",tmp_server_escape);
+					}
+					
+					scrollback_output(current_server,0,reply_buffer);
+				}
+			}
 		//move a server to the left
 		}else if(!strcmp(command,"sl")){
 			if(current_server>=0){
@@ -1567,7 +1644,7 @@ void parse_input(char *input_buffer, char keep_history){
 			//if we're on the server channel treat it as a command (recurse)
 			if(servers[current_server]->current_channel==0){
 				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,":%s",input_buffer);
+				sprintf(tmp_buffer,"%c%s",server_escape,input_buffer);
 				//but don't keep history for this recursion call
 				parse_input(tmp_buffer,FALSE);
 			}else{
@@ -1617,10 +1694,10 @@ void parse_server(int server_index){
 	}
 	
 	//parse in whatever the server sent and display it appropriately
-	int first_delimeter=strfind(" :",servers[server_index]->read_buffer);
+	int first_delimiter=strfind(" :",servers[server_index]->read_buffer);
 	char command[BUFFER_SIZE];
-	if(first_delimeter>0){
-		substr(command,servers[server_index]->read_buffer,0,first_delimeter);
+	if(first_delimiter>0){
+		substr(command,servers[server_index]->read_buffer,0,first_delimiter);
 	}else{
 		strncpy(command,"",BUFFER_SIZE);
 	}
@@ -1668,7 +1745,7 @@ void parse_server(int server_index){
 			//NOTE:checking for the literal server name was giving me issues because sometimes a server will re-direct to another one, so this just checks in general "is any valid server name?"
 //			//if this message started with the server's name
 //			if(!strcmp(command,servers[server_index]->server_name)){
-			//check that it is NOT a user (meaning it must not have the delimeter chars for a username)
+			//check that it is NOT a user (meaning it must not have the delimiter chars for a username)
 			if(strfind("@",command)==-1){
 				//these messages have the form ":naos.foonetic.net 001 accirc_user :Welcome to the Foonetic IRC Network nick!realname@hostname.could.be.ipv6"
 				substr(command,servers[server_index]->read_buffer,1,strlen(servers[server_index]->read_buffer)-1);
@@ -1704,7 +1781,7 @@ void parse_server(int server_index){
 							current_server=server_index;
 							
 							char to_parse[BUFFER_SIZE];
-							sprintf(to_parse,":join :%s",servers[server_index]->autojoin_channel[ch]);
+							sprintf(to_parse,"%cjoin :%s",server_escape,servers[server_index]->autojoin_channel[ch]);
 							parse_input(to_parse,FALSE);
 							
 							//remove this from autojoin channels from that server, we've now at least attempted to join
@@ -1725,7 +1802,7 @@ void parse_server(int server_index){
 						current_server=server_index;
 						
 						char to_parse[BUFFER_SIZE];
-						sprintf(to_parse,":privmsg NickServ :IDENTIFY %s",servers[server_index]->ident);
+						sprintf(to_parse,"%cprivmsg NickServ :IDENTIFY %s",server_escape,servers[server_index]->ident);
 						parse_input(to_parse,FALSE);
 						
 						//reset our server to whatever it used to be on
@@ -1922,7 +1999,7 @@ void parse_server(int server_index){
 							}
 						}
 					}
-				//end of message of the day (useful as a delimeter)
+				//end of message of the day (useful as a delimiter)
 				}else if(!strcmp(command,"376")){
 					
 				//nick already in use, so try a new one
@@ -2083,7 +2160,7 @@ void parse_server(int server_index){
 							current_server=server_index;
 //							sprintf(ctcp,":privmsg %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
 //							parse_input(ctcp,FALSE);
-							sprintf(ctcp,":notice %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
+							sprintf(ctcp,"%cnotice %s :%cVERSION accidental_irc v%s%c",server_escape,nick,0x01,VERSION,0x01);
 							parse_input(ctcp,FALSE);
 							current_server=old_server;
 							
@@ -2102,7 +2179,7 @@ void parse_server(int server_index){
 							//this response is a notice in the spec
 							int old_server=current_server;
 							current_server=server_index;
-							sprintf(ctcp,":notice %s :%s",nick,text);
+							sprintf(ctcp,"%cnotice %s :%s",server_escape,nick,text);
 							parse_input(ctcp,FALSE);
 							current_server=old_server;
 							
@@ -2276,7 +2353,7 @@ void parse_server(int server_index){
 							int old_server=current_server;
 							current_server=server_index;
 							char to_parse[BUFFER_SIZE];
-							sprintf(to_parse,":join %s",channel);
+							sprintf(to_parse,"%cjoin %s",server_escape,channel);
 							parse_input(to_parse,FALSE);
 							current_server=old_server;
 							
@@ -2765,25 +2842,25 @@ int main(int argc, char *argv[]){
 //				case ALT_UP:
 				//f3
 				case 267:
-					strncpy(key_combo_buffer,"/sl",BUFFER_SIZE);
+					sprintf(key_combo_buffer,"%csl",client_escape);
 					parse_input(key_combo_buffer,FALSE);
 					break;
 //				case ALT_DOWN:
 				//f4
 				case 268:
-					strncpy(key_combo_buffer,"/sr",BUFFER_SIZE);
+					sprintf(key_combo_buffer,"%csr",client_escape);
 					parse_input(key_combo_buffer,FALSE);
 					break;
 //				case ALT_LEFT:
 				//f1
 				case 265:
-					strncpy(key_combo_buffer,"/cl",BUFFER_SIZE);
+					sprintf(key_combo_buffer,"%ccl",client_escape);
 					parse_input(key_combo_buffer,FALSE);
 					break;
 //				case ALT_RIGHT:
 				//f2
 				case 266:
-					strncpy(key_combo_buffer,"/cr",BUFFER_SIZE);
+					sprintf(key_combo_buffer,"%ccr",client_escape);
 					parse_input(key_combo_buffer,FALSE);
 					break;
 				//user hit enter, meaning parse and handle the user's input
@@ -2927,7 +3004,7 @@ int main(int argc, char *argv[]){
 						while((partial_nick_start_index>=0)&&(input_buffer[partial_nick_start_index]!=' ')){
 							partial_nick_start_index--;
 						}
-						//don't count the delimeter
+						//don't count the delimiter
 						partial_nick_start_index++;
 						
 						//chomp up the nickname start

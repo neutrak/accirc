@@ -26,6 +26,12 @@ connects to an irc server at <host> on port <port>
 \fB/exit\fP [ message ]
 sends a QUIT to every irc server you're connected to
 .TP
+\fB/cli_escape\fP \fInew\fP
+changes the client command escape character to <new>, if possible
+.TP
+\fB/ser_escape\fP \fInew\fP
+changes the server raw data escape character to <new>, if possible
+.TP
 \fB/reconnect\fP
 reconnect to the currently selected server if connection is lost for any reason
 .TP
