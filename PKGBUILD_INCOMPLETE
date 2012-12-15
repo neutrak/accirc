@@ -1,0 +1,36 @@
+# Maintainer: neutrak <youremail@domain.com>
+pkgname=accirc
+pkgver=0.1
+pkgrel=1
+pkgdesc="accirc, the accidental multiserver ncurses irc client"
+arch=('i686' 'x86_64')
+url=""
+license=('LGPLv3')
+groups=()
+depends=('ncurses>=5.9-3')
+makedepends=('gcc')
+optdepends=()
+provides=()
+conflicts=()
+replaces=()
+# backup=()
+# options=()
+# install=
+# changelog=
+# source=(http://server/$pkgname-$pkgver.tar.gz)
+# noextract=()
+# md5sums=() #generate with 'makepkg -g'
+# 
+# build() {
+#  cd "$srcdir/$pkgname-$pkgver"
+#
+#  ./configure --prefix=/usr
+#  make
+#}
+#
+#package() {
+#  cd "$srcdir/$pkgname-$pkgver"
+#
+#  make DESTDIR="$pkgdir/" install
+#}
+

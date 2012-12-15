@@ -1745,18 +1745,26 @@ void parse_server(int server_index){
 	
 	//parse in whatever the server sent and display it appropriately
 	int first_delimiter=strfind(" :",servers[server_index]->read_buffer);
+	//the command
 	char command[BUFFER_SIZE];
+	//the parameters, note that this includes the trailing newline
+	char parameters[BUFFER_SIZE];
 	if(first_delimiter>0){
 		substr(command,servers[server_index]->read_buffer,0,first_delimiter);
+		substr(parameters,servers[server_index]->read_buffer,first_delimiter+strlen(" :"),strlen(servers[server_index]->read_buffer)-first_delimiter);
 	}else{
 		strncpy(command,"",BUFFER_SIZE);
+		strncpy(parameters,"",BUFFER_SIZE);
 	}
 	
+	//respond to server pings, silently
 	if(!strcmp(command,"PING")){
-		//TODO: make this less hacky than it is
-		//switch the I in ping for an O in pong
-		servers[server_index]->read_buffer[1]='O';
-		safe_send(servers[server_index]->socket_fd,servers[server_index]->read_buffer);
+		char to_send[BUFFER_SIZE];
+		sprintf(to_send,"PONG :%s",parameters);
+		safe_send(servers[server_index]->socket_fd,to_send);
+#ifdef DEBUG
+//		fprintf(stderr,"got a ping \"%s\"\nreplying with \"%s\"\n",servers[server_index]->read_buffer,to_send);
+#endif
 	//if we got an error, close the link and clean up the structures
 	}else if(!strcmp(command,"ERROR")){
 		properly_close(server_index);
