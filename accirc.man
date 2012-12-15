@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "15 Oct 2012"
+.TH ACCIRC 1 "15 Dec 2012"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -123,6 +123,9 @@ The startup file to run
 .TP
 \fC~/.local/share/accirc/logs/\fR
 The location of all logs from all servers
+.TP
+\fC~/.local/share/accirc/error_log.txt\fR
+A log of any errors that couldn't be output through ncurses
 .SH "EXAMPLE RC FILE
 .TP
 \fB~/.config/accirc/config.rc\fR

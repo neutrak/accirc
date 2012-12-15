@@ -74,6 +74,9 @@
 //the default directoryto save logs to
 #define LOGGING_DIRECTORY "logs"
 
+//the file to log errors to
+#define ERROR_FILE "error_log.txt"
+
 //the number of seconds to try to reconnect before giving up
 #define RECONNECT_TIMEOUT 2
 
@@ -136,6 +139,12 @@ struct irc_connection {
 	char new_channel_content[MAX_CHANNELS];
 	int current_channel;
 };
+
+//the file pointer to log non-fatal errors to
+FILE *error_file;
+
+//whether we are able to make log files or not (TRUE if we can log)
+char can_log;
 
 //characters to escape commands for the server and client, respectively
 char server_escape=DEFAULT_SERVER_ESCAPE;
@@ -309,7 +318,7 @@ char verify_or_make_dir(char *path){
 char load_rc(char *rc_file){
 	FILE *rc=fopen(rc_file,"r");
 	if(!rc){
-//		fprintf(stderr,"Warn: rc file not found, not executing anything on startup\n");
+		fprintf(error_file,"Warn: rc file not found, not executing anything on startup\n");
 		return FALSE;
 	}else{
 		//read in the .rc, parse_input each line until the end
@@ -351,7 +360,7 @@ char safe_send(int socket, char *buffer){
 	//properly terminate the buffer just in case
 	buffer[BUFFER_SIZE-1]='\0';
 	if(send(socket,buffer,strlen(buffer),0)<0){
-//		fprintf(stderr,"Err: Could not send data\n");
+		fprintf(error_file,"Err: Could not send data\n");
 		return FALSE;
 	}
 	return TRUE;
@@ -362,7 +371,7 @@ char safe_send(int socket, char *buffer){
 char safe_recv(int socket, char *buffer){
 	int bytes_transferred=recv(socket,buffer,BUFFER_SIZE,0);
 	if(bytes_transferred<=0){
-//		fprintf(stderr,"Err: Could not receive data\n");
+		fprintf(error_file,"Err: Could not receive data\n");
 		return FALSE;
 	}
 	//clear out the remainder of the buffer just in case
@@ -1069,16 +1078,6 @@ void del_name(int server_index, int channel_index, char *name){
 	}
 }
 
-/*
-//search for a name in the names list for a channel
-void search_name(int server_index, int channel_index, char *name){
-	if(server_index<0){
-		return;
-	}
-	
-}
-*/
-
 //parse user's input (note this is conextual based on current server and channel)
 //because some input may be given recursively or from key bindings, there is a history flag to tell if we should actually consider this input in the history
 void parse_input(char *input_buffer, char keep_history){
@@ -1169,6 +1168,9 @@ void parse_input(char *input_buffer, char keep_history){
 					beep();
 					usleep(100000);
 				}
+				
+				//write this to the error log, so the user can view it if they choose
+				fprintf(error_file,"Err: too few arguments given to \"%s\"\n",command);
 			}else{
 				substr(host,parameters,0,first_space);
 				substr(port_buffer,parameters,first_space+1,strlen(parameters)-(first_space+1));
@@ -1186,20 +1188,16 @@ void parse_input(char *input_buffer, char keep_history){
 				new_socket_fd=socket(AF_INET,SOCK_STREAM,0);
 				
 				if(new_socket_fd<0){
-					//TODO: handle failed socket openings gracefully here
-#ifdef DEBUG
-//					fprintf(stderr,"Err: Could not open socket\n");
-#endif
+					//handle failed socket openings gracefully here (by telling the user and giving up)
+					fprintf(error_file,"Err: Could not open socket\n");
 					goto fail;
 				}
 				
 				//that's "get host by name"
 				struct hostent *server=gethostbyname(host);
 				if(server==NULL){
-					//TODO: handle failed hostname lookups gracefully here
-#ifdef DEBUG
-//					fprintf(stderr,"Err: Could not find server\n");
-#endif
+					//handle failed hostname lookups gracefully here (by telling the user and giving up)
+					fprintf(error_file,"Err: Could not find server\n");
 					goto fail;
 				}
 				
@@ -1211,10 +1209,8 @@ void parse_input(char *input_buffer, char keep_history){
 				//if we could successfully connect
 				//(side effects happen during this call to connect())
 				if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
-					//TODO: handle failed connections gracefully here
-#ifdef DEBUG
-//					fprintf(stderr,"Err: Could not connect to server\n");
-#endif
+					//handle failed connections gracefully here (by telling the user and giving up)
+					fprintf(error_file,"Err: Could not connect to server\n");
 					goto fail;
 				}
 				
@@ -1277,7 +1273,13 @@ void parse_input(char *input_buffer, char keep_history){
 						servers[server_index]->reconnect=FALSE;
 						
 						//note that keeping logs is true by default, but can be set with client commands log and no_log
-						servers[server_index]->keep_logs=TRUE;
+						if(can_log){
+							servers[server_index]->keep_logs=TRUE;
+						//if we are unable to log due to e.g. permission errors, don't even try
+						}else{
+							servers[server_index]->keep_logs=FALSE;
+						}
+						
 						if(servers[server_index]->keep_logs){
 							//first make a directory for this server
 							char file_location[BUFFER_SIZE];
@@ -1614,32 +1616,36 @@ void parse_input(char *input_buffer, char keep_history){
 		}else if(!strcmp(command,"log")){
 			if(current_server>=0){
 				if(servers[current_server]->keep_logs==FALSE){
-					servers[current_server]->keep_logs=TRUE;
-					scrollback_output(current_server,0,"accirc: keep_logs set to TRUE (opening log files)");
-					
-					//open any log files we may need
-					//look through the channels
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[current_server]->channel_name[channel_index]!=NULL){
-							//try to open a file for every channel
-							
-							char file_location[BUFFER_SIZE];
-							sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->channel_name[channel_index]);
-							//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
-							servers[current_server]->log_file[channel_index]=fopen(file_location,"a");
-							
-							
-							if(servers[current_server]->log_file[channel_index]!=NULL){
-								//turn off buffering since I need may this output immediately and buffers annoy me for that
-								setvbuf(servers[current_server]->log_file[channel_index],NULL,_IONBF,0);
+					//if we have the ability to make logs
+					if(can_log){
+						servers[current_server]->keep_logs=TRUE;
+						scrollback_output(current_server,0,"accirc: keep_logs set to TRUE (opening log files)");
+						
+						//open any log files we may need
+						//look through the channels
+						int channel_index;
+						for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+							if(servers[current_server]->channel_name[channel_index]!=NULL){
+								//try to open a file for every channel
+								
+								char file_location[BUFFER_SIZE];
+								sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->channel_name[channel_index]);
+								//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
+								servers[current_server]->log_file[channel_index]=fopen(file_location,"a");
+								
+								
+								if(servers[current_server]->log_file[channel_index]!=NULL){
+									//turn off buffering since I need may this output immediately and buffers annoy me for that
+									setvbuf(servers[current_server]->log_file[channel_index],NULL,_IONBF,0);
+								}
 							}
 						}
+					}else{
+						scrollback_output(current_server,0,"accirc: Err: your environment doesn't support logging, cannot set it!");
 					}
 				}else{
 					scrollback_output(current_server,0,"accirc: Err: keep_logs already set to TRUE, no changes made");
 				}
-
 			}
 		}else if(!strcmp(command,"no_log")){
 			if(current_server>=0){
@@ -2772,10 +2778,36 @@ int main(int argc, char *argv[]){
 		}
 	}
 	
+	//store error log in ~/.local/share/accirc/error_log.txt
+	//ensure appropriate directories exist for config and logs
+	char error_file_buffer[BUFFER_SIZE];
+	char *home_dir=getenv("HOME");
+	if(home_dir!=NULL){
+		sprintf(error_file_buffer,"%s/.local/",home_dir);
+		verify_or_make_dir(error_file_buffer);
+		sprintf(error_file_buffer,"%s/.local/share",home_dir);
+		verify_or_make_dir(error_file_buffer);
+		sprintf(error_file_buffer,"%s/.local/share/accirc",home_dir);
+		verify_or_make_dir(error_file_buffer);
+		sprintf(error_file_buffer,"%s/.local/share/accirc/%s",home_dir,ERROR_FILE);
+	}else{
+		sprintf(error_file_buffer,ERROR_FILE);
+	}
+	
+	error_file=fopen(error_file_buffer,"a");
+	//NOTE: this is the only fatal error case, the rest are non-fatal
+	if(error_file==NULL){
+		fprintf(stderr,"Err: Could not find or create the error log file\n");
+		exit(1);
+	}
+	
+	//turn off buffering since I need may this output immediately and buffers annoy me for that
+	setvbuf(error_file,NULL,_IONBF,0);
+	
+	
 	//store logs in ~/.local/share/accirc/logs/
 	//ensure appropriate directories exist for config and logs
 	char log_dir[BUFFER_SIZE];
-	char *home_dir=getenv("HOME");
 	if(home_dir!=NULL){
 		sprintf(log_dir,"%s/.local/",home_dir);
 		verify_or_make_dir(log_dir);
@@ -2788,10 +2820,10 @@ int main(int argc, char *argv[]){
 		sprintf(log_dir,LOGGING_DIRECTORY);
 	}
 	
-	//TODO: make not making log dir a non-fatal error
+	//not making log dir is a non-fatal error
 	if(!verify_or_make_dir(log_dir)){
-		fprintf(stderr,"Err: Could not find or create the log directory\n");
-		exit(1);
+		fprintf(error_file,"Warn: Could not find or create the log directory\n");
+		can_log=FALSE;
 	}
 	
 	//initialize the global variables appropriately
@@ -3211,7 +3243,8 @@ int main(int argc, char *argv[]){
 				//the -1 here is so we always have a byte for null-termination
 				int bytes_transferred=recv(servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1,0);
 				if((bytes_transferred<=0)&&(errno!=EAGAIN)){
-					//TODO: handle connection errors gracefully here
+					//handle connection errors gracefully here (as much as possible)
+					fprintf(error_file,"Err: connection error with server %i, host %s\n",server_index,servers[server_index]->server_name);
 					properly_close(server_index);
 				}else if(bytes_transferred>0){
 					//null-terminate the C string
@@ -3314,6 +3347,9 @@ int main(int argc, char *argv[]){
 			refresh_user_input(input_buffer,cursor_pos,input_display_start);
 		}
 	}
+	
+	//now that we're done, close the error log file
+	fclose(error_file);
 	
 	//free all the RAM we allocated for anything
 	int server_index;
