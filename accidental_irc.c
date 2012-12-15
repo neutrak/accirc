@@ -111,8 +111,6 @@ struct irc_connection {
 	char read_buffer[BUFFER_SIZE];
 	//this data is stored in case the connection dies and we need to re-connect
 	int port;
-	//tells us if there is new content on this server since the user last viewed it
-	char new_server_content;
 	//logging information
 	char keep_logs;
 	FILE *log_file[MAX_CHANNELS];
@@ -563,12 +561,14 @@ void refresh_server_list(){
 	for(n=0;n<MAX_SERVERS;n++){
 		//if the server is connected
 		if(servers[n]!=NULL){
+			//tells us if there is new content on this server since the user last viewed it
+			char new_server_content=FALSE;
+			
 			//set the new server content to be the OR of all channels on that server
-			servers[n]->new_server_content=FALSE;
 			int n1;
 			for(n1=0;n1<MAX_CHANNELS;n1++){
 				if(servers[n]->channel_name[n1]!=NULL){
-					servers[n]->new_server_content=((servers[n]->new_server_content)||(servers[n]->new_channel_content[n1]));
+					new_server_content=((new_server_content)||(servers[n]->new_channel_content[n1]));
 				}
 			}
 			
@@ -579,9 +579,9 @@ void refresh_server_list(){
 				wattroff(server_list,A_BOLD);
 				
 				//if we're viewing this server any content that would be considered "new" is no longer there
-				servers[current_server]->new_server_content=FALSE;
+				new_server_content=FALSE;
 			//else if there is new data on this server we're currently iterating on, display differently to show that to the user
-			}else if(servers[n]->new_server_content==TRUE){
+			}else if(new_server_content==TRUE){
 				wattron(server_list,A_UNDERLINE);
 				wprintw(server_list,servers[n]->server_name);
 				wattroff(server_list,A_UNDERLINE);
@@ -1325,7 +1325,7 @@ void parse_input(char *input_buffer, char keep_history){
 						strncpy(servers[server_index]->ident,"",BUFFER_SIZE);
 						
 						//by default there is no new content on this server
-						servers[server_index]->new_server_content=FALSE;
+						//(because new server content is the OR of new channel content, and by default there is no new channel content)
 						
 						//default the user's name to NULL until we get more information (NICK data)
 						strncpy(servers[server_index]->nick,"",BUFFER_SIZE);
@@ -1770,7 +1770,7 @@ void parse_server(int server_index){
 		properly_close(server_index);
 	}else{
 		//set this to show as having new data, it must since we're getting something on it
-		servers[server_index]->new_server_content=TRUE;
+		//(this is done automatically as a result of new_channel_content being set true in scrollback_output)
 		refresh_server_list();
 		
 		//take out the trailing newline (accounting for the possibility of windows newlines
