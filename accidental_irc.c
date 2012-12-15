@@ -1613,42 +1613,52 @@ void parse_input(char *input_buffer, char keep_history){
 			}
 		}else if(!strcmp(command,"log")){
 			if(current_server>=0){
-				servers[current_server]->keep_logs=TRUE;
-				scrollback_output(current_server,0,"accirc: keep_logs set to TRUE (opening log files)");
-				
-				//open any log files we may need
-				//look through the channels
-				int channel_index;
-				for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-					if(servers[current_server]->channel_name[channel_index]!=NULL){
-						//try to open a file for every channel
-						
-						char file_location[BUFFER_SIZE];
-						sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->channel_name[channel_index]);
-						//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
-						servers[current_server]->log_file[channel_index]=fopen(file_location,"a");
-						
-						
-						if(servers[current_server]->log_file[channel_index]!=NULL){
-							//turn off buffering since I need may this output immediately and buffers annoy me for that
-							setvbuf(servers[current_server]->log_file[channel_index],NULL,_IONBF,0);
+				if(servers[current_server]->keep_logs==FALSE){
+					servers[current_server]->keep_logs=TRUE;
+					scrollback_output(current_server,0,"accirc: keep_logs set to TRUE (opening log files)");
+					
+					//open any log files we may need
+					//look through the channels
+					int channel_index;
+					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+						if(servers[current_server]->channel_name[channel_index]!=NULL){
+							//try to open a file for every channel
+							
+							char file_location[BUFFER_SIZE];
+							sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->channel_name[channel_index]);
+							//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
+							servers[current_server]->log_file[channel_index]=fopen(file_location,"a");
+							
+							
+							if(servers[current_server]->log_file[channel_index]!=NULL){
+								//turn off buffering since I need may this output immediately and buffers annoy me for that
+								setvbuf(servers[current_server]->log_file[channel_index],NULL,_IONBF,0);
+							}
 						}
 					}
+				}else{
+					scrollback_output(current_server,0,"accirc: Err: keep_logs already set to TRUE, no changes made");
 				}
+
 			}
 		}else if(!strcmp(command,"no_log")){
 			if(current_server>=0){
-				servers[current_server]->keep_logs=FALSE;
-				scrollback_output(current_server,0,"accirc: keep_logs set to FALSE (closing log files)");
-				
-				//close any open logs we were writing to
-				int n;
-				for(n=0;n<MAX_CHANNELS;n++){
-					if(servers[current_server]->log_file[n]!=NULL){
-						fclose(servers[current_server]->log_file[n]);
-						//reset the structure to hold NULL
-						servers[current_server]->log_file[n]=NULL;
+				if(servers[current_server]->keep_logs==TRUE){
+					servers[current_server]->keep_logs=FALSE;
+					scrollback_output(current_server,0,"accirc: keep_logs set to FALSE (closing log files)");
+					
+					//close any open logs we were writing to
+					int n;
+					for(n=0;n<MAX_CHANNELS;n++){
+						if(servers[current_server]->log_file[n]!=NULL){
+							fclose(servers[current_server]->log_file[n]);
+							
+							//reset the structure to hold NULL
+							servers[current_server]->log_file[n]=NULL;
+						}
 					}
+				}else{
+					scrollback_output(current_server,0,"accirc: Err: keep_logs already set to FALSE, no changes made");
 				}
 			}
 		//unknown command error
