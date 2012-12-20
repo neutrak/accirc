@@ -2,7 +2,7 @@
 pkgname=accidental_irc
 pkgver=0.1
 pkgrel=1
-pkgdesc="accidental_irc (accirc for short), the accidental multiserver ncurses irc client"
+pkgdesc="accirc for short; the accidental multiserver ncurses irc client"
 arch=('i686' 'x86_64')
 url=""
 license=('LGPLv3')
@@ -18,12 +18,13 @@ build() {
   ./compile_accidental_irc.sh
 }
 
-package() {
-  cd "$srcdir/$pkgname"
-  
-  gzip accirc.man
-  su -c 'cp accirc.man.gz /usr/share/man/man1/accirc.1.gz'
-  su -c 'cp accirc /usr/local/bin/'
-}
+#for the moment, don't install; just d/l and compile
+#package() {
+#  cd "$srcdir/$pkgname"
+#  
+#  gzip accirc.man
+#  cp accirc.man.gz /usr/share/man/man1/accirc.1.gz
+#  cp accirc /usr/local/bin/
+#}
 
-md5sums=('fac68bbb0d861b59531c746652910da8')
+md5sums=('b60d7793e20721ddd9c11a446c0f3b21')
