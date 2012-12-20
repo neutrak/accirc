@@ -20,10 +20,10 @@ build() {
 
 package() {
   cd "$srcdir/$pkgname"
-
-  su -c 'cp accirc.man /usr/share/man/man1/'
+  
+  gzip accirc.man
+  su -c 'cp accirc.man.gz /usr/share/man/man1/accirc.1.gz'
   su -c 'cp accirc /usr/local/bin/'
-  su -c 'ln -s /usr/local/bin/accirc /usr/local/bin/accidental_irc'
 }
 
 md5sums=('fac68bbb0d861b59531c746652910da8')
