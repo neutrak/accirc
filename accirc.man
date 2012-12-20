@@ -144,6 +144,7 @@ A log of any errors that couldn't be output through ncurses
 .SH "SEE ALSO"
 ncurses(3)
 .SH BUGS
-MIRC colors don't work under screen; auto-reconnecting on drop not yet handled for
+MIRC colors don't work under screen; auto-reconnecting on drop is unreliable; flicker occurs frequently, since the clock updates every second (this is less noticable in screen or tmux for some reason)
 .SH WWW
 http://somegenericsite.dyndns.org/index.php?p=code
+

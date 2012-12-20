@@ -1769,7 +1769,7 @@ void parse_server(int server_index){
 		sprintf(to_send,"PONG :%s",parameters);
 		safe_send(servers[server_index]->socket_fd,to_send);
 #ifdef DEBUG
-//		fprintf(stderr,"got a ping \"%s\"\nreplying with \"%s\"\n",servers[server_index]->read_buffer,to_send);
+//		fprintf(error_file,"Debug: got a ping \"%s\"\nreplying with \"%s\"\n",servers[server_index]->read_buffer,to_send);
 #endif
 	//if we got an error, close the link and clean up the structures
 	}else if(!strcmp(command,"ERROR")){
