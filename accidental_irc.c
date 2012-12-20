@@ -396,6 +396,7 @@ void properly_close(int server_index){
 	char *reconnect_channels[MAX_CHANNELS];
 	char reconnect_nick[BUFFER_SIZE];
 	char reconnect_ident[BUFFER_SIZE];
+	
 	//if we'll be reconnecting to this server
 	if(reconnect_this){
 		//remember all the necessary information in order to reconnect
@@ -420,6 +421,7 @@ void properly_close(int server_index){
 	
 	//clean up the server
 	close(servers[server_index]->socket_fd);
+	
 	//free RAM null this sucker out
 	int n;
 	for(n=0;n<MAX_CHANNELS;n++){
@@ -448,7 +450,7 @@ void properly_close(int server_index){
 			free(servers[server_index]->user_names[n]);
 		}
 	}
-					
+	
 	free(servers[server_index]);
 	servers[server_index]=NULL;
 	
@@ -1768,9 +1770,6 @@ void parse_server(int server_index){
 		char to_send[BUFFER_SIZE];
 		sprintf(to_send,"PONG :%s",parameters);
 		safe_send(servers[server_index]->socket_fd,to_send);
-#ifdef DEBUG
-//		fprintf(error_file,"Debug: got a ping \"%s\"\nreplying with \"%s\"\n",servers[server_index]->read_buffer,to_send);
-#endif
 	//if we got an error, close the link and clean up the structures
 	}else if(!strcmp(command,"ERROR")){
 		properly_close(server_index);
@@ -3276,6 +3275,11 @@ int main(int argc, char *argv[]){
 								strncpy(servers[server_index]->read_buffer,accumulator,BUFFER_SIZE);
 								parse_server(server_index);
 								strncpy(accumulator,"",BUFFER_SIZE);
+								
+								//if we just lost connection and cleaned up, stop
+								if(servers[server_index]==NULL){
+									break;
+								}
 							}
 						//oh shit, we overflowed the buffer
 						}else{
@@ -3289,11 +3293,18 @@ int main(int argc, char *argv[]){
 							for(n=0;n<BUFFER_SIZE;n++){
 								servers[server_index]->read_buffer[n]='\0';
 							}
+							
+							//treat this as a lost connection
+							properly_close(server_index);
+							break;
 						}
 					}
 					
-					//the parse queue is everything between the last newline and the end of the string
-					strncpy(servers[server_index]->parse_queue,accumulator,BUFFER_SIZE);
+					//if we didn't lose connection and clean up after parsing what we already got
+					if(servers[server_index]!=NULL){
+						//the parse queue is everything between the last newline and the end of the string
+						strncpy(servers[server_index]->parse_queue,accumulator,BUFFER_SIZE);
+					}
 				}
 			}
 		}
