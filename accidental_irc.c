@@ -856,6 +856,7 @@ void refresh_channel_text(){
 				int wrapped_line=0;
 //				int n;
 				for(n=0;n<strlen(output_text);n++){
+					//TODO: output 0x03 here as bold '^' and 0x01 as bold '\' so they don't break line wrapping
 					wprintw(channel_text,"%c",output_text[n]);
 					if(((n+1)<strlen(output_text))&&((n+1)%width==0)){
 						wrapped_line++;
@@ -2803,6 +2804,8 @@ int main(int argc, char *argv[]){
 	//turn off buffering since I need may this output immediately and buffers annoy me for that
 	setvbuf(error_file,NULL,_IONBF,0);
 	
+	//by default you can log stuff
+	can_log=TRUE;
 	
 	//store logs in ~/.local/share/accirc/logs/
 	//ensure appropriate directories exist for config and logs
