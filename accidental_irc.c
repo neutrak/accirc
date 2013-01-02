@@ -856,8 +856,22 @@ void refresh_channel_text(){
 				int wrapped_line=0;
 //				int n;
 				for(n=0;n<strlen(output_text);n++){
-					//TODO: output 0x03 here as bold '^' and 0x01 as bold '\' so they don't break line wrapping
-					wprintw(channel_text,"%c",output_text[n]);
+					//output 0x03 here as bold '^' and 0x01 as bold '\' so they don't break line wrapping
+					//the MIRC color code is not output like other characters (make it a bolded ^)
+					if(output_text[n]==0x03){
+						wattron(channel_text,A_BOLD);
+						wprintw(channel_text,"^");
+						wattroff(channel_text,A_BOLD);
+					//the CTCP escape is also output specially, as a bold "\\"
+					}else if(output_text[n]==0x01){
+						wattron(channel_text,A_BOLD);
+						wprintw(channel_text,"\\");
+						wattroff(channel_text,A_BOLD);
+					//if this is not a special escape output it normally
+					}else{
+						wprintw(channel_text,"%c",output_text[n]);
+					}
+					
 					if(((n+1)<strlen(output_text))&&((n+1)%width==0)){
 						wrapped_line++;
 						wmove(channel_text,(y_start+wrapped_line),0);
@@ -2255,6 +2269,7 @@ void parse_server(int server_index){
 							refresh_channel_text();
 						}
 					//handle for a ping (when someone says our own nick)
+					//TODO: add a was_pingged flag per channel, so we can display it as newline AND bold in the channel list output
 					}else if(name_index>=0){
 #ifdef DEBUG
 						//take any desired additional steps upon ping here (could add notify-send or something, if desired)
