@@ -138,6 +138,8 @@ struct irc_connection {
 	//this is a flag to tell if there's new content in a channel
 	char new_channel_content[MAX_CHANNELS];
 	int current_channel;
+	//the last user to PM us (so we know who to send a reply to)
+	char last_pm_user[BUFFER_SIZE];
 };
 
 //the file pointer to log non-fatal errors to
@@ -468,7 +470,7 @@ void properly_close(int server_index){
 	//if we'll be reconnecting to this server, and we didn't exit yet
 	if(reconnect_this && (!done)){
 		char reconnect_command[BUFFER_SIZE];
-		sprintf(reconnect_command,"/connect %s %i",reconnect_host,reconnect_port);
+		sprintf(reconnect_command,"%cconnect %s %i",client_escape,reconnect_host,reconnect_port);
 		
 		//find where the next connection will go so we know if the command was successful
 		int next_server;
@@ -1349,6 +1351,11 @@ void parse_input(char *input_buffer, char keep_history){
 						//default the user's name to NULL until we get more information (NICK data)
 						strncpy(servers[server_index]->nick,"",BUFFER_SIZE);
 						
+						//by default no one has PM'd us so a reply goes to a blank nick
+						//should this be another default? it's just that the next word may be interpreted as the nick...
+						//screw it, I'll document it in the man, it'll be considered intended behavior
+						strncpy(servers[server_index]->last_pm_user,"",BUFFER_SIZE);
+						
 						//set the current server to be the one we just connected to
 						current_server=server_index;
 						
@@ -1566,10 +1573,19 @@ void parse_input(char *input_buffer, char keep_history){
 		//CTCP ACTION, bound to the common "/me"
 		}else if(!strcmp(command,"me")){
 			if(current_server>=0){
-				//attached the control data and recurse
+				//attach the control data and recurse
 				char tmp_buffer[BUFFER_SIZE];
 				sprintf(tmp_buffer,"%cACTION %s%c",0x01,parameters,0x01);
 				//don't keep that in the history though
+				parse_input(tmp_buffer,FALSE);
+			}
+		//r is short for "reply"; this will send a PM to the last user we got a PM from
+		}else if(!strcmp(command,"r")){
+			if(current_server>=0){
+				//prepend the "privmsg <nick> :" and recurse
+				char tmp_buffer[BUFFER_SIZE];
+				sprintf(tmp_buffer,"%cprivmsg %s :%s",server_escape,servers[current_server]->last_pm_user,parameters);
+				//don't keep the recursion in the history, if the user wants it they can get the /r command out of history
 				parse_input(tmp_buffer,FALSE);
 			}
 		//sleep command
@@ -1812,7 +1828,7 @@ void parse_server(int server_index){
 		//the channel to output to, by default the SYSTEM channel
 		int output_channel=0;
 		
-		//parse PMs and such and don't just ALWAYS go to the system channel
+		//seperate server messages from PMs
 		int first_space=strfind(" ",servers[server_index]->read_buffer);
 		if(first_space>=0){
 			//the start at 1 is to cut off the preceding ":"
@@ -2175,6 +2191,8 @@ void parse_server(int server_index){
 						sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
 						system(sys_call_buffer);
 #endif
+						//set this to the last PM-ing user, so we can later reply if we so choose
+						strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
 					}
 					
 					//for pings

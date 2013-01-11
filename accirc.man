@@ -59,6 +59,9 @@ sets active channel one right of current channel
 \fB/me\fP
 sends CTCP ACTION message
 .TP
+\fB/r\fP
+replies (by privmsg) to the last user we recieved a PM from on the currently selected server; if we have never gotten a PM, the default nick to reply to is the null string ""; parsing in some server implementations may treat this strangely, but it's out of my hands, the client will act as intended and send a "privmsg nick :msg" to the server
+.TP
 \fB/sleep\fP \fIseconds\fP
 sleeps a given number of seconds
 .TP
