@@ -2195,8 +2195,13 @@ void parse_server(int server_index){
 						strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
 					}
 					
+					//this is so pings can be case-insensitive
+					char lower_case_text[BUFFER_SIZE];
+					strncpy(lower_case_text,text,BUFFER_SIZE);
+					strtolower(lower_case_text,BUFFER_SIZE);
+					
 					//for pings
-					int name_index=strfind(servers[server_index]->nick,text);
+					int name_index=strfind(tmp_nick,lower_case_text);
 					
 					//for any CTCP message (which takes highest precedence)
 					char ctcp[BUFFER_SIZE];
