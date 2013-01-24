@@ -1105,7 +1105,8 @@ void parse_input(char *input_buffer, char keep_history){
 	
 	//ignore blank commands
 	if(!strcmp("",input_buffer)){
-		goto fail;
+		strncpy(input_buffer,"\0",BUFFER_SIZE);
+		return;
 	}
 	
 	if(keep_history){
@@ -1209,7 +1210,8 @@ void parse_input(char *input_buffer, char keep_history){
 				if(new_socket_fd<0){
 					//handle failed socket openings gracefully here (by telling the user and giving up)
 					fprintf(error_file,"Err: Could not open socket\n");
-					goto fail;
+					strncpy(input_buffer,"\0",BUFFER_SIZE);
+					return;
 				}
 				
 				//that's "get host by name"
@@ -1217,7 +1219,8 @@ void parse_input(char *input_buffer, char keep_history){
 				if(server==NULL){
 					//handle failed hostname lookups gracefully here (by telling the user and giving up)
 					fprintf(error_file,"Err: Could not find server\n");
-					goto fail;
+					strncpy(input_buffer,"\0",BUFFER_SIZE);
+					return;
 				}
 				
 				//configure the server address information
@@ -1230,7 +1233,8 @@ void parse_input(char *input_buffer, char keep_history){
 				if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
 					//handle failed connections gracefully here (by telling the user and giving up)
 					fprintf(error_file,"Err: Could not connect to server\n");
-					goto fail;
+					strncpy(input_buffer,"\0",BUFFER_SIZE);
+					return;
 				}
 				
 				//clear out the server list because we're probably gonna be modifying it
@@ -1771,7 +1775,7 @@ void parse_input(char *input_buffer, char keep_history){
 #endif
 		}
 	}
-fail:	
+	
 	strncpy(input_buffer,"\0",BUFFER_SIZE);
 }
 
