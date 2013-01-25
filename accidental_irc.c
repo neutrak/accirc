@@ -327,19 +327,18 @@ char load_rc(char *rc_file){
 		char rc_line[BUFFER_SIZE];
 		while(!feof(rc)){
 			fgets(rc_line,BUFFER_SIZE,rc);
-			if(!feof(rc)){
-				//cut off the trailing newline
-				int newline_index=strfind("\n",rc_line);
-				if(newline_index>=0){
-					substr(rc_line,rc_line,0,newline_index);
-				}
-				parse_input(rc_line,FALSE);
-				
-				refresh_server_list();
-				refresh_channel_list();
-				refresh_channel_topic();
-				refresh_channel_text();
+			
+			//cut off the trailing newline
+			int newline_index=strfind("\n",rc_line);
+			if(newline_index>=0){
+				substr(rc_line,rc_line,0,newline_index);
 			}
+			parse_input(rc_line,FALSE);
+			
+			refresh_server_list();
+			refresh_channel_list();
+			refresh_channel_topic();
+			refresh_channel_text();
 		}
 		
 		fclose(rc);
