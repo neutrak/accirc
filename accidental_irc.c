@@ -328,6 +328,10 @@ char load_rc(char *rc_file){
 		while(!feof(rc)){
 			fgets(rc_line,BUFFER_SIZE,rc);
 			
+			if(feof(rc)){
+				break;
+			}
+			
 			//cut off the trailing newline
 			int newline_index=strfind("\n",rc_line);
 			if(newline_index>=0){
