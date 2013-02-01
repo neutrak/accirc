@@ -135,6 +135,8 @@ struct irc_connection {
 	char **channel_content[MAX_CHANNELS];
 	char **user_names[MAX_NAMES];
 	char *channel_topic[MAX_CHANNELS];
+	//flags for if the user was pingged in a given channel on this server
+	char was_pingged[MAX_CHANNELS];
 	//this is a flag to tell if there's new content in a channel
 	char new_channel_content[MAX_CHANNELS];
 	int current_channel;
@@ -328,9 +330,9 @@ char load_rc(char *rc_file){
 		while(!feof(rc)){
 			fgets(rc_line,BUFFER_SIZE,rc);
 			
-			if(feof(rc)){
-				break;
-			}
+//			if(feof(rc)){
+//				break;
+//			}
 			
 			//cut off the trailing newline
 			int newline_index=strfind("\n",rc_line);
@@ -579,12 +581,14 @@ void refresh_server_list(){
 		if(servers[n]!=NULL){
 			//tells us if there is new content on this server since the user last viewed it
 			char new_server_content=FALSE;
+			char was_pingged=FALSE;
 			
 			//set the new server content to be the OR of all channels on that server
 			int n1;
 			for(n1=0;n1<MAX_CHANNELS;n1++){
 				if(servers[n]->channel_name[n1]!=NULL){
 					new_server_content=((new_server_content)||(servers[n]->new_channel_content[n1]));
+					was_pingged=((was_pingged)||(servers[n]->was_pingged[n1]));
 				}
 			}
 			
@@ -598,9 +602,18 @@ void refresh_server_list(){
 				new_server_content=FALSE;
 			//else if there is new data on this server we're currently iterating on, display differently to show that to the user
 			}else if(new_server_content==TRUE){
+				//if there was also a ping, show bold AND underline
+				if(was_pingged==TRUE){
+					wattron(server_list,A_BOLD);
+				}
+				
 				wattron(server_list,A_UNDERLINE);
 				wprintw(server_list,servers[n]->server_name);
 				wattroff(server_list,A_UNDERLINE);
+				
+				if(was_pingged==TRUE){
+					wattroff(server_list,A_BOLD);
+				}
 			//otherwise just display it regularly
 			}else{
 				wprintw(server_list,servers[n]->server_name);
@@ -642,11 +655,23 @@ void refresh_channel_list(){
 				
 				//if we're viewing this channel any content that would be considered "new" is no longer there
 				servers[current_server]->new_channel_content[n]=FALSE;
+				
+				//likewise a ping is now obsolete
+				servers[current_server]->was_pingged[n]=FALSE;
 			//else if there is new data, display differently to show that to the user
 			}else if(servers[current_server]->new_channel_content[n]==TRUE){
+				//if there was also a ping, show bold AND underline
+				if(servers[current_server]->was_pingged[n]==TRUE){
+					wattron(channel_list,A_BOLD);
+				}
+				
 				wattron(channel_list,A_UNDERLINE);
 				wprintw(channel_list,servers[current_server]->channel_name[n]);
 				wattroff(channel_list,A_UNDERLINE);
+				
+				if(servers[current_server]->was_pingged[n]==TRUE){
+					wattroff(channel_list,A_BOLD);
+				}
 			//otherwise just display it regularly
 			}else{
 				wprintw(channel_list,servers[current_server]->channel_name[n]);
@@ -1344,6 +1369,7 @@ void parse_input(char *input_buffer, char keep_history){
 							servers[server_index]->channel_content[n]=NULL;
 							servers[server_index]->channel_topic[n]=NULL;
 							servers[server_index]->new_channel_content[n]=FALSE;
+							servers[server_index]->was_pingged[n]=FALSE;
 							servers[server_index]->log_file[n]=NULL;
 							servers[server_index]->autojoin_channel[n]=NULL;
 							servers[server_index]->user_names[n]=NULL;
@@ -2200,6 +2226,9 @@ void parse_server(int server_index){
 #endif
 						//set this to the last PM-ing user, so we can later reply if we so choose
 						strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
+						
+						//set the was_pingged flag for the server in the case of a PM
+						servers[server_index]->was_pingged[0]=TRUE;
 					}
 					
 					//this is so pings can be case-insensitive
@@ -2299,7 +2328,7 @@ void parse_server(int server_index){
 							refresh_channel_text();
 						}
 					//handle for a ping (when someone says our own nick)
-					//TODO: add a was_pingged flag per channel, so we can display it as newline AND bold in the channel list output
+					//there is a was_pingged flag per channel, so we can display it as newline AND bold in the channel list output
 					}else if(name_index>=0){
 #ifdef DEBUG
 						//take any desired additional steps upon ping here (could add notify-send or something, if desired)
@@ -2311,6 +2340,9 @@ void parse_server(int server_index){
 						beep();
 						//format the output to show that we were pingged
 						sprintf(output_buffer,"***<%s> %s",nick,text);
+						
+						//set the was_pingged flag so the user can see that information at a glance
+						servers[server_index]->was_pingged[output_channel]=TRUE;
 					}else{
 						//format the output of a PM in a very pretty way
 						sprintf(output_buffer,"<%s> %s",nick,text);
