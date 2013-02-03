@@ -391,7 +391,7 @@ char safe_recv(int socket, char *buffer){
 
 void properly_close(int server_index){
 	//if we're not connected in the first place just leave, we're done here
-	if(server_index<0){
+	if(server_index<0 || (servers[server_index]==NULL)){
 		return;
 	}
 	
