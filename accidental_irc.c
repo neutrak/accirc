@@ -2540,8 +2540,13 @@ void parse_server(int server_index){
 					//if we changed our nick
 					if(!strcmp(nick,servers[server_index]->nick)){
 						//change it in relevant data structures
-						//leaving out the leading ":"
-						substr(servers[server_index]->nick,text,1,strlen(text)-1);
+						//leaving out the leading ":", if there is one
+						if(text[0]==':'){
+							substr(servers[server_index]->nick,text,1,strlen(text)-1);
+						}else{
+							substr(servers[server_index]->nick,text,0,strlen(text));
+						}
+						
 						//and update the display to reflect this change
 						refresh_server_list();
 						our_nick_changed=TRUE;
@@ -2572,7 +2577,11 @@ void parse_server(int server_index){
 										scrollback_output(server_index,channel_index,output_buffer);
 										
 										char new_nick[BUFFER_SIZE];
-										substr(new_nick,text,1,strlen(text)-1);
+										if(text[0]==':'){
+											substr(new_nick,text,1,strlen(text)-1);
+										}else{
+											substr(new_nick,text,0,strlen(text));
+										}
 										
 										//update this user's entry in that channel's names array
 										strncpy(servers[server_index]->user_names[channel_index][name_index],new_nick,BUFFER_SIZE);
