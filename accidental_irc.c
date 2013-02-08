@@ -2349,6 +2349,16 @@ void parse_server(int server_index){
 					}
 				//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 				}else if(!strcmp(command,"JOIN")){
+					//first get the channel name
+					char channel[BUFFER_SIZE];
+					
+					//cut the leading : from the channel name, if there is one
+					if(text[0]==':'){
+						substr(channel,text,1,strlen(text)-1);
+					}else{
+						substr(channel,text,0,strlen(text));
+					}
+					
 					//if it was us doing the join-ing
 					if(!strcmp(servers[server_index]->nick,nick)){
 						//TODO: make sure we're not already in this channel
@@ -2358,8 +2368,7 @@ void parse_server(int server_index){
 						if(channel_index<MAX_CHANNELS){
 							servers[server_index]->channel_name[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 							//initialize the channel name to be what was joined
-							//leaving out the leading ":"
-							substr(servers[server_index]->channel_name[channel_index],text,1,strlen(text)-1);
+							strncpy(servers[server_index]->channel_name[channel_index],channel,BUFFER_SIZE);
 							
 							//default to a null topic
 							servers[server_index]->channel_topic[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
@@ -2409,10 +2418,6 @@ void parse_server(int server_index){
 						}
 					//else it wasn't us doing the join so just output the join message to that channel (which presumably we're in)
 					}else{
-						char channel[BUFFER_SIZE];
-						//cut the leading : from the channel name
-						substr(channel,text,1,strlen(text)-1);
-						
 						//lower case the channel so we can do a case-insensitive string match against it
 						strtolower(channel,BUFFER_SIZE);
 						
