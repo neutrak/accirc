@@ -792,39 +792,50 @@ void refresh_channel_text(){
 			//instead of a line overflow error, WRAP! (this is a straight-up character wrap)
 			strncpy(output_text,scrollback[output_line],BUFFER_SIZE);
 			
-//			if(has_colors()){
-/*
-				//TODO: handle MIRC colors
-				//if this line was a ping or included MIRC colors treat it specially (set attributes before output)
+#ifdef MIRC_COLOR
+			if(has_colors()){
+				int wrapped_line=0;
+				
+				//handle MIRC colors
+				//a data structure for colors that must persist outside the loop
+				int colors[2];
+				colors[FOREGROUND]=MIRC_WHITE;
+				colors[BACKGROUND]=MIRC_BLACK;
+				wcoloron(channel_text,MIRC_WHITE,MIRC_BLACK);
 				
 				char was_ping=FALSE;
 				
-				//TODO: update this now that timestamps are prepended to all lines (unhandled lines no longer start with :, they start with <timestamp> :)
-				char find_buffer[BUFFER_SIZE];
-				sprintf(find_buffer,"%s",servers[current_server]->nick);
-				int ping_check=strfind(find_buffer,scrollback[output_line]);
+				//timestamps are prepended to all lines
+				//(unhandled lines no longer start with :, they start with <timestamp> :)
+				char timestamp[BUFFER_SIZE];
+				int space_index=strfind(" ",output_text);
+				substr(timestamp,output_text,0,space_index);
+				
+				//if this line was a ping or included MIRC colors treat it specially (set attributes before output)
+				int ping_check=strfind(servers[current_server]->nick,output_text);
 				//if our name was in the message and we didn't send the message and it's not an unhandled message type (those start with ":")
-				if((ping_check>=0)&&(strfind(">>",scrollback[output_line])!=0)&&(strfind(":",scrollback[output_line])!=0)){
+				if((ping_check>=0)&&(strfind(">>",output_text)!=(space_index+1))&&(strfind(":",scrollback[output_line])!=(space_index+1))){
 					was_ping=TRUE;
 				}
 				
 				if(was_ping){
-//					wcoloron(channel_text,MIRC_GREEN,MIRC_BLACK);
-					wcoloron(channel_text,2,0);
+					wcoloron(channel_text,MIRC_GREEN,MIRC_BLACK);
 				}
 				
 				//output the string a character at a time, taking into consideration MIRC colors
 				int n;
 				for(n=0;n<strlen(output_text);n++){
-					if(output_text[n]!=0x03){
+					//the CTCP escape is also output specially, as a bold "\\"
+					if(output_text[n]==0x01){
+						wattron(channel_text,A_BOLD);
+						wprintw(channel_text,"\\");
+						wattroff(channel_text,A_BOLD);
+					//if this is not a special escape output it normally
+					}else if(output_text[n]!=0x03){
 						wprintw(channel_text,"%c",output_text[n]);
 					}else{
 						n++;
 						int color_start=n;
-						
-						int colors[2];
-						colors[FOREGROUND]=0;
-						colors[BACKGROUND]=0;
 						
 						char input_background=FALSE;
 						while((output_text[n]!='\0')&&(isdigit(output_text[n])||(output_text[n]==','))){
@@ -851,40 +862,46 @@ void refresh_channel_text(){
 							//treat it as MIRC code black
 							colors[BACKGROUND]=MIRC_BLACK;
 						}
-						//and decrement n because the next character is something we want to display as a normal char
-						n--;
 						
 						//if not one iteration of the loop was successful this is a reset escape, so reset
 						if(color_start==n){
 							wattrset(channel_text,0);
 							wcoloron(channel_text,0,1);
+							//and decrement n because the next character is something we want to display as a normal char
+							n--;
 						}else{
 							if((colors[FOREGROUND]>=0)&&(colors[FOREGROUND]<MIRC_COLOR_MAX)&&(colors[BACKGROUND]>=0)&&(colors[BACKGROUND]<MIRC_COLOR_MAX)){
+								//ignore anything previously set
+								wattrset(channel_text,0);
+								
 								//okay, we know what we're setting now so set it and display
 								wcoloron(channel_text,colors[FOREGROUND],colors[BACKGROUND]);
 								wprintw(channel_text,"%c",output_text[n]);
-								wcoloroff(channel_text,colors[FOREGROUND],colors[BACKGROUND]);
+//								wcoloroff(channel_text,colors[FOREGROUND],colors[BACKGROUND]);
 							}else{
 								wprintw(channel_text,"%c",output_text[n]);
 							}
 						}
 					}
+					
+					if(((n+1)<strlen(output_text))&&((n+1)%width==0)){
+						wrapped_line++;
+						wmove(channel_text,(y_start+wrapped_line),0);
+					}
 				}
 				
 				if(was_ping){
-//					wcoloroff(channel_text,MIRC_GREEN,MIRC_BLACK);
-					wcoloroff(channel_text,2,0);
+					wcoloroff(channel_text,MIRC_GREEN,MIRC_BLACK);
 				}
 				
 				//reset all attributes before we start outputting the next line in case they didn't properly terminate their colors
-//				wattrset(channel_text,0);
-*/
-//			}else{
-//				wprintw(channel_text,output_text);
-				
+				wattrset(channel_text,0);
+				wcoloron(channel_text,MIRC_WHITE,MIRC_BLACK);
+			}else{
+				int n;
+#endif
 				//instead of a line overflow error, WRAP! (this is a straight-up character wrap)
 				int wrapped_line=0;
-//				int n;
 				for(n=0;n<strlen(output_text);n++){
 					//output 0x03 here as bold '^' and 0x01 as bold '\' so they don't break line wrapping
 					//the MIRC color code is not output like other characters (make it a bolded ^)
@@ -907,7 +924,9 @@ void refresh_channel_text(){
 						wmove(channel_text,(y_start+wrapped_line),0);
 					}
 				}
-//			}
+#ifdef MIRC_COLOR
+			}
+#endif
 		}
 	}
 	//refresh the channel text window
@@ -2736,7 +2755,8 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	//set some common options
 	noecho();
 	if(has_colors()){
-//		start_color();
+#ifdef MIRC_COLOR
+		start_color();
 		//init colors (for MIRC color support, among other things)
 		init_color(MIRC_WHITE,1000,1000,1000);
 		init_color(MIRC_BLACK,0,0,0);
@@ -2767,6 +2787,7 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 		
 		//start with a sane default color
 		wcoloron(stdscr,MIRC_WHITE,MIRC_BLACK);
+#endif
 	}
 	//get raw input
 	raw();
@@ -2788,7 +2809,8 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	bottom_border=newwin(1,width,(height-2),0);
 	user_input=newwin(1,width,(height-1),0);
 	
-/*	//set sane default colors
+#ifdef MIRC_COLOR
+	//set sane default colors
 	wcoloron(server_list,MIRC_WHITE,MIRC_BLACK);
 	wcoloron(channel_list,MIRC_WHITE,MIRC_BLACK);
 	wcoloron(channel_topic,MIRC_WHITE,MIRC_BLACK);
@@ -2796,7 +2818,7 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	wcoloron(channel_text,MIRC_WHITE,MIRC_BLACK);
 	wcoloron(bottom_border,MIRC_WHITE,MIRC_BLACK);
 	wcoloron(user_input,MIRC_WHITE,MIRC_BLACK);
-*/
+#endif
 	
 	keypad(user_input,TRUE);
 	//set timeouts for non-blocking
