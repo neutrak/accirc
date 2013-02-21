@@ -37,7 +37,7 @@
 #define VERSION "0.1"
 
 //these are for ncurses' benefit
-#define KEY_ESCAPE 0x1b
+#define KEY_ESCAPE 27
 #define KEY_DEL KEY_DC
 #define BREAK 0x03
 //(I know the IRC spec limits it to 512 but I'd like to have some extra room in case of client commands or something)
@@ -1265,7 +1265,7 @@ void parse_input(char *input_buffer, char keep_history){
 				struct hostent *server=gethostbyname(host);
 				if(server==NULL){
 					//handle failed hostname lookups gracefully here (by telling the user and giving up)
-					fprintf(error_file,"Err: Could not find server\n");
+					fprintf(error_file,"Err: Could not find server \"%s\"\n",host);
 					strncpy(input_buffer,"\0",BUFFER_SIZE);
 					return;
 				}
@@ -1279,7 +1279,7 @@ void parse_input(char *input_buffer, char keep_history){
 				//(side effects happen during this call to connect())
 				if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
 					//handle failed connections gracefully here (by telling the user and giving up)
-					fprintf(error_file,"Err: Could not connect to server\n");
+					fprintf(error_file,"Err: Could not connect to server \"%s\"\n",host);
 					strncpy(input_buffer,"\0",BUFFER_SIZE);
 					return;
 				}
@@ -3035,317 +3035,361 @@ int main(int argc, char *argv[]){
 		
 		c=wgetch(user_input);
 		if(c>=0){
-			switch(c){
-				//handle for resize events
-				case KEY_RESIZE:
-					//if we were scrolled back we're not anymore!
-					scrollback_end=-1;
-					force_resize(input_buffer,cursor_pos,input_display_start);
-					break;
-				//TODO: make another break command or change something else to add ^C to the buffer, it's needed for MIRC colors
-				//handle ctrl+c gracefully
-//				case BREAK:
-//					done=TRUE;
-//					break;
-				//TODO: get the proper escape sequence for these, TEMPORARILY they are using f1,f2,f3,f4
-				//these are ALT+arrows to move between channels and servers
-//				case ALT_UP:
-				//f3
-				case 267:
-					sprintf(key_combo_buffer,"%csl",client_escape);
-					parse_input(key_combo_buffer,FALSE);
-					break;
-//				case ALT_DOWN:
-				//f4
-				case 268:
-					sprintf(key_combo_buffer,"%csr",client_escape);
-					parse_input(key_combo_buffer,FALSE);
-					break;
-//				case ALT_LEFT:
-				//f1
-				case 265:
-					sprintf(key_combo_buffer,"%ccl",client_escape);
-					parse_input(key_combo_buffer,FALSE);
-					break;
-//				case ALT_RIGHT:
-				//f2
-				case 266:
-					sprintf(key_combo_buffer,"%ccr",client_escape);
-					parse_input(key_combo_buffer,FALSE);
-					break;
-				//user hit enter, meaning parse and handle the user's input
-				case '\n':
-					//note the input_buffer gets reset to all NULL after parse_input
-					parse_input(input_buffer,TRUE);
-					//reset the cursor for the next round of input
-					cursor_pos=0;
-					//and the input display start
-					input_display_start=0;
-					break;
-				//movement within the input line
-				case KEY_RIGHT:
-					if(cursor_pos<strlen(input_buffer)){
-						cursor_pos++;
-						if(cursor_pos>width){
-							input_display_start++;
-						}
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				case KEY_LEFT:
-					if(cursor_pos>0){
-						cursor_pos--;
-						if(cursor_pos<input_display_start){
-							input_display_start--;
-						}
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				//scroll back in the current channel
-				//TODO: compute correct stop scrolling bound in this case
-//				case KEY_PGUP:
-				case 339:
-					//if we are connected to a server
-					if(current_server>=0){
-						int line_count;
-						char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
-						for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
-						
-						//if there is more text than area to display allow it scrollback (else don't)
-						//the -6 here is because there are 6 character rows used to display things other than channel text
-//						if(line_count>height-6){
-						if(line_count>0){
-							//if we're already scrolled back and we can go further
-							//note: the +6 here is because there are 6 character rows used to display things other than channel text
-//							if((scrollback_end-height+6)>0){
-							if(scrollback_end>1){
-								scrollback_end--;
-							//if we're not scrolled back start now
-							}else if(scrollback_end<0){
-								int n;
-								//note after this loop n will be one line AFTER the last valid line of scrollback
-								for(n=0;(n<MAX_SCROLLBACK)&&(scrollback[n]!=NULL);n++);
-								//so subtract one
-								n--;
-								//if there is scrollback to view
-								if(n>=0){
-									scrollback_end=n;
-								}
+			//retry is used when we have escape+some keys, and don't handle specially for it
+			char retry=FALSE;
+			do{
+				switch(c){
+					//handle for resize events
+					case KEY_RESIZE:
+						//if we were scrolled back we're not anymore!
+						scrollback_end=-1;
+						force_resize(input_buffer,cursor_pos,input_display_start);
+						break;
+					//TODO: make another break command or change something else to add ^C to the buffer, it's needed for MIRC colors
+					//handle ctrl+c gracefully
+//					case BREAK:
+//						done=TRUE;
+//						break;
+					case KEY_ESCAPE:
+						c=wgetch(user_input);
+						//-1 is ERROR, meaning the escape was /just/ an escape and nothing more
+						//in that case we want to ignore the handling for subsequent characters
+						if(c!=-1){
+							switch(c){
+								case KEY_UP:
+									sprintf(key_combo_buffer,"%csl",client_escape);
+									parse_input(key_combo_buffer,FALSE);
+									break;
+								case KEY_DOWN:
+									sprintf(key_combo_buffer,"%csr",client_escape);
+									parse_input(key_combo_buffer,FALSE);
+									break;
+								case KEY_LEFT:
+									sprintf(key_combo_buffer,"%ccl",client_escape);
+									parse_input(key_combo_buffer,FALSE);
+									break;
+								case KEY_RIGHT:
+									sprintf(key_combo_buffer,"%ccr",client_escape);
+									parse_input(key_combo_buffer,FALSE);
+									break;
+								default:
+									//this wasn't anything we handle specially for, so just try to parse it as normal now
+									retry=TRUE;
+									break;
 							}
-						}
-						refresh_channel_text();
-					}
-					break;
-				//scroll forward in the current channel
-//				case KEY_PGDN:
-				case 338:
-					//if we are connected to a server
-					if(current_server>=0){
-						char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
-						//if we're already scrolled back and there is valid scrollback below this
-						if((scrollback_end>=0)&&(scrollback_end<(MAX_SCROLLBACK-1))&&(scrollback[scrollback_end+1]!=NULL)){
-							scrollback_end++;
-						//if we're out of scrollback to view, re-set and make this display new data as it gets here
-						}else if(scrollback_end>=0){
-							scrollback_end=-1;
-						}
-						refresh_channel_text();
-					}
-					break;
-				//handle text entry history
-				case KEY_UP:
-					//reset cursor position always, since the strings in history are probably not the same length as the current input string
-					cursor_pos=0;
-					input_display_start=0;
-					
-					if(input_line>0){
-						input_line--;
-						//actually view that line
-						strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
-					//if the user hasn't yet started scrolling into history, start now
-					}else if(input_line<0){
-						int n;
-						//note after this loop n will be one line AFTER the last valid line of scrollback
-						for(n=0;(n<MAX_SCROLLBACK)&&(input_history[n]!=NULL);n++);
-						//so subtract one
-						n--;
-						//if there is scrollback to view
-						if(n>=0){
-							input_line=n;
-							//store this line for if we cease viewing history
-							strncpy(pre_history,input_buffer,BUFFER_SIZE);
-							strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
-						}
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				//handle text entry history
-				case KEY_DOWN:
-					//reset cursor position always, since the strings in history are probably not the same length as the current input string
-					cursor_pos=0;
-					input_display_start=0;
-					
-					//if there is valid history below this go there
-					if((input_line>=0)&&(input_line<(MAX_SCROLLBACK-1))&&(input_history[input_line+1]!=NULL)){
-						input_line++;
-						//actually view that line
-						strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
-					//otherwise if we're out of history, re-set and make this what the input was before history was viewed
-					}else if(input_line>=0){
-						strncpy(input_buffer,pre_history,BUFFER_SIZE);
-						//note we are now not viewing history
-						input_line=-1;
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				//handle user name completion
-				case '\t':
-					if(current_server>=0){
-						//a portion of the nickname to complete
-						char partial_nick[BUFFER_SIZE];
-						//clear out this buffer to start with
-						int n;
-						for(n=0;n<BUFFER_SIZE;n++){
-							partial_nick[n]='\0';
-						}
-						
-						//where the nickname starts
-						int partial_nick_start_index=(cursor_pos-1);
-						while((partial_nick_start_index>=0)&&(input_buffer[partial_nick_start_index]!=' ')){
-							partial_nick_start_index--;
-						}
-						//don't count the delimiter
-						partial_nick_start_index++;
-						
-						//chomp up the nickname start
-						for(n=partial_nick_start_index;n<cursor_pos;n++){
-							partial_nick[n-partial_nick_start_index]=input_buffer[n];
-						}
-						//always null terminate
-						partial_nick[n]='\0';
-						
-						//lower case for case-insensitive matching
-						strtolower(partial_nick,BUFFER_SIZE);
-						
-						//this counts the number of matches we got, we only want to complete on UNIQUE matches
-						int matching_nicks=0;
-						char last_matching_nick[BUFFER_SIZE];
-						//iterate through all tne nicks in this channel, if we find a unique match, complete it
-						for(n=0;n<MAX_NAMES;n++){
-							if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
-								char nick_to_match[BUFFER_SIZE];
-								strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
-								strtolower(nick_to_match,BUFFER_SIZE);
-								
-								//if this nick started with the partial_nick
-								if(strfind(partial_nick,nick_to_match)==0){
-									matching_nicks++;
-									strncpy(last_matching_nick,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
-								}
-							}
-						}
-						
-						//if this was a unique match
-						if(matching_nicks==1){
-							//fill in the rest of the name
-							//where to start inserting from in the full nick
-							int insert_start_pos=cursor_pos-partial_nick_start_index;
-							
-							int n;
-							for(n=insert_start_pos;n<strlen(last_matching_nick);n++){
-								if(strinsert(input_buffer,last_matching_nick[n],cursor_pos,BUFFER_SIZE)){
-									cursor_pos++;
-									//if we would go off the end
-									if((cursor_pos-input_display_start)>width){
-										//make the end one char further down
-										input_display_start++;
-									}
-								}
-							}
-						//this was either not a match or not a unique match
-						}else{
-							beep();
 						}
 #ifdef DEBUG
-/*
-						fprintf(stderr,"tab-complete debug, attempting to match \"%s\" to array [",partial_nick);
-						for(n=0;n<MAX_NAMES;n++){
-							if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
-								fprintf(stderr,"\"%s\" ",servers[current_server]->user_names[servers[current_server]->current_channel][n]);
+						if(current_server<0){
+							wclear(channel_text);
+							wmove(channel_text,0,0);
+							wprintw(channel_text,"Handling an escape, c=%i",c);
+							wrefresh(channel_text);
+						}
+#endif
+						
+						break;
+					//NOTE: I now have ALT+arrows bound to move between channels and servers
+					//these are the f1,f2,f3, and f4 bindings left for backwards compatibility only
+//					case ALT_UP:
+					//f3
+					case 267:
+						sprintf(key_combo_buffer,"%csl",client_escape);
+						parse_input(key_combo_buffer,FALSE);
+						break;
+//					case ALT_DOWN:
+					//f4
+					case 268:
+						sprintf(key_combo_buffer,"%csr",client_escape);
+						parse_input(key_combo_buffer,FALSE);
+						break;
+//					case ALT_LEFT:
+					//f1
+					case 265:
+						sprintf(key_combo_buffer,"%ccl",client_escape);
+						parse_input(key_combo_buffer,FALSE);
+						break;
+//					case ALT_RIGHT:
+					//f2
+					case 266:
+						sprintf(key_combo_buffer,"%ccr",client_escape);
+						parse_input(key_combo_buffer,FALSE);
+						break;
+					//user hit enter, meaning parse and handle the user's input
+					case '\n':
+						//note the input_buffer gets reset to all NULL after parse_input
+						parse_input(input_buffer,TRUE);
+						//reset the cursor for the next round of input
+						cursor_pos=0;
+						//and the input display start
+						input_display_start=0;
+						break;
+					//movement within the input line
+					case KEY_RIGHT:
+						if(cursor_pos<strlen(input_buffer)){
+							cursor_pos++;
+							if(cursor_pos>width){
+								input_display_start++;
 							}
 						}
-						fprintf(stderr,"]\n");
-*/
-#endif
-					}
-					break;
-				case KEY_HOME:
-					cursor_pos=0;
-					input_display_start=0;
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				case KEY_END:
-					cursor_pos=strlen(input_buffer);
-					if(strlen(input_buffer)>width){
-						input_display_start=strlen(input_buffer)-width;
-					}else{
-						input_display_start=0;
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				//this accounts for some odd-ness in terminals, it's just backspace (^H)
-				case 127:
-				//user wants to destroy something they entered
-				case KEY_BACKSPACE:
-					if(cursor_pos>0){
-						if(strremove(input_buffer,cursor_pos-1)){
-							//and update the cursor position upon success
+						refresh_user_input(input_buffer,cursor_pos,input_display_start);
+						break;
+					case KEY_LEFT:
+						if(cursor_pos>0){
 							cursor_pos--;
 							if(cursor_pos<input_display_start){
 								input_display_start--;
 							}
 						}
-					}
-					break;
-				//user wants to destroy something they entered
-				case KEY_DEL:
-					if(cursor_pos<strlen(input_buffer)){
-						strremove(input_buffer,cursor_pos);
-						//note cursor position doesn't change here
-					}
-					break;
-				//TODO: make this ctrl+tab if possible, or something else that makes more sense
-				//temporarily f5 sends a literal tab
-				case 269:
-				//and f6 sends a 0x01 (since screen catches the real one)
-				case 270:
-					//these are mutually exclusive, so an if is needed
-					if(c==269){
-						c='\t';
-					}else if(c==270){
-						c=0x01;
-					}
-				//normal input
-				default:
-					if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
-						cursor_pos++;
-						//if we would go off the end
-						if((cursor_pos-input_display_start)>width){
-							//make the end one char further down
-							input_display_start++;
+						refresh_user_input(input_buffer,cursor_pos,input_display_start);
+						break;
+					//scroll back in the current channel
+					//TODO: compute correct stop scrolling bound in this case
+//					case KEY_PGUP:
+					case 339:
+						//if we are connected to a server
+						if(current_server>=0){
+							int line_count;
+							char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+							for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
+							
+							//if there is more text than area to display allow it scrollback (else don't)
+							//the -6 here is because there are 6 character rows used to display things other than channel text
+//							if(line_count>height-6){
+							if(line_count>0){
+								//if we're already scrolled back and we can go further
+								//note: the +6 here is because there are 6 character rows used to display things other than channel text
+//								if((scrollback_end-height+6)>0){
+								if(scrollback_end>1){
+									scrollback_end--;
+								//if we're not scrolled back start now
+								}else if(scrollback_end<0){
+									int n;
+									//note after this loop n will be one line AFTER the last valid line of scrollback
+									for(n=0;(n<MAX_SCROLLBACK)&&(scrollback[n]!=NULL);n++);
+									//so subtract one
+									n--;
+									//if there is scrollback to view
+									if(n>=0){
+										scrollback_end=n;
+									}
+								}
+							}
+							refresh_channel_text();
 						}
-					}
-					
+						break;
+					//scroll forward in the current channel
+//					case KEY_PGDN:
+					case 338:
+						//if we are connected to a server
+						if(current_server>=0){
+							char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+							//if we're already scrolled back and there is valid scrollback below this
+							if((scrollback_end>=0)&&(scrollback_end<(MAX_SCROLLBACK-1))&&(scrollback[scrollback_end+1]!=NULL)){
+								scrollback_end++;
+							//if we're out of scrollback to view, re-set and make this display new data as it gets here
+							}else if(scrollback_end>=0){
+								scrollback_end=-1;
+							}
+							refresh_channel_text();
+						}
+						break;
+					//handle text entry history
+					case KEY_UP:
+						//reset cursor position always, since the strings in history are probably not the same length as the current input string
+						cursor_pos=0;
+						input_display_start=0;
+						
+						if(input_line>0){
+							input_line--;
+							//actually view that line
+							strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
+						//if the user hasn't yet started scrolling into history, start now
+						}else if(input_line<0){
+							int n;
+							//note after this loop n will be one line AFTER the last valid line of scrollback
+							for(n=0;(n<MAX_SCROLLBACK)&&(input_history[n]!=NULL);n++);
+							//so subtract one
+							n--;
+							//if there is scrollback to view
+							if(n>=0){
+								input_line=n;
+								//store this line for if we cease viewing history
+								strncpy(pre_history,input_buffer,BUFFER_SIZE);
+								strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
+							}
+						}
+						refresh_user_input(input_buffer,cursor_pos,input_display_start);
+						break;
+					//handle text entry history
+					case KEY_DOWN:
+						//reset cursor position always, since the strings in history are probably not the same length as the current input string
+						cursor_pos=0;
+						input_display_start=0;
+						
+						//if there is valid history below this go there
+						if((input_line>=0)&&(input_line<(MAX_SCROLLBACK-1))&&(input_history[input_line+1]!=NULL)){
+							input_line++;
+							//actually view that line
+							strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
+						//otherwise if we're out of history, re-set and make this what the input was before history was viewed
+						}else if(input_line>=0){
+							strncpy(input_buffer,pre_history,BUFFER_SIZE);
+							//note we are now not viewing history
+							input_line=-1;
+						}
+						refresh_user_input(input_buffer,cursor_pos,input_display_start);
+						break;
+					//handle user name completion
+					case '\t':
+						if(current_server>=0){
+							//TODO: after 3 unsuccessful completions, output a list of possible completions or say nothing starts with that (output to channel)
+							
+							//a portion of the nickname to complete
+							char partial_nick[BUFFER_SIZE];
+							//clear out this buffer to start with
+							int n;
+							for(n=0;n<BUFFER_SIZE;n++){
+								partial_nick[n]='\0';
+							}
+							
+							//where the nickname starts
+							int partial_nick_start_index=(cursor_pos-1);
+							while((partial_nick_start_index>=0)&&(input_buffer[partial_nick_start_index]!=' ')){
+								partial_nick_start_index--;
+							}
+							//don't count the delimiter
+							partial_nick_start_index++;
+							
+							//chomp up the nickname start
+							for(n=partial_nick_start_index;n<cursor_pos;n++){
+								partial_nick[n-partial_nick_start_index]=input_buffer[n];
+							}
+							//always null terminate
+							partial_nick[n]='\0';
+							
+							//lower case for case-insensitive matching
+							strtolower(partial_nick,BUFFER_SIZE);
+							
+							//this counts the number of matches we got, we only want to complete on UNIQUE matches
+							int matching_nicks=0;
+							char last_matching_nick[BUFFER_SIZE];
+							//iterate through all tne nicks in this channel, if we find a unique match, complete it
+							for(n=0;n<MAX_NAMES;n++){
+								if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+									char nick_to_match[BUFFER_SIZE];
+									strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+									strtolower(nick_to_match,BUFFER_SIZE);
+									
+									//if this nick started with the partial_nick
+									if(strfind(partial_nick,nick_to_match)==0){
+										matching_nicks++;
+										strncpy(last_matching_nick,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+									}
+								}
+							}
+							
+							//if this was a unique match
+							if(matching_nicks==1){
+								//fill in the rest of the name
+								//where to start inserting from in the full nick
+								int insert_start_pos=cursor_pos-partial_nick_start_index;
+								
+								int n;
+								for(n=insert_start_pos;n<strlen(last_matching_nick);n++){
+									if(strinsert(input_buffer,last_matching_nick[n],cursor_pos,BUFFER_SIZE)){
+										cursor_pos++;
+										//if we would go off the end
+										if((cursor_pos-input_display_start)>width){
+											//make the end one char further down
+											input_display_start++;
+										}
+									}
+								}
+							//this was either not a match or not a unique match
+							}else{
+								beep();
+							}
 #ifdef DEBUG
-					if(current_server<0){
-						wclear(channel_text);
-						wmove(channel_text,0,0);
-						wprintw(channel_text,"%i",c);
-						wrefresh(channel_text);
-					}
+/*
+							fprintf(stderr,"tab-complete debug, attempting to match \"%s\" to array [",partial_nick);
+							for(n=0;n<MAX_NAMES;n++){
+								if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+									fprintf(stderr,"\"%s\" ",servers[current_server]->user_names[servers[current_server]->current_channel][n]);
+								}
+							}
+							fprintf(stderr,"]\n");
+*/
 #endif
-					break;
-			}
+						}
+						break;
+					case KEY_HOME:
+						cursor_pos=0;
+						input_display_start=0;
+						refresh_user_input(input_buffer,cursor_pos,input_display_start);
+						break;
+					case KEY_END:
+						cursor_pos=strlen(input_buffer);
+						if(strlen(input_buffer)>width){
+							input_display_start=strlen(input_buffer)-width;
+						}else{
+							input_display_start=0;
+						}
+						refresh_user_input(input_buffer,cursor_pos,input_display_start);
+						break;
+					//this accounts for some odd-ness in terminals, it's just backspace (^H)
+					case 127:
+					//user wants to destroy something they entered
+					case KEY_BACKSPACE:
+						if(cursor_pos>0){
+							if(strremove(input_buffer,cursor_pos-1)){
+								//and update the cursor position upon success
+								cursor_pos--;
+								if(cursor_pos<input_display_start){
+									input_display_start--;
+								}
+							}
+						}
+						break;
+					//user wants to destroy something they entered
+					case KEY_DEL:
+						if(cursor_pos<strlen(input_buffer)){
+							strremove(input_buffer,cursor_pos);
+							//note cursor position doesn't change here
+						}
+						break;
+					//TODO: make this ctrl+tab if possible, or something else that makes more sense
+					//temporarily f5 sends a literal tab
+					case 269:
+					//and f6 sends a 0x01 (since screen catches the real one)
+					case 270:
+						//these are mutually exclusive, so an if is needed
+						if(c==269){
+							c='\t';
+						}else if(c==270){
+							c=0x01;
+						}
+					//normal input
+					default:
+						if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
+							cursor_pos++;
+							//if we would go off the end
+							if((cursor_pos-input_display_start)>width){
+								//make the end one char further down
+								input_display_start++;
+							}
+						}
+						
+#ifdef DEBUG
+						if(current_server<0){
+							wclear(channel_text);
+							wmove(channel_text,0,0);
+							wprintw(channel_text,"%i",c);
+							wrefresh(channel_text);
+						}
+#endif
+						break;
+				}
+			}while(retry);
 		}
 		
 		//loop through servers and see if there's any data worth reading
