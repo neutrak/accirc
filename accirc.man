@@ -87,16 +87,16 @@ for channels on current server, rejoin when kicked
 for channels on current server, don't rejoin when kicked
 .SS "Key Bindings"
 .TP
-\fBf1\fP
+\fBf1 or alt+left\fP
 channel left (see /cl)
 .TP
-\fBf2\fP
+\fBf2 or alt+right\fP
 channel right (see /cr)
 .TP
-\fBf3\fP
+\fBf3 or alt+up\fP
 server left (see /sl)
 .TP
-\fBf4\fP
+\fBf4 or alt+down\fP
 server right (see /sr)
 .TP
 \fBf5\fP
