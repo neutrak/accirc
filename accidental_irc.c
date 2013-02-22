@@ -3318,7 +3318,7 @@ int main(int argc, char *argv[]){
 							}else if(tab_completions>COMPLETION_ATTEMPTS){
 								//the entire line we'll output, we're gonna append to this a lot
 								char output_text[BUFFER_SIZE];
-								sprintf(output_text,"Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->channel_name[servers[current_server]->current_channel]);
+								sprintf(output_text,"accirc: Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->channel_name[servers[current_server]->current_channel]);
 								
 								//iterate through all tne nicks in this channel, if we find a possible completion, output that
 								for(n=0;n<MAX_NAMES;n++){
