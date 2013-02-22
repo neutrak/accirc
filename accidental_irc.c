@@ -3052,31 +3052,34 @@ int main(int argc, char *argv[]){
 //						break;
 					case KEY_ESCAPE:
 						c=wgetch(user_input);
-						//-1 is ERROR, meaning the escape was /just/ an escape and nothing more
-						//in that case we want to ignore the handling for subsequent characters
-						if(c!=-1){
-							switch(c){
-								case KEY_UP:
-									sprintf(key_combo_buffer,"%csl",client_escape);
-									parse_input(key_combo_buffer,FALSE);
-									break;
-								case KEY_DOWN:
-									sprintf(key_combo_buffer,"%csr",client_escape);
-									parse_input(key_combo_buffer,FALSE);
-									break;
-								case KEY_LEFT:
-									sprintf(key_combo_buffer,"%ccl",client_escape);
-									parse_input(key_combo_buffer,FALSE);
-									break;
-								case KEY_RIGHT:
-									sprintf(key_combo_buffer,"%ccr",client_escape);
-									parse_input(key_combo_buffer,FALSE);
-									break;
-								default:
-									//this wasn't anything we handle specially for, so just try to parse it as normal now
-									retry=TRUE;
-									break;
-							}
+						switch(c){
+							case KEY_UP:
+								sprintf(key_combo_buffer,"%csl",client_escape);
+								parse_input(key_combo_buffer,FALSE);
+								break;
+							case KEY_DOWN:
+								sprintf(key_combo_buffer,"%csr",client_escape);
+								parse_input(key_combo_buffer,FALSE);
+								break;
+							case KEY_LEFT:
+								sprintf(key_combo_buffer,"%ccl",client_escape);
+								parse_input(key_combo_buffer,FALSE);
+								break;
+							case KEY_RIGHT:
+								sprintf(key_combo_buffer,"%ccr",client_escape);
+								parse_input(key_combo_buffer,FALSE);
+								break;
+							//-1 is ERROR, meaning the escape was /just/ an escape and nothing more
+							//in that case we want to ignore the handling for subsequent characters
+							case -1:
+								break;
+							//2 escapes in a row should be ignored
+							case KEY_ESCAPE:
+								break;
+							default:
+								//this wasn't anything we handle specially for, so just try to parse it as normal now
+								retry=TRUE;
+								break;
 						}
 #ifdef DEBUG
 						if(current_server<0){
