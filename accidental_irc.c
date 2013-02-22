@@ -80,6 +80,9 @@
 //the number of seconds to try to reconnect before giving up
 #define RECONNECT_TIMEOUT 2
 
+//how many completion attempts to give the user before telling them the possiblities
+#define COMPLETION_ATTEMPTS 2
+
 enum {
 	MIRC_WHITE,
 	MIRC_BLACK,
@@ -3017,6 +3020,8 @@ int main(int argc, char *argv[]){
 	int input_display_start=0;
 	//one character of input
 	int c;
+	//how many unsuccessful tab completions we've had since the last successful one or non-tab character
+	int tab_completions=0;
 	//determine if we're done
 	done=FALSE;
 	//main loop
@@ -3245,8 +3250,6 @@ int main(int argc, char *argv[]){
 					//handle user name completion
 					case '\t':
 						if(current_server>=0){
-							//TODO: after 3 unsuccessful completions, output a list of possible completions or say nothing starts with that (output to channel)
-							
 							//a portion of the nickname to complete
 							char partial_nick[BUFFER_SIZE];
 							//clear out this buffer to start with
@@ -3308,8 +3311,33 @@ int main(int argc, char *argv[]){
 										}
 									}
 								}
+								
+								//reset the unsuccessful attempt counter
+								tab_completions=0;
+							//how many attempts we give the user to complete a name before we just give up and output the possibilities
+							}else if(tab_completions>COMPLETION_ATTEMPTS){
+								//the entire line we'll output, we're gonna append to this a lot
+								char output_text[BUFFER_SIZE];
+								sprintf(output_text,"Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->channel_name[servers[current_server]->current_channel]);
+								
+								//iterate through all tne nicks in this channel, if we find a possible completion, output that
+								for(n=0;n<MAX_NAMES;n++){
+									if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+										char nick_to_match[BUFFER_SIZE];
+										strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+										strtolower(nick_to_match,BUFFER_SIZE);
+										
+										//if this nick started with the partial_nick
+										if(strfind(partial_nick,nick_to_match)==0){
+											sprintf(output_text,"%s%s ",output_text,nick_to_match);
+										}
+									}
+								}
+								scrollback_output(current_server,servers[current_server]->current_channel,output_text);
 							//this was either not a match or not a unique match
 							}else{
+								//this was an unsuccessful tab-complete attempt
+								tab_completions++;
 								beep();
 							}
 #ifdef DEBUG
@@ -3381,6 +3409,9 @@ int main(int argc, char *argv[]){
 								input_display_start++;
 							}
 						}
+						
+						//reset the unsuccessful tab attempt counter
+						tab_completions=0;
 						
 #ifdef DEBUG
 						if(current_server<0){
