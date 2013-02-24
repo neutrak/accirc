@@ -309,6 +309,23 @@ char strtolower(char *text, int size){
 	return FALSE;
 }
 
+//reverse a string
+void strnrev(char *text){
+	int size=strlen(text);
+	
+	//go up to half of the size, swap the index and (size-1)-index elements
+	int index;
+	for(index=0;index<(size/2);index++){
+		char tmp;
+		tmp=text[index];
+		text[index]=text[size-1-index];
+		text[size-1-index]=tmp;
+	}
+	
+	//defensive: null terminate no matter what
+	text[size]='\0';
+}
+
 //verify that a directory exists, if it doesn't, try to make it
 //returns TRUE on succes, FALSE on failure
 char verify_or_make_dir(char *path){
@@ -1641,6 +1658,18 @@ void parse_input(char *input_buffer, char keep_history){
 				char tmp_buffer[BUFFER_SIZE];
 				sprintf(tmp_buffer,"%cprivmsg %s :%s",server_escape,servers[current_server]->last_pm_user,parameters);
 				//don't keep the recursion in the history, if the user wants it they can get the /r command out of history
+				parse_input(tmp_buffer,FALSE);
+			}
+		//reverse, an easter egg to flip text around
+		}else if(!strcmp(command,"reverse")){
+			if(current_server>=0){
+				//flip the text around and recurse
+				char tmp_buffer[BUFFER_SIZE];
+				sprintf(tmp_buffer,"%s",parameters);
+				//reverse!
+				strnrev(tmp_buffer);
+				
+				//don't keep the recursion in the history
 				parse_input(tmp_buffer,FALSE);
 			}
 		//sleep command
@@ -3200,7 +3229,7 @@ int main(int argc, char *argv[]){
 						
 						//if there is more text than area to display allow it scrollback (else don't)
 						//the -6 here is because there are 6 character rows used to display things other than channel text
-//							if(line_count>height-6){
+//						if(line_count>height-6){
 						if(line_count>0){
 							//if we're already scrolled back and we can go further
 							//note: the +6 here is because there are 6 character rows used to display things other than channel text
