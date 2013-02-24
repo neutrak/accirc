@@ -2552,7 +2552,7 @@ void parse_server(int server_index){
 							}
 						}
 						
-						del_name(server_index,output_channel,nick);
+						del_name(server_index,output_channel,kicked_user);
 					}
 				//":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
 				//handle for NICK changes, especially the special case of our own, where server[server_index]->nick should get reset
