@@ -99,8 +99,8 @@ server left (see /sl)
 \fBf4 or alt+down\fP
 server right (see /sr)
 .TP
-\fBf5\fP
-literal tab character (hopefully this is only temporary until I can get a better binding)
+\fBf5 or alt+tab\fP
+literal tab character (f5 left for backwards compatibility, alt+tab is recommended)
 .TP
 \fBf6\fP
 0x01 character, since screen intercepts literal ^A (for manually sending CTCP messages other than ACTION); displays as a bold \\ in input area

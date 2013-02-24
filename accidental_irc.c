@@ -3071,6 +3071,16 @@ int main(int argc, char *argv[]){
 							sprintf(key_combo_buffer,"%ccr",client_escape);
 							parse_input(key_combo_buffer,FALSE);
 							break;
+						//alt+tab is a literal tab character, since tab-completion is done on regular tab
+						case '\t':
+							if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
+								cursor_pos++;
+								//if we would go off the end
+								if((cursor_pos-input_display_start)>width){
+									//make the end one char further down
+									input_display_start++;
+								}
+							}
 						//-1 is ERROR, meaning the escape was /just/ an escape and nothing more
 						//in that case we want to ignore the handling for subsequent characters
 						case -1:
@@ -3384,8 +3394,8 @@ int main(int argc, char *argv[]){
 						//note cursor position doesn't change here
 					}
 					break;
-				//TODO: make this ctrl+tab if possible, or something else that makes more sense
-				//temporarily f5 sends a literal tab
+				//NOTE: this is alt+tab also, f5 left here only for backwards compatibility
+				//f5 sends a literal tab
 				case 269:
 				//and f6 sends a 0x01 (since screen catches the real one)
 				case 270:
