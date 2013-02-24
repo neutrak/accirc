@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "15 Dec 2012"
+.TH ACCIRC 1 "24 Feb 2013"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -104,6 +104,9 @@ literal tab character (f5 left for backwards compatibility, alt+tab is recommend
 .TP
 \fBf6\fP
 0x01 character, since screen intercepts literal ^A (for manually sending CTCP messages other than ACTION); displays as a bold \\ in input area
+.TP
+\fBf7\fP
+0x03 character for sending MIRC colors (MIRC color support is still experimental, and requires compilation with -D MIRC_COLOR); displays as a bold \^ in input area
 .TP
 \fB<tab>\fP
 complete a nickname based on nicks in current channel

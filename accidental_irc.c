@@ -3076,11 +3076,14 @@ int main(int argc, char *argv[]){
 					scrollback_end=-1;
 					force_resize(input_buffer,cursor_pos,input_display_start);
 					break;
-				//TODO: make another break command or change something else to add ^C to the buffer, it's needed for MIRC colors
+				//NOTE: f7 now adds ^C=0x03 to the buffer for MIRC colors
+				//so ctrl+c /could/ be used for a break command
+				//but I'd rather a user not be able to accidentally close the program, so it's not
+				
 				//handle ctrl+c gracefully
-//					case BREAK:
-//						done=TRUE;
-//						break;
+//				case BREAK:
+//					done=TRUE;
+//					break;
 				case KEY_ESCAPE:
 					c=wgetch(user_input);
 					switch(c){
@@ -3187,7 +3190,7 @@ int main(int argc, char *argv[]){
 					break;
 				//scroll back in the current channel
 				//TODO: compute correct stop scrolling bound in this case
-//					case KEY_PGUP:
+//				case KEY_PGUP:
 				case 339:
 					//if we are connected to a server
 					if(current_server>=0){
@@ -3221,7 +3224,7 @@ int main(int argc, char *argv[]){
 					}
 					break;
 				//scroll forward in the current channel
-//					case KEY_PGDN:
+//				case KEY_PGDN:
 				case 338:
 					//if we are connected to a server
 					if(current_server>=0){
@@ -3428,11 +3431,15 @@ int main(int argc, char *argv[]){
 				case 269:
 				//and f6 sends a 0x01 (since screen catches the real one)
 				case 270:
+				//f7 is a literal 0x03 for mirc color sending
+				case 271:
 					//these are mutually exclusive, so an if is needed
 					if(c==269){
 						c='\t';
 					}else if(c==270){
 						c=0x01;
+					}else if(c==271){
+						c=0x03;
 					}
 				//normal input
 				default:
