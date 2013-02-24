@@ -2383,7 +2383,10 @@ void parse_server(int server_index){
 					
 					//if it was us doing the join-ing
 					if(!strcmp(servers[server_index]->nick,nick)){
-						//TODO: make sure we're not already in this channel
+						//NOTE: there is no need to make sure we're not already in this channel
+						//because if we're already in the channel the server will never send us the corresponding JOIN when we tell it to join again
+						//(if we get the join we're not in it, at least as far as the server knows)
+						
 						//add this channel to the list of channels on this server, make associated scrollback, etc.
 						int channel_index;
 						for(channel_index=0;(channel_index<MAX_CHANNELS)&&(servers[server_index]->channel_name[channel_index]!=NULL);channel_index++);
@@ -2676,9 +2679,35 @@ void parse_server(int server_index){
 							}
 						}
 					}
-				//TODO: add proper NOTICE handling
+				//proper NOTICE handling is to output to the correct channel if it's a channel-wide notice, and like a PM otherwise
 				}else if(!strcmp(command,"NOTICE")){
+					//parse out the channel
+					char channel[BUFFER_SIZE];
+					int space_colon_index=strfind(" :",tmp_buffer);
+					substr(channel,tmp_buffer,0,space_colon_index);
 					
+					substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
+					
+					strncpy(text,tmp_buffer,BUFFER_SIZE);
+					
+					//lower case the channel so we can do a case-insensitive string match against it
+					strtolower(channel,BUFFER_SIZE);
+					
+					//go through the channels, find out the one to output to, set "output_channel" to that index
+					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
+					int channel_index;
+					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+						if(servers[server_index]->channel_name[channel_index]!=NULL){
+							char lower_case_channel[BUFFER_SIZE];
+							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+							strtolower(lower_case_channel,BUFFER_SIZE);
+							
+							if(!strcmp(channel,lower_case_channel)){
+								output_channel=channel_index;
+								channel_index=MAX_CHANNELS;
+							}
+						}
+					}
 				//using channel names lists, output quits to the correct channel
 				//(this will require outputting multiple times, which I don't have the faculties for at the moment)
 				}else if(!strcmp(command,"QUIT")){
