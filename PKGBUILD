@@ -1,6 +1,6 @@
 # Maintainer: neutrak <neutrak on daemonic.foonetic.net port 6667>
 pkgname=accidental_irc
-pkgver=0.1
+pkgver=0.2
 pkgrel=1
 pkgdesc="accirc for short; the accidental multiserver ncurses irc client"
 arch=('i686' 'x86_64')
