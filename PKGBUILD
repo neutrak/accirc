@@ -14,17 +14,13 @@ source=(http://somegenericsite.dyndns.org/code/$pkgname/$pkgname-$pkgver.tar.gz)
 
 build() {
   cd "$srcdir/$pkgname"
-  
-  ./compile_accidental_irc.sh
+  make
 }
 
 #for the moment, don't install; just d/l and compile
-#package() {
-#  cd "$srcdir/$pkgname"
-#  
-#  gzip accirc.man
-#  cp accirc.man.gz /usr/share/man/man1/accirc.1.gz
-#  cp accirc /usr/local/bin/
-#}
+package() {
+  cd "$srcdir/$pkgname"
+  make install
+}
 
-md5sums=('b60d7793e20721ddd9c11a446c0f3b21')
+md5sums=('27c39351336f6cb42f661cb2ae2460b5')

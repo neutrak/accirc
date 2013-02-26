@@ -1,7 +1,7 @@
 accirc: accidental_irc.c
 	./compile_accidental_irc.sh
 
-install:
+install: accirc
 	cp accirc /usr/bin/
 	gzip accirc.man
 	cp accirc.man.gz /usr/share/man/man1/accirc.1.gz
