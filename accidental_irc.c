@@ -2921,7 +2921,7 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	//unix epoch clock (initialization)
 	char time_buffer[BUFFER_SIZE];
 	uintmax_t old_time=(uintmax_t)(time(NULL));
-	sprintf(time_buffer,"[%ju]",old_time);
+	sprintf(time_buffer,"%ju",old_time);
 	wprintw(bottom_border,time_buffer);
 	
 	for(n=strlen(time_buffer);n<width;n++){
@@ -3579,7 +3579,7 @@ int main(int argc, char *argv[]){
 		if(current_time>old_time){
 			wclear(bottom_border);
 			
-			sprintf(time_buffer,"[%ju]",old_time);
+			sprintf(time_buffer,"%ju",old_time);
 			wmove(bottom_border,0,0);
 			wprintw(bottom_border,time_buffer);
 			
