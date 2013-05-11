@@ -1708,7 +1708,9 @@ void parse_input(char *input_buffer, char keep_history){
 		}else if(!strcmp(command,"fallback_nick")){
 			if(current_server>=0){
 				strncpy(servers[current_server]->fallback_nick,parameters,BUFFER_SIZE);
-				scrollback_output(current_server,0,"accirc: fallback_nick set");
+				char output_buffer[BUFFER_SIZE];
+				sprintf(output_buffer,"accirc: fallback_nick set to %s",servers[current_server]->fallback_nick);
+				scrollback_output(current_server,0,output_buffer);
 			}
 		}else if(!strcmp(command,"rejoin_on_kick")){
 			if(current_server>=0){
@@ -2968,11 +2970,12 @@ int main(int argc, char *argv[]){
 		sprintf(error_file_buffer,ERROR_FILE);
 	}
 	
+	//try to make an error log file, if that's impossible just use stderr
 	error_file=fopen(error_file_buffer,"a");
-	//NOTE: this is the only fatal error case, the rest are non-fatal
 	if(error_file==NULL){
 		fprintf(stderr,"Err: Could not find or create the error log file\n");
-		exit(1);
+		//fall back to stderr
+		error_file=stderr;
 	}
 	
 	//turn off buffering since I need may this output immediately and buffers annoy me for that
