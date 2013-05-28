@@ -1164,6 +1164,348 @@ void del_name(int server_index, int channel_index, char *name){
 	}
 }
 
+//the "connect" client command handling
+void connect_command(char *input_buffer, char *command, char *parameters){
+	char host[BUFFER_SIZE];
+	char port_buffer[BUFFER_SIZE];
+	int first_space=strfind(" ",parameters);
+	if(first_space<0){
+		//handle for insufficient parameters
+		//note text output cannot be done here (except maybe to stdout or stderr) since we may not be connected to any server
+		int n;
+		for(n=0;n<3;n++){
+			beep();
+			usleep(100000);
+		}
+		
+		//write this to the error log, so the user can view it if they choose
+		fprintf(error_file,"Err: too few arguments given to \"%s\"\n",command);
+	}else{
+		substr(host,parameters,0,first_space);
+		substr(port_buffer,parameters,first_space+1,strlen(parameters)-(first_space+1));
+		int port=atoi(port_buffer);
+		
+		//handle a new connection
+		//make a socket file descriptor
+		int new_socket_fd;
+		
+		//the address of the server
+		struct sockaddr_in serv_addr;
+		
+		//set the socket file descriptor
+		//arguments mean ipv4, stream type, and tcp protocol
+		new_socket_fd=socket(AF_INET,SOCK_STREAM,0);
+		
+		if(new_socket_fd<0){
+			//handle failed socket openings gracefully here (by telling the user and giving up)
+			fprintf(error_file,"Err: Could not open socket\n");
+			strncpy(input_buffer,"\0",BUFFER_SIZE);
+			return;
+		}
+		
+		//that's "get host by name"
+		struct hostent *server=gethostbyname(host);
+		if(server==NULL){
+			//handle failed hostname lookups gracefully here (by telling the user and giving up)
+			fprintf(error_file,"Err: Could not find server \"%s\"\n",host);
+			strncpy(input_buffer,"\0",BUFFER_SIZE);
+			return;
+		}
+		
+		//configure the server address information
+		bzero((char *)(&serv_addr),sizeof(serv_addr));
+		serv_addr.sin_family=AF_INET;
+		bcopy((char *)(server->h_addr),(char *)(&serv_addr.sin_addr.s_addr),server->h_length);
+		serv_addr.sin_port=htons(port);
+		//if we could successfully connect
+		//(side effects happen during this call to connect())
+		if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
+			//handle failed connections gracefully here (by telling the user and giving up)
+			fprintf(error_file,"Err: Could not connect to server \"%s\"\n",host);
+			strncpy(input_buffer,"\0",BUFFER_SIZE);
+			return;
+		}
+		
+		//clear out the server list because we're probably gonna be modifying it
+		wclear(server_list);
+		wmove(server_list,0,0);
+		
+		//set the socket non-blocking
+		int flags=fcntl(new_socket_fd,F_GETFL,0);
+		flags=(flags==-1)?0:flags;
+		fcntl(new_socket_fd,F_SETFL,flags|O_NONBLOCK);
+		
+		//a flag to say if we've already added the sever
+		char added=FALSE;
+		
+		//make some data structures for relevant information
+		int server_index;
+		for(server_index=0;server_index<MAX_SERVERS;server_index++){
+			//if this is not already a valid server and we haven't put the new server anywhere
+			//(as soon as we finish adding it we set added and effectively ignore it for the rest of this loop)
+			if((servers[server_index]==NULL)&&(!added)){
+				//make it one
+				servers[server_index]=(irc_connection*)(malloc(sizeof(irc_connection)));
+				//initialize the buffer to all NULL bytes
+				int n;
+				for(n=0;n<BUFFER_SIZE;n++){
+					servers[server_index]->read_buffer[n]='\0';
+				}
+				servers[server_index]->socket_fd=new_socket_fd;
+				
+				//initially we are not in the middle of a line and the parse queue is empty
+				strncpy(servers[server_index]->parse_queue,"",BUFFER_SIZE);
+				
+				//set the port information (in case we need to re-connect)
+				servers[server_index]->port=port;
+				
+				//set the server name
+				strncpy(servers[server_index]->server_name,host,BUFFER_SIZE);
+				
+				//set the current channel to be 0 (the system/debug channel)
+				//a JOIN would add channels, but upon initial connection 0 is the only valid one
+				servers[server_index]->current_channel=0;
+				
+				//set the default channel for various messages from the server that are not channel-specific
+				//NOTE: this scheme should be able to be overloaded to treat PM conversations as channels
+				servers[server_index]->channel_name[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+				strncpy(servers[server_index]->channel_name[0],"SERVER",BUFFER_SIZE);
+				
+				servers[server_index]->channel_topic[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+				strncpy(servers[server_index]->channel_topic[0],"(no topic for the server)",BUFFER_SIZE);
+				
+				//set the main chat window with scrollback
+				//as we get lines worth storing we'll add them to this content, but for the moment it's blank
+				servers[server_index]->channel_content[0]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
+				for(n=0;n<MAX_SCROLLBACK;n++){
+					servers[server_index]->channel_content[0][n]=NULL;
+				}
+				
+				//by default don't reconnect if connnection is lost
+				servers[server_index]->reconnect=FALSE;
+				
+				//note that keeping logs is true by default, but can be set with client commands log and no_log
+				if(can_log){
+					servers[server_index]->keep_logs=TRUE;
+				//if we are unable to log due to e.g. permission errors, don't even try
+				}else{
+					servers[server_index]->keep_logs=FALSE;
+				}
+				
+				if(servers[server_index]->keep_logs){
+					//first make a directory for this server
+					char file_location[BUFFER_SIZE];
+					sprintf(file_location,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name);
+					if(verify_or_make_dir(file_location)){
+						sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[0]);
+						//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
+						servers[server_index]->log_file[0]=fopen(file_location,"a");
+						if(servers[server_index]->log_file[0]==NULL){
+							scrollback_output(server_index,0,"accirc: Err: could not make log file");
+						}
+					//this fails in a non-silent way, the user should know there was a problem
+					//if we couldn't make the directory then don't keep logs rather than failing hard
+					}else{
+						scrollback_output(server_index,0,"accirc: Err: could not make logging directory");
+						servers[server_index]->keep_logs=FALSE;
+					}
+				}
+				
+				//by default don't rejoin on kick
+				servers[server_index]->rejoin_on_kick=FALSE;
+				
+				//by default the fallback nick is null
+				strncpy(servers[server_index]->fallback_nick,"",BUFFER_SIZE);
+				
+				//there are no users in the SERVER channel
+				servers[server_index]->user_names[0]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
+				for(n=0;n<MAX_NAMES;n++){
+					servers[server_index]->user_names[0][n]=NULL;
+				}
+				
+				//NULL out all other channels
+				//note this starts from 1 since 0 is the SERVER channel
+				for(n=1;n<MAX_CHANNELS;n++){
+					servers[server_index]->channel_name[n]=NULL;
+					servers[server_index]->channel_content[n]=NULL;
+					servers[server_index]->channel_topic[n]=NULL;
+					servers[server_index]->new_channel_content[n]=FALSE;
+					servers[server_index]->was_pingged[n]=FALSE;
+					servers[server_index]->log_file[n]=NULL;
+					servers[server_index]->autojoin_channel[n]=NULL;
+					servers[server_index]->user_names[n]=NULL;
+				}
+				
+				//clear out the ident information (the user will provide it in a startup (.rc) file if they so desire)
+				strncpy(servers[server_index]->ident,"",BUFFER_SIZE);
+				
+				//by default there is no new content on this server
+				//(because new server content is the OR of new channel content, and by default there is no new channel content)
+				
+				//default the user's name to NULL until we get more information (NICK data)
+				strncpy(servers[server_index]->nick,"",BUFFER_SIZE);
+				
+				//by default no one has PM'd us so a reply goes to a blank nick
+				//should this be another default? it's just that the next word may be interpreted as the nick...
+				//screw it, I'll document it in the man, it'll be considered intended behavior
+				strncpy(servers[server_index]->last_pm_user,"",BUFFER_SIZE);
+				
+				//set the current server to be the one we just connected to
+				current_server=server_index;
+				
+				//don't add this server again
+				added=TRUE;
+				
+				//output the server information (since we set current_server to this, it'll get output anyway on the next loop)
+			}else if(servers[server_index]!=NULL){
+				//another server, output it to the server list
+				wprintw(server_list,servers[server_index]->server_name);
+				wprintw(server_list," | ");
+			}
+		}
+		
+		//refresh the server list
+		wrefresh(server_list);
+	}
+}
+
+//the "exit" client command
+void exit_command(char *input_buffer, char *command, char *parameters){
+	done=TRUE;
+	
+	char quit_message[BUFFER_SIZE];
+	
+	if(!strcmp(parameters,"")){
+		sprintf(quit_message,"QUIT :%s\n",DEFAULT_QUIT_MESSAGE);
+	}else{
+		sprintf(quit_message,"QUIT :%s\n",parameters);
+	}
+	
+	int n;
+	for(n=0;n<MAX_SERVERS;n++){
+		if(servers[n]!=NULL){
+			safe_send(servers[n]->socket_fd,quit_message);
+		}
+	}
+}
+
+//the "cli_escape" client command
+void cli_escape_command(char *input_buffer, char *command, char *parameters){
+	//if there's no server we can still set the escape, but we can't tell the user about it
+	//since we can't give good output in this case, we instead ignore it so there is no silent behavior
+	//this is intentional behavior
+	if(current_server>=0){
+		if(!strcmp(parameters,"")){
+			//too few arguments given, do nothing (give up)
+			
+			//tell the user there were too few arguments
+			char error_buffer[BUFFER_SIZE];
+			sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+			scrollback_output(current_server,0,error_buffer);
+		}else{
+			//we got an argument, since this is always a 1-character escape take the first char
+			char tmp_client_escape=parameters[0];
+			
+			//a buffer to use when replying to the user
+			char reply_buffer[BUFFER_SIZE];
+			
+			//if this isn't already the server escape
+			if(tmp_client_escape!=server_escape){
+				//set it to be the new client escape (discarding the old one)
+				client_escape=tmp_client_escape;
+				
+				//tell the user we set the escape
+				sprintf(reply_buffer,"accirc: client escape set to \"%c\"",client_escape);
+			}else{
+				sprintf(reply_buffer,"accirc: Err: client escape could not be set to \"%c\", that escape is already in use",tmp_client_escape);
+			}
+			
+			scrollback_output(current_server,0,reply_buffer);
+		}
+	}
+}
+
+//the "ser_escape" client command
+void ser_escape_command(char *input_buffer, char *command, char *parameters){
+	//if there's no server we can still set the escape, but we can't tell the user about it
+	//since we can't give good output in this case, we instead ignore it so there is no silent behavior
+	//this is intentional behavior
+	if(current_server>=0){
+		if(!strcmp(parameters,"")){
+			//too few arguments given, do nothing (give up)
+			
+			//tell the user there were too few arguments
+			char error_buffer[BUFFER_SIZE];
+			sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+			scrollback_output(current_server,0,error_buffer);
+		}else{
+			//we got an argument, since this is always a 1-character escape take the first char
+			char tmp_server_escape=parameters[0];
+			
+			//a buffer to use when replying to the user
+			char reply_buffer[BUFFER_SIZE];
+			
+			//if this isn't already the client escape
+			if(tmp_server_escape!=client_escape){
+				//set it to be the new server escape (discarding the old one)
+				server_escape=tmp_server_escape;
+				
+				//tell the user we set the escape
+				sprintf(reply_buffer,"accirc: server escape set to \"%c\"",server_escape);
+			}else{
+				sprintf(reply_buffer,"accirc: Err: server escape could not be set to \"%c\", that escape is already in use",tmp_server_escape);
+			}
+			
+			scrollback_output(current_server,0,reply_buffer);
+		}
+	}
+}
+
+//privmsg from user input (treated as a pseudo-command)
+void privmsg_command(char *input_buffer){
+	if(current_server>=0){
+		//if we're on the server channel treat it as a command (recurse)
+		if(servers[current_server]->current_channel==0){
+			char tmp_buffer[BUFFER_SIZE];
+			sprintf(tmp_buffer,"%c%s",server_escape,input_buffer);
+			//but don't keep history for this recursion call
+			parse_input(tmp_buffer,FALSE);
+		}else{
+			//format the text for the server's benefit
+			char output_buffer[BUFFER_SIZE];
+			sprintf(output_buffer,"PRIVMSG %s :%s\n",servers[current_server]->channel_name[servers[current_server]->current_channel],input_buffer);
+			safe_send(servers[current_server]->socket_fd,output_buffer);
+			
+			//then format the text for my viewing benefit (this is also what will go in logs, with a newline)
+			//accounting specially for if the user sent a CTCP ACTION
+			char ctcp[BUFFER_SIZE];
+			sprintf(ctcp,"%cACTION ",0x01);
+			if(strfind(ctcp,input_buffer)==0){
+				char tmp_buffer[BUFFER_SIZE];
+				substr(tmp_buffer,input_buffer,strlen(ctcp),strlen(input_buffer)-strlen(ctcp)-1);
+//					sprintf(output_buffer,">> %ju *%s %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,tmp_buffer);
+				sprintf(output_buffer,">> *%s %s",servers[current_server]->nick,tmp_buffer);
+			}else{
+//					sprintf(output_buffer,">> %ju <%s> %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,input_buffer);
+				sprintf(output_buffer,">> <%s> %s",servers[current_server]->nick,input_buffer);
+			}
+			
+			//place my own text in the scrollback for this server and channel
+			scrollback_output(current_server,servers[current_server]->current_channel,output_buffer);
+		}
+	}else{
+#ifdef DEBUG
+//			int foreground,background;
+//			sscanf(input_buffer,"%i %i",&foreground,&background);
+//			wclear(channel_text);
+//			wcoloron(channel_text,foreground,background);
+//			wprintw(channel_text,"This is a sample string in fg=%i bg=%i",foreground,background);
+//			wcoloroff(channel_text,foreground,background);
+//			wrefresh(channel_text);
+#endif
+	}
+}
+
 //parse user's input (note this is conextual based on current server and channel)
 //because some input may be given recursively or from key bindings, there is a history flag to tell if we should actually consider this input in the history
 void parse_input(char *input_buffer, char keep_history){
@@ -1244,292 +1586,16 @@ void parse_input(char *input_buffer, char keep_history){
 		//the good stuff, the heart of command handling :)
 		//connect to a server
 		if(!strcmp("connect",command)){
-			char host[BUFFER_SIZE];
-			char port_buffer[BUFFER_SIZE];
-			int first_space=strfind(" ",parameters);
-			if(first_space<0){
-				//handle for insufficient parameters
-				//note text output cannot be done here (except maybe to stdout or stderr) since we may not be connected to any server
-				int n;
-				for(n=0;n<3;n++){
-					beep();
-					usleep(100000);
-				}
-				
-				//write this to the error log, so the user can view it if they choose
-				fprintf(error_file,"Err: too few arguments given to \"%s\"\n",command);
-			}else{
-				substr(host,parameters,0,first_space);
-				substr(port_buffer,parameters,first_space+1,strlen(parameters)-(first_space+1));
-				int port=atoi(port_buffer);
-				
-				//handle a new connection
-				//make a socket file descriptor
-				int new_socket_fd;
-				
-				//the address of the server
-				struct sockaddr_in serv_addr;
-				
-				//set the socket file descriptor
-				//arguments mean ipv4, stream type, and tcp protocol
-				new_socket_fd=socket(AF_INET,SOCK_STREAM,0);
-				
-				if(new_socket_fd<0){
-					//handle failed socket openings gracefully here (by telling the user and giving up)
-					fprintf(error_file,"Err: Could not open socket\n");
-					strncpy(input_buffer,"\0",BUFFER_SIZE);
-					return;
-				}
-				
-				//that's "get host by name"
-				struct hostent *server=gethostbyname(host);
-				if(server==NULL){
-					//handle failed hostname lookups gracefully here (by telling the user and giving up)
-					fprintf(error_file,"Err: Could not find server \"%s\"\n",host);
-					strncpy(input_buffer,"\0",BUFFER_SIZE);
-					return;
-				}
-				
-				//configure the server address information
-				bzero((char *)(&serv_addr),sizeof(serv_addr));
-				serv_addr.sin_family=AF_INET;
-				bcopy((char *)(server->h_addr),(char *)(&serv_addr.sin_addr.s_addr),server->h_length);
-				serv_addr.sin_port=htons(port);
-				//if we could successfully connect
-				//(side effects happen during this call to connect())
-				if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
-					//handle failed connections gracefully here (by telling the user and giving up)
-					fprintf(error_file,"Err: Could not connect to server \"%s\"\n",host);
-					strncpy(input_buffer,"\0",BUFFER_SIZE);
-					return;
-				}
-				
-				//clear out the server list because we're probably gonna be modifying it
-				wclear(server_list);
-				wmove(server_list,0,0);
-				
-				//set the socket non-blocking
-				int flags=fcntl(new_socket_fd,F_GETFL,0);
-				flags=(flags==-1)?0:flags;
-				fcntl(new_socket_fd,F_SETFL,flags|O_NONBLOCK);
-				
-				//a flag to say if we've already added the sever
-				char added=FALSE;
-				
-				//make some data structures for relevant information
-				int server_index;
-				for(server_index=0;server_index<MAX_SERVERS;server_index++){
-					//if this is not already a valid server and we haven't put the new server anywhere
-					//(as soon as we finish adding it we set added and effectively ignore it for the rest of this loop)
-					if((servers[server_index]==NULL)&&(!added)){
-						//make it one
-						servers[server_index]=(irc_connection*)(malloc(sizeof(irc_connection)));
-						//initialize the buffer to all NULL bytes
-						int n;
-						for(n=0;n<BUFFER_SIZE;n++){
-							servers[server_index]->read_buffer[n]='\0';
-						}
-						servers[server_index]->socket_fd=new_socket_fd;
-						
-						//initially we are not in the middle of a line and the parse queue is empty
-						strncpy(servers[server_index]->parse_queue,"",BUFFER_SIZE);
-						
-						//set the port information (in case we need to re-connect)
-						servers[server_index]->port=port;
-						
-						//set the server name
-						strncpy(servers[server_index]->server_name,host,BUFFER_SIZE);
-						
-						//set the current channel to be 0 (the system/debug channel)
-						//a JOIN would add channels, but upon initial connection 0 is the only valid one
-						servers[server_index]->current_channel=0;
-						
-						//set the default channel for various messages from the server that are not channel-specific
-						//NOTE: this scheme should be able to be overloaded to treat PM conversations as channels
-						servers[server_index]->channel_name[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-						strncpy(servers[server_index]->channel_name[0],"SERVER",BUFFER_SIZE);
-						
-						servers[server_index]->channel_topic[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-						strncpy(servers[server_index]->channel_topic[0],"(no topic for the server)",BUFFER_SIZE);
-						
-						//set the main chat window with scrollback
-						//as we get lines worth storing we'll add them to this content, but for the moment it's blank
-						servers[server_index]->channel_content[0]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
-						for(n=0;n<MAX_SCROLLBACK;n++){
-							servers[server_index]->channel_content[0][n]=NULL;
-						}
-						
-						//by default don't reconnect if connnection is lost
-						servers[server_index]->reconnect=FALSE;
-						
-						//note that keeping logs is true by default, but can be set with client commands log and no_log
-						if(can_log){
-							servers[server_index]->keep_logs=TRUE;
-						//if we are unable to log due to e.g. permission errors, don't even try
-						}else{
-							servers[server_index]->keep_logs=FALSE;
-						}
-						
-						if(servers[server_index]->keep_logs){
-							//first make a directory for this server
-							char file_location[BUFFER_SIZE];
-							sprintf(file_location,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name);
-							if(verify_or_make_dir(file_location)){
-								sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[0]);
-								//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
-								servers[server_index]->log_file[0]=fopen(file_location,"a");
-								if(servers[server_index]->log_file[0]==NULL){
-									scrollback_output(server_index,0,"accirc: Err: could not make log file");
-								}
-							//this fails in a non-silent way, the user should know there was a problem
-							//if we couldn't make the directory then don't keep logs rather than failing hard
-							}else{
-								scrollback_output(server_index,0,"accirc: Err: could not make logging directory");
-								servers[server_index]->keep_logs=FALSE;
-							}
-						}
-						
-						//by default don't rejoin on kick
-						servers[server_index]->rejoin_on_kick=FALSE;
-						
-						//by default the fallback nick is null
-						strncpy(servers[server_index]->fallback_nick,"",BUFFER_SIZE);
-						
-						//there are no users in the SERVER channel
-						servers[server_index]->user_names[0]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
-						for(n=0;n<MAX_NAMES;n++){
-							servers[server_index]->user_names[0][n]=NULL;
-						}
-						
-						//NULL out all other channels
-						//note this starts from 1 since 0 is the SERVER channel
-						for(n=1;n<MAX_CHANNELS;n++){
-							servers[server_index]->channel_name[n]=NULL;
-							servers[server_index]->channel_content[n]=NULL;
-							servers[server_index]->channel_topic[n]=NULL;
-							servers[server_index]->new_channel_content[n]=FALSE;
-							servers[server_index]->was_pingged[n]=FALSE;
-							servers[server_index]->log_file[n]=NULL;
-							servers[server_index]->autojoin_channel[n]=NULL;
-							servers[server_index]->user_names[n]=NULL;
-						}
-						
-						//clear out the ident information (the user will provide it in a startup (.rc) file if they so desire)
-						strncpy(servers[server_index]->ident,"",BUFFER_SIZE);
-						
-						//by default there is no new content on this server
-						//(because new server content is the OR of new channel content, and by default there is no new channel content)
-						
-						//default the user's name to NULL until we get more information (NICK data)
-						strncpy(servers[server_index]->nick,"",BUFFER_SIZE);
-						
-						//by default no one has PM'd us so a reply goes to a blank nick
-						//should this be another default? it's just that the next word may be interpreted as the nick...
-						//screw it, I'll document it in the man, it'll be considered intended behavior
-						strncpy(servers[server_index]->last_pm_user,"",BUFFER_SIZE);
-						
-						//set the current server to be the one we just connected to
-						current_server=server_index;
-						
-						//don't add this server again
-						added=TRUE;
-						
-						//output the server information (since we set current_server to this, it'll get output anyway on the next loop)
-					}else if(servers[server_index]!=NULL){
-						//another server, output it to the server list
-						wprintw(server_list,servers[server_index]->server_name);
-						wprintw(server_list," | ");
-					}
-				}
-				
-				//refresh the server list
-				wrefresh(server_list);
-			}
+			connect_command(input_buffer,command,parameters);
 		}else if(!strcmp(command,"exit")){
-			done=TRUE;
-			
-			char quit_message[BUFFER_SIZE];
-			
-			if(!strcmp(parameters,"")){
-				sprintf(quit_message,"QUIT :%s\n",DEFAULT_QUIT_MESSAGE);
-			}else{
-				sprintf(quit_message,"QUIT :%s\n",parameters);
-			}
-			
-			int n;
-			for(n=0;n<MAX_SERVERS;n++){
-				if(servers[n]!=NULL){
-					safe_send(servers[n]->socket_fd,quit_message);
-				}
-			}
+			exit_command(input_buffer,command,parameters);
+		//TODO: add an "alias" command allowing users to set client-side commands referencing other command strings (other may be client or server commands)
 		//reset the escape character for client
 		}else if(!strcmp(command,"cli_escape")){
-			//if there's no server we can still set the escape, but we can't tell the user about it
-			//since we can't give good output in this case, we instead ignore it so there is no silent behavior
-			//this is intentional behavior
-			if(current_server>=0){
-				if(!strcmp(parameters,"")){
-					//too few arguments given, do nothing (give up)
-					
-					//tell the user there were too few arguments
-					char error_buffer[BUFFER_SIZE];
-					sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
-					scrollback_output(current_server,0,error_buffer);
-				}else{
-					//we got an argument, since this is always a 1-character escape take the first char
-					char tmp_client_escape=parameters[0];
-					
-					//a buffer to use when replying to the user
-					char reply_buffer[BUFFER_SIZE];
-					
-					//if this isn't already the server escape
-					if(tmp_client_escape!=server_escape){
-						//set it to be the new client escape (discarding the old one)
-						client_escape=tmp_client_escape;
-						
-						//tell the user we set the escape
-						sprintf(reply_buffer,"accirc: client escape set to \"%c\"",client_escape);
-					}else{
-						sprintf(reply_buffer,"accirc: Err: client escape could not be set to \"%c\", that escape is already in use",tmp_client_escape);
-					}
-					
-					scrollback_output(current_server,0,reply_buffer);
-				}
-			}
+			cli_escape_command(input_buffer,command,parameters);
 		//reset the escape character for server
 		}else if(!strcmp(command,"ser_escape")){
-			//if there's no server we can still set the escape, but we can't tell the user about it
-			//since we can't give good output in this case, we instead ignore it so there is no silent behavior
-			//this is intentional behavior
-			if(current_server>=0){
-				if(!strcmp(parameters,"")){
-					//too few arguments given, do nothing (give up)
-					
-					//tell the user there were too few arguments
-					char error_buffer[BUFFER_SIZE];
-					sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
-					scrollback_output(current_server,0,error_buffer);
-				}else{
-					//we got an argument, since this is always a 1-character escape take the first char
-					char tmp_server_escape=parameters[0];
-					
-					//a buffer to use when replying to the user
-					char reply_buffer[BUFFER_SIZE];
-					
-					//if this isn't already the client escape
-					if(tmp_server_escape!=client_escape){
-						//set it to be the new server escape (discarding the old one)
-						server_escape=tmp_server_escape;
-						
-						//tell the user we set the escape
-						sprintf(reply_buffer,"accirc: server escape set to \"%c\"",server_escape);
-					}else{
-						sprintf(reply_buffer,"accirc: Err: server escape could not be set to \"%c\", that escape is already in use",tmp_server_escape);
-					}
-					
-					scrollback_output(current_server,0,reply_buffer);
-				}
-			}
+			ser_escape_command(input_buffer,command,parameters);
 		//move a server to the left
 		}else if(!strcmp(command,"sl")){
 			if(current_server>=0){
@@ -1787,6 +1853,7 @@ void parse_input(char *input_buffer, char keep_history){
 				}
 			}
 		//unknown command error
+//		}else if(!alias_command()){ //TODO: handle aliased commands in a function that gets called here
 		}else{
 			if(current_server>=0){
 				char error_buffer[BUFFER_SIZE];
@@ -1815,52 +1882,537 @@ void parse_input(char *input_buffer, char keep_history){
 		}
 	//if it's not a command of any kind send it as a PM to current channel and server
 	}else{
-		if(current_server>=0){
-			//if we're on the server channel treat it as a command (recurse)
-			if(servers[current_server]->current_channel==0){
-				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,"%c%s",server_escape,input_buffer);
-				//but don't keep history for this recursion call
-				parse_input(tmp_buffer,FALSE);
-			}else{
-				//format the text for the server's benefit
-				char output_buffer[BUFFER_SIZE];
-				sprintf(output_buffer,"PRIVMSG %s :%s\n",servers[current_server]->channel_name[servers[current_server]->current_channel],input_buffer);
-				safe_send(servers[current_server]->socket_fd,output_buffer);
-				
-				//then format the text for my viewing benefit (this is also what will go in logs, with a newline)
-				//accounting specially for if the user sent a CTCP ACTION
-				char ctcp[BUFFER_SIZE];
-				sprintf(ctcp,"%cACTION ",0x01);
-				if(strfind(ctcp,input_buffer)==0){
-					char tmp_buffer[BUFFER_SIZE];
-					substr(tmp_buffer,input_buffer,strlen(ctcp),strlen(input_buffer)-strlen(ctcp)-1);
-//					sprintf(output_buffer,">> %ju *%s %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,tmp_buffer);
-					sprintf(output_buffer,">> *%s %s",servers[current_server]->nick,tmp_buffer);
-				}else{
-//					sprintf(output_buffer,">> %ju <%s> %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,input_buffer);
-					sprintf(output_buffer,">> <%s> %s",servers[current_server]->nick,input_buffer);
-				}
-				
-				//place my own text in the scrollback for this server and channel
-				scrollback_output(current_server,servers[current_server]->current_channel,output_buffer);
-			}
-		}else{
-#ifdef DEBUG
-//			int foreground,background;
-//			sscanf(input_buffer,"%i %i",&foreground,&background);
-//			wclear(channel_text);
-//			wcoloron(channel_text,foreground,background);
-//			wprintw(channel_text,"This is a sample string in fg=%i bg=%i",foreground,background);
-//			wcoloroff(channel_text,foreground,background);
-//			wrefresh(channel_text);
-#endif
-		}
+		privmsg_command(input_buffer);
 	}
 	
 	strncpy(input_buffer,"\0",BUFFER_SIZE);
 }
 
+//a helper function to output to the correct channel based on a given channel name
+int find_output_channel(int server_index, char *channel){
+	int output_channel=0;
+	
+	//lower case the channel name
+	strtolower(channel,BUFFER_SIZE);
+	
+	int channel_index;
+	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+		if(servers[server_index]->channel_name[channel_index]!=NULL){
+			char lower_case_channel[BUFFER_SIZE];
+			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+			strtolower(lower_case_channel,BUFFER_SIZE);
+			
+			if(!strcmp(channel,lower_case_channel)){
+				output_channel=channel_index;
+				channel_index=MAX_CHANNELS;
+			}
+		}
+	}
+	
+	return output_channel;
+}
+
+//handle the "001" server command (a welcome message)
+void server_001_command(int server_index, char *tmp_buffer, int first_space){
+	//rather than make a new buffer just use the one it'll ulitmately be stored in
+	char *user_nick=servers[server_index]->nick;
+	
+	//go a space at a time until we get to the nick portion, then leave because it's set
+	first_space=strfind(" ",servers[server_index]->read_buffer);
+	substr(user_nick,servers[server_index]->read_buffer,first_space+1,strlen(servers[server_index]->read_buffer)-first_space);
+	first_space=strfind(" ",user_nick);
+	substr(tmp_buffer,user_nick,first_space+1,strlen(user_nick)-first_space);
+	substr(user_nick,tmp_buffer,0,strfind(" ",tmp_buffer));
+	
+	//let the user know his nick is recognized
+	refresh_server_list();
+	
+	//if we got here the server recognized us, go through the autojoin channels and join them, then remove them from the autojoin array
+	int ch;
+	for(ch=0;ch<MAX_CHANNELS;ch++){
+		if(servers[server_index]->autojoin_channel[ch]!=NULL){
+			//remember what server we were on
+			int old_server=current_server;
+			
+			//parse a message headed to the server to autojoin on
+			current_server=server_index;
+			
+			char to_parse[BUFFER_SIZE];
+			sprintf(to_parse,"%cjoin :%s",server_escape,servers[server_index]->autojoin_channel[ch]);
+			parse_input(to_parse,FALSE);
+			
+			//remove this from autojoin channels from that server, we've now at least attempted to join
+			free(servers[server_index]->autojoin_channel[ch]);
+			servers[server_index]->autojoin_channel[ch]=NULL;
+			
+			//reset our server to whatever it used to be on
+			current_server=old_server;
+		}
+	}
+	
+	//if there is associated identification with this nickname send it to nickserv now
+	if(strcmp(servers[server_index]->ident,"")!=0){
+		//remember what server we were on
+		int old_server=current_server;
+		
+		//parse a message headed to the server to autojoin on
+		current_server=server_index;
+		
+		char to_parse[BUFFER_SIZE];
+		sprintf(to_parse,"%cprivmsg NickServ :IDENTIFY %s",server_escape,servers[server_index]->ident);
+		parse_input(to_parse,FALSE);
+		
+		//reset our server to whatever it used to be on
+		current_server=old_server;
+	}
+}
+
+//handle the "332" server command (channel topic)
+void server_332_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
+	char channel[BUFFER_SIZE];
+	char topic[BUFFER_SIZE];
+	
+	//pull out the topic right away, because it's delimted by " :" and so is easy
+	int space_colon_index=strfind(" :",servers[server_index]->read_buffer);
+	substr(topic,servers[server_index]->read_buffer,space_colon_index+2,strlen(servers[server_index]->read_buffer)-space_colon_index-2);
+	
+	strncpy(tmp_buffer,servers[server_index]->read_buffer,BUFFER_SIZE);
+	
+	//go a space at a time until we get to the relevant field
+	int n;
+	for(n=0;n<3;n++){
+		//note I can set tmp_buffer to a substring of itself here because I'm never overwriting data I'll later need
+		//it's just a left shift
+		first_space=strfind(" ",tmp_buffer);
+		substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
+	}
+	
+	//now we're at the channel, get it and lower-case it
+	substr(channel,tmp_buffer,0,strfind(" ",tmp_buffer));
+	strtolower(channel,BUFFER_SIZE);
+	
+	//go through the channels, find out the one to output to, set "output_channel" to that index
+	//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
+	int channel_index;
+	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+		if(servers[server_index]->channel_name[channel_index]!=NULL){
+			char lower_case_channel[BUFFER_SIZE];
+			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+			strtolower(lower_case_channel,BUFFER_SIZE);
+			
+			if(!strcmp(channel,lower_case_channel)){
+				*output_channel=channel_index;
+				
+				sprintf(output_buffer,"TOPIC for %s :%s",channel,topic);
+				
+				//store the topic in the general data structure
+				strncpy(servers[server_index]->channel_topic[channel_index],topic,BUFFER_SIZE);
+				
+				//and output
+				refresh_channel_topic();
+				
+				channel_index=MAX_CHANNELS;
+			}
+		}
+	}
+}
+
+//handle the "333" server command (channel topic timestamp)
+void server_333_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
+	char channel[BUFFER_SIZE];
+	
+	//go a space at a time until we get to the relevant field
+	int n;
+	for(n=0;n<2;n++){
+		//note I can set tmp_buffer to a substring of itself here because I'm never overwriting data I'll later need
+		//it's just a left shift
+		first_space=strfind(" ",tmp_buffer);
+		substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
+	}
+	
+	//now we're at the channel, get it and lower-case it
+	first_space=strfind(" ",tmp_buffer);
+	substr(channel,tmp_buffer,0,first_space);
+	strtolower(channel,BUFFER_SIZE);
+	
+	substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
+	
+	//now we're at the user who set this topic
+	first_space=strfind(" ",tmp_buffer);
+	char setting_user[BUFFER_SIZE];
+	substr(setting_user,tmp_buffer,0,first_space);
+	
+	substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
+	
+	//now we're at the timestamp
+	time_t timestamp=atoi(tmp_buffer);
+	
+	//go through the channels, find out the one to output to, set "output_channel" to that index
+	//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
+	int channel_index;
+	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+		if(servers[server_index]->channel_name[channel_index]!=NULL){
+			char lower_case_channel[BUFFER_SIZE];
+			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+			strtolower(lower_case_channel,BUFFER_SIZE);
+			
+			if(!strcmp(channel,lower_case_channel)){
+				*output_channel=channel_index;
+				
+				sprintf(output_buffer,"Topic set by %s at %s",setting_user,ctime(&timestamp));
+				
+				//and output
+				refresh_channel_topic();
+				
+				channel_index=MAX_CHANNELS;
+			}
+		}
+	}
+}
+
+//handle the "353" server command (names list)
+void server_353_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
+	strncpy(tmp_buffer,servers[server_index]->read_buffer,BUFFER_SIZE);
+	char channel[BUFFER_SIZE];
+	int space_colon_index=strfind(" :",tmp_buffer);
+	int channel_start_index=space_colon_index-1;
+	while(tmp_buffer[channel_start_index]!=' '){
+		channel_start_index--;
+	}
+	channel_start_index++;
+	
+	substr(channel,tmp_buffer,channel_start_index,space_colon_index-channel_start_index);
+	
+	//set the correct output channel
+	*output_channel=find_output_channel(server_index,channel);
+	
+	//if we found this channel in our list
+	if(output_channel>0){
+		char names[BUFFER_SIZE];
+		substr(names,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
+		while(strlen(names)>0){
+			char this_name[BUFFER_SIZE];
+			int space_index=strfind(" ",names);
+			
+			//if there wasn't a space left, we're on the last name, just pretend there was a space after it, k?
+			if(space_index==-1){
+				space_index=strlen(names);
+			}
+			
+			substr(this_name,names,0,space_index);
+			substr(names,names,space_index+1,strlen(names)-space_index-1);
+			
+			//trim this user's name
+			if((strfind("@",this_name)==0)||(strfind("~",this_name)==0)||(strfind("%",this_name)==0)||(strfind("&",this_name)==0)||(strfind("+",this_name)==0)){
+				substr(this_name,this_name,1,strlen(this_name)-1);
+			}
+			
+			add_name(server_index,*output_channel,this_name);
+		}
+#ifdef DEBUG
+//		int n;
+//		for(n=0;n<MAX_NAMES;n++){
+//			if(servers[server_index]->user_names[output_channel][n]!=NULL){
+//				scrollback_output(server_index,0,servers[server_index]->user_names[output_channel][n]);
+//			}
+//		}
+#endif
+	}
+}
+
+//handle the "366" server command (end of names list)
+void server_366_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
+	//just output to the right channel
+	strncpy(tmp_buffer,servers[server_index]->read_buffer,BUFFER_SIZE);
+	char channel[BUFFER_SIZE];
+	int space_colon_index=strfind(" :",tmp_buffer);
+	int channel_start_index=space_colon_index-1;
+	while(tmp_buffer[channel_start_index]!=' '){
+		channel_start_index--;
+	}
+	channel_start_index++;
+	
+	substr(channel,tmp_buffer,channel_start_index,space_colon_index-channel_start_index);
+	
+	//set the correct output channel
+	*output_channel=find_output_channel(server_index,channel);
+}
+
+
+//handle the "privmsg" server command
+void server_privmsg_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
+	char channel[BUFFER_SIZE];
+	int space_colon_index=strfind(" :",tmp_buffer);
+	substr(channel,tmp_buffer,0,space_colon_index);
+	
+	substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
+	
+	strncpy(text,tmp_buffer,BUFFER_SIZE);
+	
+	//set the correct output channel
+	*output_channel=find_output_channel(server_index,channel);
+	
+	char tmp_nick[BUFFER_SIZE];
+	strncpy(tmp_nick,servers[server_index]->nick,BUFFER_SIZE);
+	strtolower(tmp_nick,BUFFER_SIZE);
+	
+	if(!strcmp(tmp_nick,channel)){
+#ifdef DEBUG
+		char sys_call_buffer[BUFFER_SIZE];
+		sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+		system(sys_call_buffer);
+#endif
+		//set this to the last PM-ing user, so we can later reply if we so choose
+		strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
+		
+		//set the was_pingged flag for the server in the case of a PM
+		servers[server_index]->was_pingged[0]=TRUE;
+	}
+	
+	//this is so pings can be case-insensitive
+	char lower_case_text[BUFFER_SIZE];
+	strncpy(lower_case_text,text,BUFFER_SIZE);
+	strtolower(lower_case_text,BUFFER_SIZE);
+	
+	//for pings
+	int name_index=strfind(tmp_nick,lower_case_text);
+	
+	//for any CTCP message (which takes highest precedence)
+	char ctcp[BUFFER_SIZE];
+	sprintf(ctcp,"%c",0x01);
+	int ctcp_check=strfind(ctcp,text);
+	
+	//if there was a CTCP message
+	if(ctcp_check==0){
+		//if there's a space take the command to be until there
+		if(strfind(" ",text)>=0){
+			//the 1 here (and -1 in length) is to cut off the leading 0x01 to get the CTCP command
+			substr(ctcp,text,1,strfind(" ",text)-1);
+		//otherwise take it to be to the end, then check for a trailing 0x01 and cut it off if it's there
+		//(this ctcp command had no arguments)
+		}else{
+			//the 1 here (and -1 in length) is to cut off the leading 0x01 to get the CTCP command
+			substr(ctcp,text,1,strlen(text)-1);
+			
+			char tmp_buffer[BUFFER_SIZE];
+			strncpy(tmp_buffer,ctcp,BUFFER_SIZE);
+			
+			//this accounts for a possible trailing byte
+			sprintf(ctcp,"%c",0x01);
+			if(strfind(ctcp,tmp_buffer)>=0){
+				tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
+			}
+			strncpy(ctcp,tmp_buffer,BUFFER_SIZE);
+		}
+		
+		//be case-insensitive
+		strtolower(ctcp,BUFFER_SIZE);
+		
+		//handle CTCP ACTION
+		if(!strcmp(ctcp,"action")){
+			int offset=strlen("action");
+			char tmp_buffer[BUFFER_SIZE];
+			//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
+			//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
+			substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
+			
+			//this accounts for a possible trailing byte
+			sprintf(ctcp,"%c",0x01);
+			if(strfind(ctcp,tmp_buffer)>=0){
+				tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
+			}
+			
+			//note: timestamps are added at the end
+			sprintf(output_buffer,"*%s %s",nick,tmp_buffer);
+		//handle CTCP VERSION
+		}else if(!strcmp(ctcp,"version")){
+			int offset=strlen("version");
+			char tmp_buffer[BUFFER_SIZE];
+			//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
+			//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
+			substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
+			
+			//some clients prefer privmsg responses, others prefer notice response
+			int old_server=current_server;
+			current_server=server_index;
+//							sprintf(ctcp,":privmsg %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
+//							parse_input(ctcp,FALSE);
+			sprintf(ctcp,"%cnotice %s :%cVERSION accidental_irc v%s%c",server_escape,nick,0x01,VERSION,0x01);
+			parse_input(ctcp,FALSE);
+			current_server=old_server;
+			
+			refresh_server_list();
+			refresh_channel_list();
+			refresh_channel_topic();
+			refresh_channel_text();
+		//handle CTCP PING
+		}else if(!strcmp(ctcp,"ping")){
+			int offset=strlen("ping");
+			char tmp_buffer[BUFFER_SIZE];
+			//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
+			//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
+			substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
+			
+			//this response is a notice in the spec
+			int old_server=current_server;
+			current_server=server_index;
+			sprintf(ctcp,"%cnotice %s :%s",server_escape,nick,text);
+			parse_input(ctcp,FALSE);
+			current_server=old_server;
+			
+			refresh_server_list();
+			refresh_channel_list();
+			refresh_channel_topic();
+			refresh_channel_text();
+		}
+	//handle for a ping (when someone says our own nick)
+	//there is a was_pingged flag per channel, so we can display it as newline AND bold in the channel list output
+	}else if(name_index>=0){
+#ifdef DEBUG
+		//take any desired additional steps upon ping here (could add notify-send or something, if desired)
+		char sys_call_buffer[BUFFER_SIZE];
+		sprintf(sys_call_buffer,"echo \"%ju ***<%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+		system(sys_call_buffer);
+#endif
+		//audio output
+		beep();
+		//format the output to show that we were pingged
+		sprintf(output_buffer,"***<%s> %s",nick,text);
+		
+		//set the was_pingged flag so the user can see that information at a glance
+		servers[server_index]->was_pingged[*output_channel]=TRUE;
+	}else{
+		//format the output of a PM in a very pretty way
+		sprintf(output_buffer,"<%s> %s",nick,text);
+	}
+}
+
+//handle the "join" command from the server
+void server_join_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
+	//first get the channel name
+	char channel[BUFFER_SIZE];
+	
+	//cut the leading : from the channel name, if there is one
+	if(text[0]==':'){
+		substr(channel,text,1,strlen(text)-1);
+	}else{
+		substr(channel,text,0,strlen(text));
+	}
+	
+	//if it was us doing the join-ing
+	if(!strcmp(servers[server_index]->nick,nick)){
+		//NOTE: there is no need to make sure we're not already in this channel
+		//because if we're already in the channel the server will never send us the corresponding JOIN when we tell it to join again
+		//(if we get the join we're not in it, at least as far as the server knows)
+		
+		//add this channel to the list of channels on this server, make associated scrollback, etc.
+		int channel_index;
+		for(channel_index=0;(channel_index<MAX_CHANNELS)&&(servers[server_index]->channel_name[channel_index]!=NULL);channel_index++);
+		if(channel_index<MAX_CHANNELS){
+			servers[server_index]->channel_name[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+			//initialize the channel name to be what was joined
+			strncpy(servers[server_index]->channel_name[channel_index],channel,BUFFER_SIZE);
+			
+			//default to a null topic
+			servers[server_index]->channel_topic[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+			strncpy(servers[server_index]->channel_topic[channel_index],"",BUFFER_SIZE);
+			
+			servers[server_index]->channel_content[channel_index]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
+			//null out the content to start with
+			int n;
+			for(n=0;n<MAX_SCROLLBACK;n++){
+				servers[server_index]->channel_content[channel_index][n]=NULL;
+			}
+			
+			servers[server_index]->user_names[channel_index]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
+			for(n=0;n<MAX_NAMES;n++){
+				servers[server_index]->user_names[channel_index][n]=NULL;
+			}
+			
+			//if we should be keeping logs make sure we are
+			if(servers[server_index]->keep_logs){
+				char file_location[BUFFER_SIZE];
+				sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[channel_index]);
+				//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
+				servers[server_index]->log_file[channel_index]=fopen(file_location,"a");
+				
+				
+				if(servers[server_index]->log_file[channel_index]!=NULL){
+					//turn off buffering since I need may this output immediately and buffers annoy me for that
+					setvbuf(servers[server_index]->log_file[channel_index],NULL,_IONBF,0);
+				}
+			}
+			
+			//set this to be the current channel, we must want to be here if we joined
+			servers[server_index]->current_channel=channel_index;
+			
+			//output the join at the top of this channel, why not
+			*output_channel=channel_index;
+			
+			//and refresh the channel list
+			refresh_channel_list();
+			
+		//handle being out of available channels (we can't do anything, so we just have to tell the user)
+		//this will just not have the new channel available, and as a result redirect all output to the system channel
+		}else{
+			char error_buffer[BUFFER_SIZE];
+			sprintf(error_buffer,"accirc: Err: out of available channels in structure (limit is %i); output will go to the SERVER channel; use %cprivmsg to send data",MAX_CHANNELS,server_escape);
+			scrollback_output(server_index,0,error_buffer);
+		}
+	//else it wasn't us doing the join so just output the join message to that channel (which presumably we're in)
+	}else{
+		//lower case the channel so we can do a case-insensitive string match against it
+		strtolower(channel,BUFFER_SIZE);
+		
+		int channel_index;
+		for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+			if(servers[server_index]->channel_name[channel_index]!=NULL){
+				char lower_case_channel[BUFFER_SIZE];
+				strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+				strtolower(lower_case_channel,BUFFER_SIZE);
+				
+				if(!strcmp(lower_case_channel,channel)){
+					//add this user to that channel's names array
+					int n;
+					for(n=0;(servers[server_index]->user_names[channel_index][n]!=NULL)&&(n<MAX_NAMES);n++);
+					if(n<MAX_NAMES){
+						servers[server_index]->user_names[channel_index][n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+						strncpy(servers[server_index]->user_names[channel_index][n],nick,BUFFER_SIZE);
+					}
+					
+					*output_channel=channel_index;
+					channel_index=MAX_CHANNELS;
+				}
+			}
+		}
+	}
+}
+
+//handle the "part" command from the server
+void server_part_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
+	char channel[BUFFER_SIZE];
+	
+	int space_colon_index=strfind(" :",text);
+	if(space_colon_index<0){
+		strncpy(channel,text,BUFFER_SIZE);
+	}else{
+		substr(channel,text,0,space_colon_index);
+	}
+	
+	//if it was us doing the part
+	if(!strcmp(servers[server_index]->nick,nick)){
+		leave_channel(server_index,channel);
+		output_channel=0;
+	//else it wasn't us doing the part so just output the part message to that channel (which presumably we're in)
+	}else{
+		*output_channel=find_output_channel(server_index,channel);
+		
+		del_name(server_index,*output_channel,nick);
+		//note special_output is still false here, we never output up there
+	}
+}
+
+//parse incoming data from a server
 void parse_server(int server_index){
 	//clear out the remainder of the buffer since we re-use this memory
 	int n;
@@ -1939,248 +2491,21 @@ void parse_server(int server_index){
 				
 				//welcome message (we set the server NICK data here since it's clearly working for us)
 				if(!strcmp(command,"001")){
-					//rather than make a new buffer just use the one it'll ulitmately be stored in
-					char *user_nick=servers[server_index]->nick;
-					
-					//go a space at a time until we get to the nick portion, then leave because it's set
-					first_space=strfind(" ",servers[server_index]->read_buffer);
-					substr(user_nick,servers[server_index]->read_buffer,first_space+1,strlen(servers[server_index]->read_buffer)-first_space);
-					first_space=strfind(" ",user_nick);
-					substr(tmp_buffer,user_nick,first_space+1,strlen(user_nick)-first_space);
-					substr(user_nick,tmp_buffer,0,strfind(" ",tmp_buffer));
-					
-					//let the user know his nick is recognized
-					refresh_server_list();
-					
-					//if we got here the server recognized us, go through the autojoin channels and join them, then remove them from the autojoin array
-					int ch;
-					for(ch=0;ch<MAX_CHANNELS;ch++){
-						if(servers[server_index]->autojoin_channel[ch]!=NULL){
-							//remember what server we were on
-							int old_server=current_server;
-							
-							//parse a message headed to the server to autojoin on
-							current_server=server_index;
-							
-							char to_parse[BUFFER_SIZE];
-							sprintf(to_parse,"%cjoin :%s",server_escape,servers[server_index]->autojoin_channel[ch]);
-							parse_input(to_parse,FALSE);
-							
-							//remove this from autojoin channels from that server, we've now at least attempted to join
-							free(servers[server_index]->autojoin_channel[ch]);
-							servers[server_index]->autojoin_channel[ch]=NULL;
-							
-							//reset our server to whatever it used to be on
-							current_server=old_server;
-						}
-					}
-					
-					//if there is associated identification with this nickname send it to nickserv now
-					if(strcmp(servers[server_index]->ident,"")!=0){
-						//remember what server we were on
-						int old_server=current_server;
-						
-						//parse a message headed to the server to autojoin on
-						current_server=server_index;
-						
-						char to_parse[BUFFER_SIZE];
-						sprintf(to_parse,"%cprivmsg NickServ :IDENTIFY %s",server_escape,servers[server_index]->ident);
-						parse_input(to_parse,FALSE);
-						
-						//reset our server to whatever it used to be on
-						current_server=old_server;
-					}
+					server_001_command(server_index,tmp_buffer,first_space);
 				//current channel topic
 				}else if(!strcmp(command,"332")){
-					char channel[BUFFER_SIZE];
-					char topic[BUFFER_SIZE];
-					
-					//pull out the topic right away, because it's delimted by " :" and so is easy
-					int space_colon_index=strfind(" :",servers[server_index]->read_buffer);
-					substr(topic,servers[server_index]->read_buffer,space_colon_index+2,strlen(servers[server_index]->read_buffer)-space_colon_index-2);
-					
-					strncpy(tmp_buffer,servers[server_index]->read_buffer,BUFFER_SIZE);
-					
-					//go a space at a time until we get to the relevant field
-					int n;
-					for(n=0;n<3;n++){
-						//note I can set tmp_buffer to a substring of itself here because I'm never overwriting data I'll later need
-						//it's just a left shift
-						first_space=strfind(" ",tmp_buffer);
-						substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
-					}
-					
-					//now we're at the channel, get it and lower-case it
-					substr(channel,tmp_buffer,0,strfind(" ",tmp_buffer));
-					strtolower(channel,BUFFER_SIZE);
-					
-					//go through the channels, find out the one to output to, set "output_channel" to that index
-					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							char lower_case_channel[BUFFER_SIZE];
-							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-							strtolower(lower_case_channel,BUFFER_SIZE);
-							
-							if(!strcmp(channel,lower_case_channel)){
-								output_channel=channel_index;
-								
-								sprintf(output_buffer,"TOPIC for %s :%s",channel,topic);
-								
-								//store the topic in the general data structure
-								strncpy(servers[server_index]->channel_topic[channel_index],topic,BUFFER_SIZE);
-								
-								//and output
-								refresh_channel_topic();
-								
-								channel_index=MAX_CHANNELS;
-							}
-						}
-					}
+					server_332_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel);
 				//handle time set information for a channel topic
 				}else if(!strcmp(command,"333")){
-					char channel[BUFFER_SIZE];
-					
-					//go a space at a time until we get to the relevant field
-					int n;
-					for(n=0;n<2;n++){
-						//note I can set tmp_buffer to a substring of itself here because I'm never overwriting data I'll later need
-						//it's just a left shift
-						first_space=strfind(" ",tmp_buffer);
-						substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
-					}
-					
-					//now we're at the channel, get it and lower-case it
-					first_space=strfind(" ",tmp_buffer);
-					substr(channel,tmp_buffer,0,first_space);
-					strtolower(channel,BUFFER_SIZE);
-					
-					substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
-					
-					//now we're at the user who set this topic
-					first_space=strfind(" ",tmp_buffer);
-					char setting_user[BUFFER_SIZE];
-					substr(setting_user,tmp_buffer,0,first_space);
-					
-					substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
-					
-					//now we're at the timestamp
-					time_t timestamp=atoi(tmp_buffer);
-					
-					//go through the channels, find out the one to output to, set "output_channel" to that index
-					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							char lower_case_channel[BUFFER_SIZE];
-							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-							strtolower(lower_case_channel,BUFFER_SIZE);
-							
-							if(!strcmp(channel,lower_case_channel)){
-								output_channel=channel_index;
-								
-								sprintf(output_buffer,"Topic set by %s at %s",setting_user,ctime(&timestamp));
-								
-								//and output
-								refresh_channel_topic();
-								
-								channel_index=MAX_CHANNELS;
-							}
-						}
-					}
+					server_333_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel);
 				//names list
 				//(like this: ":naos.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user @neutrak @NieXS @cheese @MonkeyofDoom @L @Data @Spock ~Shishichi davean")
 				//(or this: ":naos.foonetic.net 353 neutrak = #FaiD :neutrak mo0 Decarabia Gelsamel_ NieXS JoeyJo0 cheese")
 				}else if(!strcmp(command,"353")){
-					strncpy(tmp_buffer,servers[server_index]->read_buffer,BUFFER_SIZE);
-					char channel[BUFFER_SIZE];
-					int space_colon_index=strfind(" :",tmp_buffer);
-					int channel_start_index=space_colon_index-1;
-					while(tmp_buffer[channel_start_index]!=' '){
-						channel_start_index--;
-					}
-					channel_start_index++;
-					
-					substr(channel,tmp_buffer,channel_start_index,space_colon_index-channel_start_index);
-					//lower case the channel name
-					strtolower(channel,BUFFER_SIZE);
-					
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							char lower_case_channel[BUFFER_SIZE];
-							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-							strtolower(lower_case_channel,BUFFER_SIZE);
-							
-							if(!strcmp(channel,lower_case_channel)){
-								output_channel=channel_index;
-								channel_index=MAX_CHANNELS;
-							}
-						}
-					}
-					
-					//if we found this channel in our list
-					if(output_channel>0){
-						char names[BUFFER_SIZE];
-						substr(names,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
-						while(strlen(names)>0){
-							char this_name[BUFFER_SIZE];
-							int space_index=strfind(" ",names);
-							
-							//if there wasn't a space left, we're on the last name, just pretend there was a space after it, k?
-							if(space_index==-1){
-								space_index=strlen(names);
-							}
-							
-							substr(this_name,names,0,space_index);
-							substr(names,names,space_index+1,strlen(names)-space_index-1);
-							
-							//trim this user's name
-							if((strfind("@",this_name)==0)||(strfind("~",this_name)==0)||(strfind("%",this_name)==0)||(strfind("&",this_name)==0)||(strfind("+",this_name)==0)){
-								substr(this_name,this_name,1,strlen(this_name)-1);
-							}
-							
-							add_name(server_index,output_channel,this_name);
-						}
-#ifdef DEBUG
-//						int n;
-//						for(n=0;n<MAX_NAMES;n++){
-//							if(servers[server_index]->user_names[output_channel][n]!=NULL){
-//								scrollback_output(server_index,0,servers[server_index]->user_names[output_channel][n]);
-//							}
-//						}
-#endif
-					}
+					server_353_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel);
 				//end of names list
 				}else if(!strcmp(command,"366")){
-					//just output to the right channel
-					strncpy(tmp_buffer,servers[server_index]->read_buffer,BUFFER_SIZE);
-					char channel[BUFFER_SIZE];
-					int space_colon_index=strfind(" :",tmp_buffer);
-					int channel_start_index=space_colon_index-1;
-					while(tmp_buffer[channel_start_index]!=' '){
-						channel_start_index--;
-					}
-					channel_start_index++;
-					
-					substr(channel,tmp_buffer,channel_start_index,space_colon_index-channel_start_index);
-					//lower case the channel name
-					strtolower(channel,BUFFER_SIZE);
-					
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							char lower_case_channel[BUFFER_SIZE];
-							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-							strtolower(lower_case_channel,BUFFER_SIZE);
-							
-							if(!strcmp(channel,lower_case_channel)){
-								output_channel=channel_index;
-								channel_index=MAX_CHANNELS;
-							}
-						}
-					}
+					server_366_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel);
 				//end of message of the day (useful as a delimiter)
 				}else if(!strcmp(command,"376")){
 					
@@ -2240,301 +2565,13 @@ void parse_server(int server_index){
 				//the most common message, the PM
 				//":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
 				if(!strcmp(command,"PRIVMSG")){
-					char channel[BUFFER_SIZE];
-					int space_colon_index=strfind(" :",tmp_buffer);
-					substr(channel,tmp_buffer,0,space_colon_index);
-					
-					substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
-					
-					strncpy(text,tmp_buffer,BUFFER_SIZE);
-					
-					//lower case the channel so we can do a case-insensitive string match against it
-					strtolower(channel,BUFFER_SIZE);
-					
-					//go through the channels, find out the one to output to, set "output_channel" to that index
-					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							char lower_case_channel[BUFFER_SIZE];
-							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-							strtolower(lower_case_channel,BUFFER_SIZE);
-							
-							if(!strcmp(channel,lower_case_channel)){
-								output_channel=channel_index;
-								channel_index=MAX_CHANNELS;
-							}
-						}
-					}
-					
-					char tmp_nick[BUFFER_SIZE];
-					strncpy(tmp_nick,servers[server_index]->nick,BUFFER_SIZE);
-					strtolower(tmp_nick,BUFFER_SIZE);
-					
-					if(!strcmp(tmp_nick,channel)){
-#ifdef DEBUG
-						char sys_call_buffer[BUFFER_SIZE];
-						sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
-						system(sys_call_buffer);
-#endif
-						//set this to the last PM-ing user, so we can later reply if we so choose
-						strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
-						
-						//set the was_pingged flag for the server in the case of a PM
-						servers[server_index]->was_pingged[0]=TRUE;
-					}
-					
-					//this is so pings can be case-insensitive
-					char lower_case_text[BUFFER_SIZE];
-					strncpy(lower_case_text,text,BUFFER_SIZE);
-					strtolower(lower_case_text,BUFFER_SIZE);
-					
-					//for pings
-					int name_index=strfind(tmp_nick,lower_case_text);
-					
-					//for any CTCP message (which takes highest precedence)
-					char ctcp[BUFFER_SIZE];
-					sprintf(ctcp,"%c",0x01);
-					int ctcp_check=strfind(ctcp,text);
-					
-					//if there was a CTCP message
-					if(ctcp_check==0){
-						//if there's a space take the command to be until there
-						if(strfind(" ",text)>=0){
-							//the 1 here (and -1 in length) is to cut off the leading 0x01 to get the CTCP command
-							substr(ctcp,text,1,strfind(" ",text)-1);
-						//otherwise take it to be to the end, then check for a trailing 0x01 and cut it off if it's there
-						//(this ctcp command had no arguments)
-						}else{
-							//the 1 here (and -1 in length) is to cut off the leading 0x01 to get the CTCP command
-							substr(ctcp,text,1,strlen(text)-1);
-							
-							char tmp_buffer[BUFFER_SIZE];
-							strncpy(tmp_buffer,ctcp,BUFFER_SIZE);
-							
-							//this accounts for a possible trailing byte
-							sprintf(ctcp,"%c",0x01);
-							if(strfind(ctcp,tmp_buffer)>=0){
-								tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
-							}
-							strncpy(ctcp,tmp_buffer,BUFFER_SIZE);
-						}
-						
-						//be case-insensitive
-						strtolower(ctcp,BUFFER_SIZE);
-						
-						//handle CTCP ACTION
-						if(!strcmp(ctcp,"action")){
-							int offset=strlen("action");
-							char tmp_buffer[BUFFER_SIZE];
-							//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
-							//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
-							substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
-							
-							//this accounts for a possible trailing byte
-							sprintf(ctcp,"%c",0x01);
-							if(strfind(ctcp,tmp_buffer)>=0){
-								tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
-							}
-							
-							//note: timestamps are added at the end
-							sprintf(output_buffer,"*%s %s",nick,tmp_buffer);
-						//handle CTCP VERSION
-						}else if(!strcmp(ctcp,"version")){
-							int offset=strlen("version");
-							char tmp_buffer[BUFFER_SIZE];
-							//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
-							//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
-							substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
-							
-							//some clients prefer privmsg responses, others prefer notice response
-							int old_server=current_server;
-							current_server=server_index;
-//							sprintf(ctcp,":privmsg %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
-//							parse_input(ctcp,FALSE);
-							sprintf(ctcp,"%cnotice %s :%cVERSION accidental_irc v%s%c",server_escape,nick,0x01,VERSION,0x01);
-							parse_input(ctcp,FALSE);
-							current_server=old_server;
-							
-							refresh_server_list();
-							refresh_channel_list();
-							refresh_channel_topic();
-							refresh_channel_text();
-						//handle CTCP PING
-						}else if(!strcmp(ctcp,"ping")){
-							int offset=strlen("ping");
-							char tmp_buffer[BUFFER_SIZE];
-							//the +1 and -1 is because we want to start AFTER the ctcp command, and ctcp_check is AT that byte
-							//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
-							substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
-							
-							//this response is a notice in the spec
-							int old_server=current_server;
-							current_server=server_index;
-							sprintf(ctcp,"%cnotice %s :%s",server_escape,nick,text);
-							parse_input(ctcp,FALSE);
-							current_server=old_server;
-							
-							refresh_server_list();
-							refresh_channel_list();
-							refresh_channel_topic();
-							refresh_channel_text();
-						}
-					//handle for a ping (when someone says our own nick)
-					//there is a was_pingged flag per channel, so we can display it as newline AND bold in the channel list output
-					}else if(name_index>=0){
-#ifdef DEBUG
-						//take any desired additional steps upon ping here (could add notify-send or something, if desired)
-						char sys_call_buffer[BUFFER_SIZE];
-						sprintf(sys_call_buffer,"echo \"%ju ***<%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
-						system(sys_call_buffer);
-#endif
-						//audio output
-						beep();
-						//format the output to show that we were pingged
-						sprintf(output_buffer,"***<%s> %s",nick,text);
-						
-						//set the was_pingged flag so the user can see that information at a glance
-						servers[server_index]->was_pingged[output_channel]=TRUE;
-					}else{
-						//format the output of a PM in a very pretty way
-						sprintf(output_buffer,"<%s> %s",nick,text);
-					}
+					server_privmsg_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
 				//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 				}else if(!strcmp(command,"JOIN")){
-					//first get the channel name
-					char channel[BUFFER_SIZE];
-					
-					//cut the leading : from the channel name, if there is one
-					if(text[0]==':'){
-						substr(channel,text,1,strlen(text)-1);
-					}else{
-						substr(channel,text,0,strlen(text));
-					}
-					
-					//if it was us doing the join-ing
-					if(!strcmp(servers[server_index]->nick,nick)){
-						//NOTE: there is no need to make sure we're not already in this channel
-						//because if we're already in the channel the server will never send us the corresponding JOIN when we tell it to join again
-						//(if we get the join we're not in it, at least as far as the server knows)
-						
-						//add this channel to the list of channels on this server, make associated scrollback, etc.
-						int channel_index;
-						for(channel_index=0;(channel_index<MAX_CHANNELS)&&(servers[server_index]->channel_name[channel_index]!=NULL);channel_index++);
-						if(channel_index<MAX_CHANNELS){
-							servers[server_index]->channel_name[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-							//initialize the channel name to be what was joined
-							strncpy(servers[server_index]->channel_name[channel_index],channel,BUFFER_SIZE);
-							
-							//default to a null topic
-							servers[server_index]->channel_topic[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-							strncpy(servers[server_index]->channel_topic[channel_index],"",BUFFER_SIZE);
-							
-							servers[server_index]->channel_content[channel_index]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
-							//null out the content to start with
-							int n;
-							for(n=0;n<MAX_SCROLLBACK;n++){
-								servers[server_index]->channel_content[channel_index][n]=NULL;
-							}
-							
-							servers[server_index]->user_names[channel_index]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
-							for(n=0;n<MAX_NAMES;n++){
-								servers[server_index]->user_names[channel_index][n]=NULL;
-							}
-							
-							//if we should be keeping logs make sure we are
-							if(servers[server_index]->keep_logs){
-								char file_location[BUFFER_SIZE];
-								sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[channel_index]);
-								//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
-								servers[server_index]->log_file[channel_index]=fopen(file_location,"a");
-								
-								
-								if(servers[server_index]->log_file[channel_index]!=NULL){
-									//turn off buffering since I need may this output immediately and buffers annoy me for that
-									setvbuf(servers[server_index]->log_file[channel_index],NULL,_IONBF,0);
-								}
-							}
-							
-							//set this to be the current channel, we must want to be here if we joined
-							servers[server_index]->current_channel=channel_index;
-							
-							//output the join at the top of this channel, why not
-							output_channel=channel_index;
-							
-							//and refresh the channel list
-							refresh_channel_list();
-						
-						//handle being out of available channels (we can't do anything, so we just have to tell the user)
-						//this will just not have the new channel available, and as a result redirect all output to the system channel
-						}else{
-							char error_buffer[BUFFER_SIZE];
-							sprintf(error_buffer,"accirc: Err: out of available channels in structure (limit is %i); output will go to the SERVER channel; use %cprivmsg to send data",MAX_CHANNELS,server_escape);
-							scrollback_output(server_index,0,error_buffer);
-						}
-					//else it wasn't us doing the join so just output the join message to that channel (which presumably we're in)
-					}else{
-						//lower case the channel so we can do a case-insensitive string match against it
-						strtolower(channel,BUFFER_SIZE);
-						
-						int channel_index;
-						for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-							if(servers[server_index]->channel_name[channel_index]!=NULL){
-								char lower_case_channel[BUFFER_SIZE];
-								strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-								strtolower(lower_case_channel,BUFFER_SIZE);
-								
-								if(!strcmp(lower_case_channel,channel)){
-									//add this user to that channel's names array
-									int n;
-									for(n=0;(servers[server_index]->user_names[channel_index][n]!=NULL)&&(n<MAX_NAMES);n++);
-									if(n<MAX_NAMES){
-										servers[server_index]->user_names[channel_index][n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-										strncpy(servers[server_index]->user_names[channel_index][n],nick,BUFFER_SIZE);
-									}
-									
-									output_channel=channel_index;
-									channel_index=MAX_CHANNELS;
-								}
-							}
-						}
-					}
+					server_join_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
 				//or ":neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz"
 				}else if(!strcmp(command,"PART")){
-					char channel[BUFFER_SIZE];
-					
-					int space_colon_index=strfind(" :",text);
-					if(space_colon_index<0){
-						strncpy(channel,text,BUFFER_SIZE);
-					}else{
-						substr(channel,text,0,space_colon_index);
-					}
-					
-					//if it was us doing the part
-					if(!strcmp(servers[server_index]->nick,nick)){
-						leave_channel(server_index,channel);
-						output_channel=0;
-					//else it wasn't us doing the part so just output the part message to that channel (which presumably we're in)
-					}else{
-						strtolower(channel,BUFFER_SIZE);
-						
-						int channel_index;
-						for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-							if(servers[server_index]->channel_name[channel_index]!=NULL){
-								char lower_case_channel[BUFFER_SIZE];
-								strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-								strtolower(lower_case_channel,BUFFER_SIZE);
-								
-								if(!strcmp(lower_case_channel,channel)){
-									output_channel=channel_index;
-									channel_index=MAX_CHANNELS;
-								}
-							}
-						}
-						
-						del_name(server_index,output_channel,nick);
-						//note special_output is still false here, we never output up there
-					}
+					server_part_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
 				//or ":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
 				}else if(!strcmp(command,"KICK")){
 					char channel[BUFFER_SIZE];
@@ -2668,48 +2705,15 @@ void parse_server(int server_index){
 					//lower case the channel so we can do a case-insensitive string match against it
 					strtolower(channel,BUFFER_SIZE);
 					
-					//go through the channels, find out the one to output to, set "output_channel" to that index
-					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							char lower_case_channel[BUFFER_SIZE];
-							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-							strtolower(lower_case_channel,BUFFER_SIZE);
-							
-							if(!strcmp(channel,lower_case_channel)){
-								//reset topic information for that channel
-								strncpy(servers[server_index]->channel_topic[channel_index],text,BUFFER_SIZE);
-								//and output
-								refresh_channel_topic();
-								
-								output_channel=channel_index;
-								channel_index=MAX_CHANNELS;
-							}
-						}
-					}
+					//output to the correct place
+					output_channel=find_output_channel(server_index,channel);
 				//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
 				}else if(!strcmp(command,"MODE")){
 					char channel[BUFFER_SIZE];
 					substr(channel,text,0,strfind(" ",text));
 					
-					//lower case the channel so we can do a case-insensitive string match against it
-					strtolower(channel,BUFFER_SIZE);
-					//go through the channels, find out the one to output to, set "output_channel" to that index
-					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							char lower_case_channel[BUFFER_SIZE];
-							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-							strtolower(lower_case_channel,BUFFER_SIZE);
-							
-							if(!strcmp(channel,lower_case_channel)){
-								output_channel=channel_index;
-								channel_index=MAX_CHANNELS;
-							}
-						}
-					}
+					//output to the correct place
+					output_channel=find_output_channel(server_index,channel);
 				//proper NOTICE handling is to output to the correct channel if it's a channel-wide notice, and like a PM otherwise
 				}else if(!strcmp(command,"NOTICE")){
 					//parse out the channel
@@ -2721,24 +2725,8 @@ void parse_server(int server_index){
 					
 					strncpy(text,tmp_buffer,BUFFER_SIZE);
 					
-					//lower case the channel so we can do a case-insensitive string match against it
-					strtolower(channel,BUFFER_SIZE);
-					
-					//go through the channels, find out the one to output to, set "output_channel" to that index
-					//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							char lower_case_channel[BUFFER_SIZE];
-							strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-							strtolower(lower_case_channel,BUFFER_SIZE);
-							
-							if(!strcmp(channel,lower_case_channel)){
-								output_channel=channel_index;
-								channel_index=MAX_CHANNELS;
-							}
-						}
-					}
+					//output to the correct place
+					output_channel=find_output_channel(server_index,channel);
 				//using channel names lists, output quits to the correct channel
 				//(this will require outputting multiple times, which I don't have the faculties for at the moment)
 				}else if(!strcmp(command,"QUIT")){
@@ -2939,6 +2927,86 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	wrefresh(user_input);
 	
 	refresh_user_input(input_buffer,cursor_pos,input_display_start);
+}
+
+//check every server we're connected to for new data and handle it accordingly
+void read_server_data(){
+	//loop through servers and see if there's any data worth reading
+	int server_index;
+	for(server_index=0;server_index<MAX_SERVERS;server_index++){
+		//if this is a valid server connection we have a buffer allocated
+		if(servers[server_index]!=NULL){
+			//read a buffer_size at a time for speed (if you read a character at a time the kernel re-schedules that each operation)
+			char server_in_buffer[BUFFER_SIZE];
+			//the -1 here is so we always have a byte for null-termination
+			int bytes_transferred=recv(servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1,0);
+			if((bytes_transferred<=0)&&(errno!=EAGAIN)){
+				//handle connection errors gracefully here (as much as possible)
+				fprintf(error_file,"Err: connection error with server %i, host %s\n",server_index,servers[server_index]->server_name);
+				properly_close(server_index);
+			}else if(bytes_transferred>0){
+				//null-terminate the C string
+				server_in_buffer[bytes_transferred]='\0';
+				
+				//note: if there's nothing in the parse_queue waiting then this does nothing but a copy from server_in_buffer
+				char tmp_buffer[2*BUFFER_SIZE];
+				sprintf(tmp_buffer,"%s%s",servers[server_index]->parse_queue,server_in_buffer);
+				strncpy(servers[server_index]->parse_queue,tmp_buffer,2*BUFFER_SIZE);
+				
+				int queue_index;
+				char accumulator[BUFFER_SIZE];
+				
+				//clear the accumulator to initialize it
+				int n;
+				for(n=0;n<BUFFER_SIZE;n++){
+					accumulator[n]='\0';
+				}
+				
+				for(queue_index=0;servers[server_index]->parse_queue[queue_index]!='\0';queue_index++){
+					if(strinsert(accumulator,servers[server_index]->parse_queue[queue_index],strlen(accumulator),BUFFER_SIZE)){
+						if(servers[server_index]->parse_queue[queue_index]=='\n'){
+							//clear the existing read buffer
+							int n;
+							for(n=0;n<BUFFER_SIZE;n++){
+								servers[server_index]->read_buffer[n]='\0';
+							}
+							
+							strncpy(servers[server_index]->read_buffer,accumulator,BUFFER_SIZE);
+							parse_server(server_index);
+							strncpy(accumulator,"",BUFFER_SIZE);
+							
+							//if we just lost connection and cleaned up, stop
+							if(servers[server_index]==NULL){
+								break;
+							}
+						}
+					//oh shit, we overflowed the buffer
+					}else{
+						//tell the user this happened
+						char error_buffer[BUFFER_SIZE];
+						sprintf(error_buffer,"accirc: Err: read queue has overflowed (nothing we can do), clearing");
+						scrollback_output(server_index,0,error_buffer);
+						
+						//we can't do anything but clear this and ignore it, since we could end up reading garbage data
+						int n;
+						for(n=0;n<BUFFER_SIZE;n++){
+							servers[server_index]->read_buffer[n]='\0';
+						}
+						
+						//treat this as a lost connection
+						properly_close(server_index);
+						break;
+					}
+				}
+				
+				//if we didn't lose connection and clean up after parsing what we already got
+				if(servers[server_index]!=NULL){
+					//the parse queue is everything between the last newline and the end of the string
+					strncpy(servers[server_index]->parse_queue,accumulator,BUFFER_SIZE);
+				}
+			}
+		}
+	}
 }
 
 //runtime
@@ -3499,82 +3567,8 @@ int main(int argc, char *argv[]){
 			}
 		}
 		
-		//loop through servers and see if there's any data worth reading
-		int server_index;
-		for(server_index=0;server_index<MAX_SERVERS;server_index++){
-			//if this is a valid server connection we have a buffer allocated
-			if(servers[server_index]!=NULL){
-				//read a buffer_size at a time for speed (if you read a character at a time the kernel re-schedules that each operation)
-				char server_in_buffer[BUFFER_SIZE];
-				//the -1 here is so we always have a byte for null-termination
-				int bytes_transferred=recv(servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1,0);
-				if((bytes_transferred<=0)&&(errno!=EAGAIN)){
-					//handle connection errors gracefully here (as much as possible)
-					fprintf(error_file,"Err: connection error with server %i, host %s\n",server_index,servers[server_index]->server_name);
-					properly_close(server_index);
-				}else if(bytes_transferred>0){
-					//null-terminate the C string
-					server_in_buffer[bytes_transferred]='\0';
-					
-					//note: if there's nothing in the parse_queue waiting then this does nothing but a copy from server_in_buffer
-					char tmp_buffer[2*BUFFER_SIZE];
-					sprintf(tmp_buffer,"%s%s",servers[server_index]->parse_queue,server_in_buffer);
-					strncpy(servers[server_index]->parse_queue,tmp_buffer,2*BUFFER_SIZE);
-					
-					int queue_index;
-					char accumulator[BUFFER_SIZE];
-					
-					//clear the accumulator to initialize it
-					int n;
-					for(n=0;n<BUFFER_SIZE;n++){
-						accumulator[n]='\0';
-					}
-					
-					for(queue_index=0;servers[server_index]->parse_queue[queue_index]!='\0';queue_index++){
-						if(strinsert(accumulator,servers[server_index]->parse_queue[queue_index],strlen(accumulator),BUFFER_SIZE)){
-							if(servers[server_index]->parse_queue[queue_index]=='\n'){
-								//clear the existing read buffer
-								int n;
-								for(n=0;n<BUFFER_SIZE;n++){
-									servers[server_index]->read_buffer[n]='\0';
-								}
-								
-								strncpy(servers[server_index]->read_buffer,accumulator,BUFFER_SIZE);
-								parse_server(server_index);
-								strncpy(accumulator,"",BUFFER_SIZE);
-								
-								//if we just lost connection and cleaned up, stop
-								if(servers[server_index]==NULL){
-									break;
-								}
-							}
-						//oh shit, we overflowed the buffer
-						}else{
-							//tell the user this happened
-							char error_buffer[BUFFER_SIZE];
-							sprintf(error_buffer,"accirc: Err: read queue has overflowed (nothing we can do), clearing");
-							scrollback_output(server_index,0,error_buffer);
-							
-							//we can't do anything but clear this and ignore it, since we could end up reading garbage data
-							int n;
-							for(n=0;n<BUFFER_SIZE;n++){
-								servers[server_index]->read_buffer[n]='\0';
-							}
-							
-							//treat this as a lost connection
-							properly_close(server_index);
-							break;
-						}
-					}
-					
-					//if we didn't lose connection and clean up after parsing what we already got
-					if(servers[server_index]!=NULL){
-						//the parse queue is everything between the last newline and the end of the string
-						strncpy(servers[server_index]->parse_queue,accumulator,BUFFER_SIZE);
-					}
-				}
-			}
-		}
+		//look for new data on all connected servers; if some is found, handle it!
+		read_server_data();
 		
 		//unix epoch clock in bottom_border, update it when the time changes
 		uintmax_t current_time=(uintmax_t)(time(NULL));
