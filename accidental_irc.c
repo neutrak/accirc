@@ -3009,6 +3009,117 @@ void read_server_data(){
 	}
 }
 
+//tab completion of names in current channel
+//returns the count of unsuccessful tab completions
+//note cursor_pos will be re-set after a successful completion
+int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, int tab_completions){
+	if(current_server>=0){
+		//a portion of the nickname to complete
+		char partial_nick[BUFFER_SIZE];
+		//clear out this buffer to start with
+		int n;
+		for(n=0;n<BUFFER_SIZE;n++){
+			partial_nick[n]='\0';
+		}
+		
+		//where the nickname starts
+		int partial_nick_start_index=((*cursor_pos)-1);
+		while((partial_nick_start_index>=0)&&(input_buffer[partial_nick_start_index]!=' ')){
+			partial_nick_start_index--;
+		}
+		//don't count the delimiter
+		partial_nick_start_index++;
+		
+		//chomp up the nickname start
+		for(n=partial_nick_start_index;n<(*cursor_pos);n++){
+			partial_nick[n-partial_nick_start_index]=input_buffer[n];
+		}
+		//always null terminate
+		partial_nick[n]='\0';
+		
+		//lower case for case-insensitive matching
+		strtolower(partial_nick,BUFFER_SIZE);
+		
+		//this counts the number of matches we got, we only want to complete on UNIQUE matches
+		int matching_nicks=0;
+		char last_matching_nick[BUFFER_SIZE];
+		//iterate through all tne nicks in this channel, if we find a unique match, complete it
+		for(n=0;n<MAX_NAMES;n++){
+			if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+				char nick_to_match[BUFFER_SIZE];
+				strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+				strtolower(nick_to_match,BUFFER_SIZE);
+				
+				//if this nick started with the partial_nick
+				if(strfind(partial_nick,nick_to_match)==0){
+					matching_nicks++;
+					strncpy(last_matching_nick,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+				}
+			}
+		}
+		
+		//if this was a unique match
+		if(matching_nicks==1){
+			//fill in the rest of the name
+			//where to start inserting from in the full nick
+			int insert_start_pos=(*cursor_pos)-partial_nick_start_index;
+			
+			int n;
+			for(n=insert_start_pos;n<strlen(last_matching_nick);n++){
+				if(strinsert(input_buffer,last_matching_nick[n],(*cursor_pos),BUFFER_SIZE)){
+					(*cursor_pos)++;
+					//if we would go off the end
+					if(((*cursor_pos)-input_display_start)>width){
+						//make the end one char further down
+						input_display_start++;
+					}
+				}
+			}
+			
+			//reset the unsuccessful attempt counter
+			tab_completions=0;
+		//how many attempts we give the user to complete a name before we just give up and output the possibilities
+		}else if(tab_completions>COMPLETION_ATTEMPTS){
+			//the entire line we'll output, we're gonna append to this a lot
+			char output_text[BUFFER_SIZE];
+			sprintf(output_text,"accirc: Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->channel_name[servers[current_server]->current_channel]);
+			
+			//iterate through all tne nicks in this channel, if we find a possible completion, output that
+			for(n=0;n<MAX_NAMES;n++){
+				if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+					char nick_to_match[BUFFER_SIZE];
+					strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+					strtolower(nick_to_match,BUFFER_SIZE);
+					
+					//if this nick started with the partial_nick
+					if(strfind(partial_nick,nick_to_match)==0){
+						sprintf(output_text,"%s%s ",output_text,nick_to_match);
+					}
+				}
+			}
+			scrollback_output(current_server,servers[current_server]->current_channel,output_text);
+		//this was either not a match or not a unique match
+		}else{
+			//this was an unsuccessful tab-complete attempt
+			tab_completions++;
+			beep();
+		}
+#ifdef DEBUG
+/*
+		fprintf(stderr,"tab-complete debug, attempting to match \"%s\" to array [",partial_nick);
+		for(n=0;n<MAX_NAMES;n++){
+			if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+				fprintf(stderr,"\"%s\" ",servers[current_server]->user_names[servers[current_server]->current_channel][n]);
+			}
+		}
+		fprintf(stderr,"]\n");
+*/
+#endif
+	}
+	
+	return tab_completions;
+}
+
 //runtime
 int main(int argc, char *argv[]){
 	//handle special argument cases like --version, --help, etc.
@@ -3387,109 +3498,7 @@ int main(int argc, char *argv[]){
 					break;
 				//handle user name completion
 				case '\t':
-					if(current_server>=0){
-						//a portion of the nickname to complete
-						char partial_nick[BUFFER_SIZE];
-						//clear out this buffer to start with
-						int n;
-						for(n=0;n<BUFFER_SIZE;n++){
-							partial_nick[n]='\0';
-						}
-						
-						//where the nickname starts
-						int partial_nick_start_index=(cursor_pos-1);
-						while((partial_nick_start_index>=0)&&(input_buffer[partial_nick_start_index]!=' ')){
-							partial_nick_start_index--;
-						}
-						//don't count the delimiter
-						partial_nick_start_index++;
-						
-						//chomp up the nickname start
-						for(n=partial_nick_start_index;n<cursor_pos;n++){
-							partial_nick[n-partial_nick_start_index]=input_buffer[n];
-						}
-						//always null terminate
-						partial_nick[n]='\0';
-						
-						//lower case for case-insensitive matching
-						strtolower(partial_nick,BUFFER_SIZE);
-						
-						//this counts the number of matches we got, we only want to complete on UNIQUE matches
-						int matching_nicks=0;
-						char last_matching_nick[BUFFER_SIZE];
-						//iterate through all tne nicks in this channel, if we find a unique match, complete it
-						for(n=0;n<MAX_NAMES;n++){
-							if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
-								char nick_to_match[BUFFER_SIZE];
-								strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
-								strtolower(nick_to_match,BUFFER_SIZE);
-								
-								//if this nick started with the partial_nick
-								if(strfind(partial_nick,nick_to_match)==0){
-									matching_nicks++;
-									strncpy(last_matching_nick,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
-								}
-							}
-						}
-						
-						//if this was a unique match
-						if(matching_nicks==1){
-							//fill in the rest of the name
-							//where to start inserting from in the full nick
-							int insert_start_pos=cursor_pos-partial_nick_start_index;
-							
-							int n;
-							for(n=insert_start_pos;n<strlen(last_matching_nick);n++){
-								if(strinsert(input_buffer,last_matching_nick[n],cursor_pos,BUFFER_SIZE)){
-									cursor_pos++;
-									//if we would go off the end
-									if((cursor_pos-input_display_start)>width){
-										//make the end one char further down
-										input_display_start++;
-									}
-								}
-							}
-							
-							//reset the unsuccessful attempt counter
-							tab_completions=0;
-						//how many attempts we give the user to complete a name before we just give up and output the possibilities
-						}else if(tab_completions>COMPLETION_ATTEMPTS){
-							//the entire line we'll output, we're gonna append to this a lot
-							char output_text[BUFFER_SIZE];
-							sprintf(output_text,"accirc: Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->channel_name[servers[current_server]->current_channel]);
-							
-							//iterate through all tne nicks in this channel, if we find a possible completion, output that
-							for(n=0;n<MAX_NAMES;n++){
-								if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
-									char nick_to_match[BUFFER_SIZE];
-									strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
-									strtolower(nick_to_match,BUFFER_SIZE);
-									
-									//if this nick started with the partial_nick
-									if(strfind(partial_nick,nick_to_match)==0){
-										sprintf(output_text,"%s%s ",output_text,nick_to_match);
-									}
-								}
-							}
-							scrollback_output(current_server,servers[current_server]->current_channel,output_text);
-						//this was either not a match or not a unique match
-						}else{
-							//this was an unsuccessful tab-complete attempt
-							tab_completions++;
-							beep();
-						}
-#ifdef DEBUG
-/*
-						fprintf(stderr,"tab-complete debug, attempting to match \"%s\" to array [",partial_nick);
-						for(n=0;n<MAX_NAMES;n++){
-							if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
-								fprintf(stderr,"\"%s\" ",servers[current_server]->user_names[servers[current_server]->current_channel][n]);
-							}
-						}
-						fprintf(stderr,"]\n");
-*/
-#endif
-					}
+					tab_completions=name_complete(input_buffer,&cursor_pos,input_display_start,tab_completions);
 					break;
 				case KEY_HOME:
 					cursor_pos=0;

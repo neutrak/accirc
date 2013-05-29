@@ -17,6 +17,7 @@ irc client (accidental IRC) (// indicates "tentatively done")
 
 to refactor:
 	definitely
+		void connect_command()
 		void parse_input()
 		void parse_server()
 		int main()
@@ -25,5 +26,6 @@ to refactor:
 		void properly_close()
 		void refresh_channel_text()
 		void force_resize()
+		void server_privmsg_command()
 
 
