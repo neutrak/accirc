@@ -1164,6 +1164,123 @@ void del_name(int server_index, int channel_index, char *name){
 	}
 }
 
+//add a server to the list (called from the client connect command)
+void add_server(int server_index, int new_socket_fd, char *host, int port){
+	//DEFENSIVE: if this server already exists, don't add it!
+	if(servers[server_index]!=NULL){
+		return;
+	}
+	
+	servers[server_index]=(irc_connection*)(malloc(sizeof(irc_connection)));
+	//initialize the buffer to all NULL bytes
+	int n;
+	for(n=0;n<BUFFER_SIZE;n++){
+		servers[server_index]->read_buffer[n]='\0';
+	}
+	servers[server_index]->socket_fd=new_socket_fd;
+	
+	//initially we are not in the middle of a line and the parse queue is empty
+	strncpy(servers[server_index]->parse_queue,"",BUFFER_SIZE);
+	
+	//set the port information (in case we need to re-connect)
+	servers[server_index]->port=port;
+	
+	//set the server name
+	strncpy(servers[server_index]->server_name,host,BUFFER_SIZE);
+	
+	//set the current channel to be 0 (the system/debug channel)
+	//a JOIN would add channels, but upon initial connection 0 is the only valid one
+	servers[server_index]->current_channel=0;
+	
+	//set the default channel for various messages from the server that are not channel-specific
+	//NOTE: this scheme should be able to be overloaded to treat PM conversations as channels
+	servers[server_index]->channel_name[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+	strncpy(servers[server_index]->channel_name[0],"SERVER",BUFFER_SIZE);
+	
+	servers[server_index]->channel_topic[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+	strncpy(servers[server_index]->channel_topic[0],"(no topic for the server)",BUFFER_SIZE);
+	
+	//set the main chat window with scrollback
+	//as we get lines worth storing we'll add them to this content, but for the moment it's blank
+	servers[server_index]->channel_content[0]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
+	for(n=0;n<MAX_SCROLLBACK;n++){
+		servers[server_index]->channel_content[0][n]=NULL;
+	}
+	
+	//by default don't reconnect if connnection is lost
+	servers[server_index]->reconnect=FALSE;
+	
+	//note that keeping logs is true by default, but can be set with client commands log and no_log
+	if(can_log){
+		servers[server_index]->keep_logs=TRUE;
+	//if we are unable to log due to e.g. permission errors, don't even try
+	}else{
+		servers[server_index]->keep_logs=FALSE;
+	}
+	
+	if(servers[server_index]->keep_logs){
+		//first make a directory for this server
+		char file_location[BUFFER_SIZE];
+		sprintf(file_location,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name);
+		if(verify_or_make_dir(file_location)){
+			sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[0]);
+			//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
+			servers[server_index]->log_file[0]=fopen(file_location,"a");
+			if(servers[server_index]->log_file[0]==NULL){
+				scrollback_output(server_index,0,"accirc: Err: could not make log file");
+			}
+		//this fails in a non-silent way, the user should know there was a problem
+		//if we couldn't make the directory then don't keep logs rather than failing hard
+		}else{
+			scrollback_output(server_index,0,"accirc: Err: could not make logging directory");
+			servers[server_index]->keep_logs=FALSE;
+		}
+	}
+	
+	//by default don't rejoin on kick
+	servers[server_index]->rejoin_on_kick=FALSE;
+	
+	//by default the fallback nick is null
+	strncpy(servers[server_index]->fallback_nick,"",BUFFER_SIZE);
+	
+	//there are no users in the SERVER channel
+	servers[server_index]->user_names[0]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
+	for(n=0;n<MAX_NAMES;n++){
+		servers[server_index]->user_names[0][n]=NULL;
+	}
+	
+	//NULL out all other channels
+	//note this starts from 1 since 0 is the SERVER channel
+	for(n=1;n<MAX_CHANNELS;n++){
+		servers[server_index]->channel_name[n]=NULL;
+		servers[server_index]->channel_content[n]=NULL;
+		servers[server_index]->channel_topic[n]=NULL;
+		servers[server_index]->new_channel_content[n]=FALSE;
+		servers[server_index]->was_pingged[n]=FALSE;
+		servers[server_index]->log_file[n]=NULL;
+		servers[server_index]->autojoin_channel[n]=NULL;
+		servers[server_index]->user_names[n]=NULL;
+	}
+	
+	//clear out the ident information (the user will provide it in a startup (.rc) file if they so desire)
+	strncpy(servers[server_index]->ident,"",BUFFER_SIZE);
+	
+	//by default there is no new content on this server
+	//(because new server content is the OR of new channel content, and by default there is no new channel content)
+	
+	//default the user's name to NULL until we get more information (NICK data)
+	strncpy(servers[server_index]->nick,"",BUFFER_SIZE);
+	
+	//by default no one has PM'd us so a reply goes to a blank nick
+	//should this be another default? it's just that the next word may be interpreted as the nick...
+	//screw it, I'll document it in the man, it'll be considered intended behavior
+	strncpy(servers[server_index]->last_pm_user,"",BUFFER_SIZE);
+	
+	//set the current server to be the one we just connected to
+	current_server=server_index;
+
+}
+
 //the "connect" client command handling
 void connect_command(char *input_buffer, char *command, char *parameters){
 	char host[BUFFER_SIZE];
@@ -1245,113 +1362,7 @@ void connect_command(char *input_buffer, char *command, char *parameters){
 			//(as soon as we finish adding it we set added and effectively ignore it for the rest of this loop)
 			if((servers[server_index]==NULL)&&(!added)){
 				//make it one
-				servers[server_index]=(irc_connection*)(malloc(sizeof(irc_connection)));
-				//initialize the buffer to all NULL bytes
-				int n;
-				for(n=0;n<BUFFER_SIZE;n++){
-					servers[server_index]->read_buffer[n]='\0';
-				}
-				servers[server_index]->socket_fd=new_socket_fd;
-				
-				//initially we are not in the middle of a line and the parse queue is empty
-				strncpy(servers[server_index]->parse_queue,"",BUFFER_SIZE);
-				
-				//set the port information (in case we need to re-connect)
-				servers[server_index]->port=port;
-				
-				//set the server name
-				strncpy(servers[server_index]->server_name,host,BUFFER_SIZE);
-				
-				//set the current channel to be 0 (the system/debug channel)
-				//a JOIN would add channels, but upon initial connection 0 is the only valid one
-				servers[server_index]->current_channel=0;
-				
-				//set the default channel for various messages from the server that are not channel-specific
-				//NOTE: this scheme should be able to be overloaded to treat PM conversations as channels
-				servers[server_index]->channel_name[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-				strncpy(servers[server_index]->channel_name[0],"SERVER",BUFFER_SIZE);
-				
-				servers[server_index]->channel_topic[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-				strncpy(servers[server_index]->channel_topic[0],"(no topic for the server)",BUFFER_SIZE);
-				
-				//set the main chat window with scrollback
-				//as we get lines worth storing we'll add them to this content, but for the moment it's blank
-				servers[server_index]->channel_content[0]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
-				for(n=0;n<MAX_SCROLLBACK;n++){
-					servers[server_index]->channel_content[0][n]=NULL;
-				}
-				
-				//by default don't reconnect if connnection is lost
-				servers[server_index]->reconnect=FALSE;
-				
-				//note that keeping logs is true by default, but can be set with client commands log and no_log
-				if(can_log){
-					servers[server_index]->keep_logs=TRUE;
-				//if we are unable to log due to e.g. permission errors, don't even try
-				}else{
-					servers[server_index]->keep_logs=FALSE;
-				}
-				
-				if(servers[server_index]->keep_logs){
-					//first make a directory for this server
-					char file_location[BUFFER_SIZE];
-					sprintf(file_location,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name);
-					if(verify_or_make_dir(file_location)){
-						sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[0]);
-						//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
-						servers[server_index]->log_file[0]=fopen(file_location,"a");
-						if(servers[server_index]->log_file[0]==NULL){
-							scrollback_output(server_index,0,"accirc: Err: could not make log file");
-						}
-					//this fails in a non-silent way, the user should know there was a problem
-					//if we couldn't make the directory then don't keep logs rather than failing hard
-					}else{
-						scrollback_output(server_index,0,"accirc: Err: could not make logging directory");
-						servers[server_index]->keep_logs=FALSE;
-					}
-				}
-				
-				//by default don't rejoin on kick
-				servers[server_index]->rejoin_on_kick=FALSE;
-				
-				//by default the fallback nick is null
-				strncpy(servers[server_index]->fallback_nick,"",BUFFER_SIZE);
-				
-				//there are no users in the SERVER channel
-				servers[server_index]->user_names[0]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
-				for(n=0;n<MAX_NAMES;n++){
-					servers[server_index]->user_names[0][n]=NULL;
-				}
-				
-				//NULL out all other channels
-				//note this starts from 1 since 0 is the SERVER channel
-				for(n=1;n<MAX_CHANNELS;n++){
-					servers[server_index]->channel_name[n]=NULL;
-					servers[server_index]->channel_content[n]=NULL;
-					servers[server_index]->channel_topic[n]=NULL;
-					servers[server_index]->new_channel_content[n]=FALSE;
-					servers[server_index]->was_pingged[n]=FALSE;
-					servers[server_index]->log_file[n]=NULL;
-					servers[server_index]->autojoin_channel[n]=NULL;
-					servers[server_index]->user_names[n]=NULL;
-				}
-				
-				//clear out the ident information (the user will provide it in a startup (.rc) file if they so desire)
-				strncpy(servers[server_index]->ident,"",BUFFER_SIZE);
-				
-				//by default there is no new content on this server
-				//(because new server content is the OR of new channel content, and by default there is no new channel content)
-				
-				//default the user's name to NULL until we get more information (NICK data)
-				strncpy(servers[server_index]->nick,"",BUFFER_SIZE);
-				
-				//by default no one has PM'd us so a reply goes to a blank nick
-				//should this be another default? it's just that the next word may be interpreted as the nick...
-				//screw it, I'll document it in the man, it'll be considered intended behavior
-				strncpy(servers[server_index]->last_pm_user,"",BUFFER_SIZE);
-				
-				//set the current server to be the one we just connected to
-				current_server=server_index;
+				add_server(server_index,new_socket_fd,host,port);
 				
 				//don't add this server again
 				added=TRUE;
@@ -1461,6 +1472,119 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 	}
 }
 
+//the "sl" client command (moves a server to the left)
+void sl_command(){
+	//reset scrollback
+	scrollback_end=-1;
+	
+	//pre-condition for the below loop, else we'd start where we are
+	if(current_server>0){
+		current_server--;
+	//at the end loop back around
+	}else if(current_server==0){
+		current_server=MAX_SERVERS-1;
+	}
+	
+	int index;
+	for(index=current_server;index>=0;index--){
+		if(servers[index]!=NULL){
+			current_server=index;
+			index=-1;
+		//if current index is negative there never was a server so just die and don't change it
+		}else if((index==0)&&(current_server>=0)){
+			//go back to the start, at worst we'll end up where we were
+			//note this is MAX_SERVERS because it gets decremented before the next loop iteration
+			index=MAX_SERVERS;
+		}
+	}
+}
+
+//the "sr" client command (moves a server to the right)
+void sr_command(){
+	//reset scrollback
+	scrollback_end=-1;
+	
+	//pre-condition for the below loop, else we'd start where we are
+	if(current_server<(MAX_SERVERS-1)){
+		current_server++;
+	//at the end loop back around
+	}else if(current_server==MAX_SERVERS-1){
+		current_server=0;
+	}
+	
+	int index;
+	for(index=current_server;index<MAX_SERVERS;index++){
+		if(servers[index]!=NULL){
+			current_server=index;
+			index=MAX_SERVERS;
+		//if current index is negative there never was a server so just die and don't change it
+		}else if((index==(MAX_SERVERS-1))&&(current_server>=0)){
+			//go back to the start, at worst we'll end up where we were
+			//note this is -1 because it gets incremented before the next loop iteration
+			index=-1;
+		}
+	}
+}
+
+//the "cl" client command (moves a channel to the left)
+void cl_command(){
+	//reset scrollback
+	scrollback_end=-1;
+	
+	int current_channel=servers[current_server]->current_channel;
+	//pre-condition for the below loop, else we'd start where we are
+	if(current_channel>0){
+		current_channel--;
+	//at the end loop back around
+	}else if(current_channel==0){
+		current_channel=MAX_CHANNELS-1;
+	}
+	
+	int index;
+	for(index=current_channel;index>=0;index--){
+		if(servers[current_server]->channel_name[index]!=NULL){
+			current_channel=index;
+			index=-1;
+		}else if(index==0){
+			//go back to the start, at worst we'll end up where we were
+			//note this is MAX_CHANNELS because it gets decremented before the next loop iteration
+			index=MAX_CHANNELS;
+		}
+	}
+	
+	servers[current_server]->current_channel=current_channel;
+}
+
+//the "cr" client command (moves a channel to the right)
+void cr_command(){
+	//reset scrollback
+	scrollback_end=-1;
+	
+	int current_channel=servers[current_server]->current_channel;
+	//pre-condition for the below loop, else we'd start where we are
+	if(current_channel<(MAX_CHANNELS-1)){
+		current_channel++;
+	//at the end loop back around
+	}else if(current_channel==(MAX_CHANNELS-1)){
+		current_channel=0;
+	}
+	
+	int index;
+	for(index=current_channel;index<MAX_CHANNELS;index++){
+		if(servers[current_server]->channel_name[index]!=NULL){
+			current_channel=index;
+			index=MAX_CHANNELS;
+		}else if(index==(MAX_CHANNELS-1)){
+			//go back to the start, at worst we'll end up where we were
+			//note this is -1 because it gets incremented before the next loop iteration
+			index=-1;
+		}
+	}
+	
+	servers[current_server]->current_channel=current_channel;
+}
+
+
 //privmsg from user input (treated as a pseudo-command)
 void privmsg_command(char *input_buffer){
 	if(current_server>=0){
@@ -1495,13 +1619,13 @@ void privmsg_command(char *input_buffer){
 		}
 	}else{
 #ifdef DEBUG
-//			int foreground,background;
-//			sscanf(input_buffer,"%i %i",&foreground,&background);
-//			wclear(channel_text);
-//			wcoloron(channel_text,foreground,background);
-//			wprintw(channel_text,"This is a sample string in fg=%i bg=%i",foreground,background);
-//			wcoloroff(channel_text,foreground,background);
-//			wrefresh(channel_text);
+//		int foreground,background;
+//		sscanf(input_buffer,"%i %i",&foreground,&background);
+//		wclear(channel_text);
+//		wcoloron(channel_text,foreground,background);
+//		wprintw(channel_text,"This is a sample string in fg=%i bg=%i",foreground,background);
+//		wcoloroff(channel_text,foreground,background);
+//		wrefresh(channel_text);
 #endif
 	}
 }
@@ -1584,160 +1708,14 @@ void parse_input(char *input_buffer, char keep_history){
 		}
 		
 		//the good stuff, the heart of command handling :)
+		
+		//this set of commands does not depend on being connected to a server
 		//connect to a server
 		if(!strcmp("connect",command)){
 			connect_command(input_buffer,command,parameters);
 		}else if(!strcmp(command,"exit")){
 			exit_command(input_buffer,command,parameters);
 		//TODO: add an "alias" command allowing users to set client-side commands referencing other command strings (other may be client or server commands)
-		//reset the escape character for client
-		}else if(!strcmp(command,"cli_escape")){
-			cli_escape_command(input_buffer,command,parameters);
-		//reset the escape character for server
-		}else if(!strcmp(command,"ser_escape")){
-			ser_escape_command(input_buffer,command,parameters);
-		//move a server to the left
-		}else if(!strcmp(command,"sl")){
-			if(current_server>=0){
-				//reset scrollback
-				scrollback_end=-1;
-				
-				//pre-condition for the below loop, else we'd start where we are
-				if(current_server>0){
-					current_server--;
-				//at the end loop back around
-				}else if(current_server==0){
-					current_server=MAX_SERVERS-1;
-				}
-				
-				int index;
-				for(index=current_server;index>=0;index--){
-					if(servers[index]!=NULL){
-						current_server=index;
-						index=-1;
-					//if current index is negative there never was a server so just die and don't change it
-					}else if((index==0)&&(current_server>=0)){
-						//go back to the start, at worst we'll end up where we were
-						//note this is MAX_SERVERS because it gets decremented before the next loop iteration
-						index=MAX_SERVERS;
-					}
-				}
-			}
-		//move a server to the right
-		}else if(!strcmp(command,"sr")){
-			if(current_server>=0){
-				//reset scrollback
-				scrollback_end=-1;
-				
-				//pre-condition for the below loop, else we'd start where we are
-				if(current_server<(MAX_SERVERS-1)){
-					current_server++;
-				//at the end loop back around
-				}else if(current_server==MAX_SERVERS-1){
-					current_server=0;
-				}
-				
-				int index;
-				for(index=current_server;index<MAX_SERVERS;index++){
-					if(servers[index]!=NULL){
-						current_server=index;
-						index=MAX_SERVERS;
-					//if current index is negative there never was a server so just die and don't change it
-					}else if((index==(MAX_SERVERS-1))&&(current_server>=0)){
-						//go back to the start, at worst we'll end up where we were
-						//note this is -1 because it gets incremented before the next loop iteration
-						index=-1;
-					}
-				}
-			}
-		//move a channel to the left
-		}else if(!strcmp(command,"cl")){
-			if(current_server>=0){
-				//reset scrollback
-				scrollback_end=-1;
-				
-				int current_channel=servers[current_server]->current_channel;
-				//pre-condition for the below loop, else we'd start where we are
-				if(current_channel>0){
-					current_channel--;
-				//at the end loop back around
-				}else if(current_channel==0){
-					current_channel=MAX_CHANNELS-1;
-				}
-				
-				int index;
-				for(index=current_channel;index>=0;index--){
-					if(servers[current_server]->channel_name[index]!=NULL){
-						current_channel=index;
-						index=-1;
-					}else if(index==0){
-						//go back to the start, at worst we'll end up where we were
-						//note this is MAX_CHANNELS because it gets decremented before the next loop iteration
-						index=MAX_CHANNELS;
-					}
-				}
-				
-				servers[current_server]->current_channel=current_channel;
-			}
-		//move a channel to the right
-		}else if(!strcmp(command,"cr")){
-			if(current_server>=0){
-				//reset scrollback
-				scrollback_end=-1;
-				
-				int current_channel=servers[current_server]->current_channel;
-				//pre-condition for the below loop, else we'd start where we are
-				if(current_channel<(MAX_CHANNELS-1)){
-					current_channel++;
-				//at the end loop back around
-				}else if(current_channel==(MAX_CHANNELS-1)){
-					current_channel=0;
-				}
-				
-				int index;
-				for(index=current_channel;index<MAX_CHANNELS;index++){
-					if(servers[current_server]->channel_name[index]!=NULL){
-						current_channel=index;
-						index=MAX_CHANNELS;
-					}else if(index==(MAX_CHANNELS-1)){
-						//go back to the start, at worst we'll end up where we were
-						//note this is -1 because it gets incremented before the next loop iteration
-						index=-1;
-					}
-				}
-				
-				servers[current_server]->current_channel=current_channel;
-			}
-		//CTCP ACTION, bound to the common "/me"
-		}else if(!strcmp(command,"me")){
-			if(current_server>=0){
-				//attach the control data and recurse
-				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,"%cACTION %s%c",0x01,parameters,0x01);
-				//don't keep that in the history though
-				parse_input(tmp_buffer,FALSE);
-			}
-		//r is short for "reply"; this will send a PM to the last user we got a PM from
-		}else if(!strcmp(command,"r")){
-			if(current_server>=0){
-				//prepend the "privmsg <nick> :" and recurse
-				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,"%cprivmsg %s :%s",server_escape,servers[current_server]->last_pm_user,parameters);
-				//don't keep the recursion in the history, if the user wants it they can get the /r command out of history
-				parse_input(tmp_buffer,FALSE);
-			}
-		//reverse, an easter egg to flip text around
-		}else if(!strcmp(command,"reverse")){
-			if(current_server>=0){
-				//flip the text around and recurse
-				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,"%s",parameters);
-				//reverse!
-				strnrev(tmp_buffer);
-				
-				//don't keep the recursion in the history
-				parse_input(tmp_buffer,FALSE);
-			}
 		//sleep command
 		}else if(!strcmp(command,"sleep")){
 			scrollback_output(current_server,0,"accirc: sleeping...");
@@ -1751,9 +1729,54 @@ void parse_input(char *input_buffer, char keep_history){
 		//comment command (primarily for the .rc file)
 		}else if(!strcmp(command,"comment")){
 			//ignore it
-		//automatically join this channel when possible (after the server sends us a message saying we're connected)
-		}else if(!strcmp(command,"autojoin")){
-			if(current_server>=0){
+		
+		//reset the escape character for client
+		}else if(!strcmp(command,"cli_escape")){
+			cli_escape_command(input_buffer,command,parameters);
+		//reset the escape character for server
+		}else if(!strcmp(command,"ser_escape")){
+			ser_escape_command(input_buffer,command,parameters);
+		
+		//this set of command depends on being connected to a server, so first check that we are
+		}else if(current_server>=0){
+			//move a server to the left
+			if(!strcmp(command,"sl")){
+				sl_command();
+			//move a server to the right
+			}else if(!strcmp(command,"sr")){
+				sr_command();
+			//move a channel to the left
+			}else if(!strcmp(command,"cl")){
+				cl_command();
+			//move a channel to the right
+			}else if(!strcmp(command,"cr")){
+				cr_command();
+			//CTCP ACTION, bound to the common "/me"
+			}else if(!strcmp(command,"me")){
+				//attach the control data and recurse
+				char tmp_buffer[BUFFER_SIZE];
+				sprintf(tmp_buffer,"%cACTION %s%c",0x01,parameters,0x01);
+				//don't keep that in the history though
+				parse_input(tmp_buffer,FALSE);
+			//r is short for "reply"; this will send a PM to the last user we got a PM from
+			}else if(!strcmp(command,"r")){
+				//prepend the "privmsg <nick> :" and recurse
+				char tmp_buffer[BUFFER_SIZE];
+				sprintf(tmp_buffer,"%cprivmsg %s :%s",server_escape,servers[current_server]->last_pm_user,parameters);
+				//don't keep the recursion in the history, if the user wants it they can get the /r command out of history
+				parse_input(tmp_buffer,FALSE);
+			//reverse, an easter egg to flip text around
+			}else if(!strcmp(command,"reverse")){
+				//flip the text around and recurse
+				char tmp_buffer[BUFFER_SIZE];
+				sprintf(tmp_buffer,"%s",parameters);
+				//reverse!
+				strnrev(tmp_buffer);
+				
+				//don't keep the recursion in the history
+				parse_input(tmp_buffer,FALSE);
+			//automatically join this channel when possible (after the server sends us a message saying we're connected)
+			}else if(!strcmp(command,"autojoin")){
 				int ch;
 				for(ch=0;(ch<MAX_CHANNELS)&&(servers[current_server]->autojoin_channel[ch]!=NULL);ch++);
 				if(ch<MAX_CHANNELS){
@@ -1763,43 +1786,29 @@ void parse_input(char *input_buffer, char keep_history){
 				}else{
 					scrollback_output(current_server,0,"accirc: autojoin channel could not be added, would overflow");
 				}
-			}
-		//automatically identify when the server is ready to recieve that information
-		}else if(!strcmp(command,"autoident")){
-			if(current_server>=0){
+			//automatically identify when the server is ready to recieve that information
+			}else if(!strcmp(command,"autoident")){
 				strncpy(servers[current_server]->ident,parameters,BUFFER_SIZE);
 				scrollback_output(current_server,0,"accirc: autoident given, will ident when possible");
-			}
-		//a nick to fall back to if the nick you want is taken
-		}else if(!strcmp(command,"fallback_nick")){
-			if(current_server>=0){
+			//a nick to fall back to if the nick you want is taken
+			}else if(!strcmp(command,"fallback_nick")){
 				strncpy(servers[current_server]->fallback_nick,parameters,BUFFER_SIZE);
 				char output_buffer[BUFFER_SIZE];
 				sprintf(output_buffer,"accirc: fallback_nick set to %s",servers[current_server]->fallback_nick);
 				scrollback_output(current_server,0,output_buffer);
-			}
-		}else if(!strcmp(command,"rejoin_on_kick")){
-			if(current_server>=0){
+			}else if(!strcmp(command,"rejoin_on_kick")){
 				servers[current_server]->rejoin_on_kick=TRUE;
 				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to TRUE");
-			}
-		}else if(!strcmp(command,"no_rejoin_on_kick")){
-			if(current_server>=0){
+			}else if(!strcmp(command,"no_rejoin_on_kick")){
 				servers[current_server]->rejoin_on_kick=FALSE;
 				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to FALSE");
-			}
-		}else if(!strcmp(command,"reconnect")){
-			if(current_server>=0){
+			}else if(!strcmp(command,"reconnect")){
 				servers[current_server]->reconnect=TRUE;
 				scrollback_output(current_server,0,"accirc: reconnect set to TRUE");
-			}
-		}else if(!strcmp(command,"no_reconnect")){
-			if(current_server>=0){
+			}else if(!strcmp(command,"no_reconnect")){
 				servers[current_server]->reconnect=FALSE;
 				scrollback_output(current_server,0,"accirc: reconnect set to FALSE");
-			}
-		}else if(!strcmp(command,"log")){
-			if(current_server>=0){
+			}else if(!strcmp(command,"log")){
 				if(servers[current_server]->keep_logs==FALSE){
 					//if we have the ability to make logs
 					if(can_log){
@@ -1831,9 +1840,7 @@ void parse_input(char *input_buffer, char keep_history){
 				}else{
 					scrollback_output(current_server,0,"accirc: Err: keep_logs already set to TRUE, no changes made");
 				}
-			}
-		}else if(!strcmp(command,"no_log")){
-			if(current_server>=0){
+			}else if(!strcmp(command,"no_log")){
 				if(servers[current_server]->keep_logs==TRUE){
 					servers[current_server]->keep_logs=FALSE;
 					scrollback_output(current_server,0,"accirc: keep_logs set to FALSE (closing log files)");
@@ -1851,11 +1858,9 @@ void parse_input(char *input_buffer, char keep_history){
 				}else{
 					scrollback_output(current_server,0,"accirc: Err: keep_logs already set to FALSE, no changes made");
 				}
-			}
-		//unknown command error
-//		}else if(!alias_command()){ //TODO: handle aliased commands in a function that gets called here
-		}else{
-			if(current_server>=0){
+			//unknown command error
+	//		}else if(!alias_command()){ //TODO: handle aliased commands in a function that gets called here
+			}else{
 				char error_buffer[BUFFER_SIZE];
 				sprintf(error_buffer,"accirc: Err: unknown command \"%s\"",command);
 				scrollback_output(current_server,0,error_buffer);
