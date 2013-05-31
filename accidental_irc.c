@@ -1278,7 +1278,31 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	
 	//set the current server to be the one we just connected to
 	current_server=server_index;
+}
 
+//a function to add a line to the user's input history, to later (possibly) be scrolled back to
+void add_history_entry(char *input_buffer){
+	//add this line to the user's input history (last entry)
+	//note input_line can be used here since we're re-setting it after a user input anyway
+	for(input_line=0;(input_line<MAX_SCROLLBACK)&&(input_history[input_line]!=NULL);input_line++);
+	//if we're out of history scrollback clear out the first entry from there
+		if(input_line>=MAX_SCROLLBACK){
+		//free the line we're pushing out of the buffer
+		free(input_history[0]);
+		//move all other lines back
+		for(input_line=0;input_line<(MAX_SCROLLBACK-1);input_line++){
+			input_history[input_line]=input_history[input_line+1];
+		}
+		//put in the new line at the end
+		input_line=MAX_SCROLLBACK-1;
+	}
+	//regardless of if we filled the buffer add in the new line here
+	input_history[input_line]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+	
+	strncpy(input_history[input_line],input_buffer,BUFFER_SIZE);
+	
+	//set input_line to -1 (indicating current input); so if the user was scrolled up in the history they're now at the end
+	input_line=-1;
 }
 
 //the "connect" client command handling
@@ -1584,6 +1608,62 @@ void cr_command(){
 	servers[current_server]->current_channel=current_channel;
 }
 
+//the "log" client command (enables logging where possible)
+void log_command(){
+	if(servers[current_server]->keep_logs==FALSE){
+		//if we have the ability to make logs
+		if(can_log){
+			servers[current_server]->keep_logs=TRUE;
+			scrollback_output(current_server,0,"accirc: keep_logs set to TRUE (opening log files)");
+			
+			//open any log files we may need
+			//look through the channels
+			int channel_index;
+			for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+				if(servers[current_server]->channel_name[channel_index]!=NULL){
+					//try to open a file for every channel
+					
+					char file_location[BUFFER_SIZE];
+					sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->channel_name[channel_index]);
+					//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
+					servers[current_server]->log_file[channel_index]=fopen(file_location,"a");
+					
+					
+					if(servers[current_server]->log_file[channel_index]!=NULL){
+						//turn off buffering since I need may this output immediately and buffers annoy me for that
+						setvbuf(servers[current_server]->log_file[channel_index],NULL,_IONBF,0);
+					}
+				}
+			}
+		}else{
+			scrollback_output(current_server,0,"accirc: Err: your environment doesn't support logging, cannot set it!");
+		}
+	}else{
+		scrollback_output(current_server,0,"accirc: Err: keep_logs already set to TRUE, no changes made");
+	}
+}
+
+//the "no_log" client command (disables logging)
+void no_log_command(){
+	if(servers[current_server]->keep_logs==TRUE){
+		servers[current_server]->keep_logs=FALSE;
+		scrollback_output(current_server,0,"accirc: keep_logs set to FALSE (closing log files)");
+		
+		//close any open logs we were writing to
+		int n;
+		for(n=0;n<MAX_CHANNELS;n++){
+			if(servers[current_server]->log_file[n]!=NULL){
+				fclose(servers[current_server]->log_file[n]);
+				
+				//reset the structure to hold NULL
+				servers[current_server]->log_file[n]=NULL;
+			}
+		}
+	}else{
+		scrollback_output(current_server,0,"accirc: Err: keep_logs already set to FALSE, no changes made");
+	}
+}
+
 
 //privmsg from user input (treated as a pseudo-command)
 void privmsg_command(char *input_buffer){
@@ -1643,27 +1723,7 @@ void parse_input(char *input_buffer, char keep_history){
 	}
 	
 	if(keep_history){
-		//add this line to the user's input history (last entry)
-		//note input_line can be used here since we're re-setting it after a user input anyway
-		for(input_line=0;(input_line<MAX_SCROLLBACK)&&(input_history[input_line]!=NULL);input_line++);
-		//if we're out of history scrollback clear out the first entry from there
-			if(input_line>=MAX_SCROLLBACK){
-			//free the line we're pushing out of the buffer
-			free(input_history[0]);
-			//move all other lines back
-			for(input_line=0;input_line<(MAX_SCROLLBACK-1);input_line++){
-				input_history[input_line]=input_history[input_line+1];
-			}
-			//put in the new line at the end
-			input_line=MAX_SCROLLBACK-1;
-		}
-		//regardless of if we filled the buffer add in the new line here
-		input_history[input_line]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-		
-		strncpy(input_history[input_line],input_buffer,BUFFER_SIZE);
-		
-		//set input_line to -1 (indicating current input); so if the user was scrolled up in the history they're now at the end
-		input_line=-1;
+		add_history_entry(input_buffer);
 	}
 	
 	//flags to tell if this is any kind of command
@@ -1809,55 +1869,9 @@ void parse_input(char *input_buffer, char keep_history){
 				servers[current_server]->reconnect=FALSE;
 				scrollback_output(current_server,0,"accirc: reconnect set to FALSE");
 			}else if(!strcmp(command,"log")){
-				if(servers[current_server]->keep_logs==FALSE){
-					//if we have the ability to make logs
-					if(can_log){
-						servers[current_server]->keep_logs=TRUE;
-						scrollback_output(current_server,0,"accirc: keep_logs set to TRUE (opening log files)");
-						
-						//open any log files we may need
-						//look through the channels
-						int channel_index;
-						for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-							if(servers[current_server]->channel_name[channel_index]!=NULL){
-								//try to open a file for every channel
-								
-								char file_location[BUFFER_SIZE];
-								sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->channel_name[channel_index]);
-								//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
-								servers[current_server]->log_file[channel_index]=fopen(file_location,"a");
-								
-								
-								if(servers[current_server]->log_file[channel_index]!=NULL){
-									//turn off buffering since I need may this output immediately and buffers annoy me for that
-									setvbuf(servers[current_server]->log_file[channel_index],NULL,_IONBF,0);
-								}
-							}
-						}
-					}else{
-						scrollback_output(current_server,0,"accirc: Err: your environment doesn't support logging, cannot set it!");
-					}
-				}else{
-					scrollback_output(current_server,0,"accirc: Err: keep_logs already set to TRUE, no changes made");
-				}
+				log_command();
 			}else if(!strcmp(command,"no_log")){
-				if(servers[current_server]->keep_logs==TRUE){
-					servers[current_server]->keep_logs=FALSE;
-					scrollback_output(current_server,0,"accirc: keep_logs set to FALSE (closing log files)");
-					
-					//close any open logs we were writing to
-					int n;
-					for(n=0;n<MAX_CHANNELS;n++){
-						if(servers[current_server]->log_file[n]!=NULL){
-							fclose(servers[current_server]->log_file[n]);
-							
-							//reset the structure to hold NULL
-							servers[current_server]->log_file[n]=NULL;
-						}
-					}
-				}else{
-					scrollback_output(current_server,0,"accirc: Err: keep_logs already set to FALSE, no changes made");
-				}
+				no_log_command();
 			//unknown command error
 	//		}else if(!alias_command()){ //TODO: handle aliased commands in a function that gets called here
 			}else{
