@@ -1164,6 +1164,9 @@ void del_name(int server_index, int channel_index, char *name){
 	}
 }
 
+
+//BEGIN parse_input HELPER FUNCTIONS
+
 //add a server to the list (called from the client connect command)
 void add_server(int server_index, int new_socket_fd, char *host, int port){
 	//DEFENSIVE: if this server already exists, don't add it!
@@ -1710,6 +1713,8 @@ void privmsg_command(char *input_buffer){
 	}
 }
 
+//END parse_input HELPER FUNCTIONS
+
 //parse user's input (note this is conextual based on current server and channel)
 //because some input may be given recursively or from key bindings, there is a history flag to tell if we should actually consider this input in the history
 void parse_input(char *input_buffer, char keep_history){
@@ -1930,6 +1935,9 @@ int find_output_channel(int server_index, char *channel){
 	
 	return output_channel;
 }
+
+
+//BEGIN parse_server HELPER FUNCTIONS
 
 //handle the "001" server command (a welcome message)
 void server_001_command(int server_index, char *tmp_buffer, int first_space){
@@ -2607,6 +2615,8 @@ void server_quit_command(int server_index, char *tmp_buffer, int first_space, ch
 	}
 }
 
+//END parse_server HELPER FUNCTIONS
+
 //parse incoming data from a server
 void parse_server(int server_index){
 	//clear out the remainder of the buffer since we re-use this memory
@@ -3158,6 +3168,390 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 	return tab_completions;
 }
 
+//listen for the next relevant thing to happen and handle it accordingly
+//this may be a user input or network read from any connected network
+//this is the body of the "main" loop, called from main
+void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *persistent_input_display_start, int *persistent_current_server, int *persistent_tab_completions, uintmax_t *persistent_old_time, char *time_buffer, char *key_combo_buffer, char *pre_history){
+	//make local variables out of the persistent variables from higher scopes
+	//note the persistent vars will be re-set to these values at the end of this function
+	int cursor_pos=(*persistent_cursor_pos);
+	int input_display_start=(*persistent_input_display_start);
+	int current_server=(*persistent_current_server);
+	int tab_completions=(*persistent_tab_completions);
+	uintmax_t old_time=(*persistent_old_time);
+	
+	
+	//store what the current_server and channel in that server were previously so we know if they change
+	//if they change we'll update the display
+	int old_server=current_server;
+	int old_channel=-1;
+	if(current_server>=0){
+		old_channel=servers[current_server]->current_channel;
+	}
+	
+	//store the previous input buffer so we know if it changed
+	char old_input_buffer[BUFFER_SIZE];
+	strncpy(old_input_buffer,input_buffer,BUFFER_SIZE);
+	
+	c=wgetch(user_input);
+	if(c>=0){
+		switch(c){
+			//handle for resize events
+			case KEY_RESIZE:
+				//if we were scrolled back we're not anymore!
+				scrollback_end=-1;
+				force_resize(input_buffer,cursor_pos,input_display_start);
+				break;
+			//NOTE: f7 now adds ^C=0x03 to the buffer for MIRC colors
+			//so ctrl+c /could/ be used for a break command
+			//but I'd rather a user not be able to accidentally close the program, so it's not
+			
+			//handle ctrl+c gracefully
+//				case BREAK:
+//					done=TRUE;
+//					break;
+			case KEY_ESCAPE:
+				c=wgetch(user_input);
+				switch(c){
+					case KEY_UP:
+						sprintf(key_combo_buffer,"%csl",client_escape);
+						parse_input(key_combo_buffer,FALSE);
+						break;
+					case KEY_DOWN:
+						sprintf(key_combo_buffer,"%csr",client_escape);
+						parse_input(key_combo_buffer,FALSE);
+						break;
+					case KEY_LEFT:
+						sprintf(key_combo_buffer,"%ccl",client_escape);
+						parse_input(key_combo_buffer,FALSE);
+						break;
+					case KEY_RIGHT:
+						sprintf(key_combo_buffer,"%ccr",client_escape);
+						parse_input(key_combo_buffer,FALSE);
+						break;
+					//alt+tab is a literal tab character, since tab-completion is done on regular tab
+					case '\t':
+						if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
+							cursor_pos++;
+							//if we would go off the end
+							if((cursor_pos-input_display_start)>width){
+								//make the end one char further down
+								input_display_start++;
+							}
+						}
+					//-1 is ERROR, meaning the escape was /just/ an escape and nothing more
+					//in that case we want to ignore the handling for subsequent characters
+					case -1:
+						break;
+					//2 escapes in a row should be ignored
+					case KEY_ESCAPE:
+						break;
+					default:
+						//this wasn't anything we handle specially for, so just ignore it
+						break;
+				}
+#ifdef DEBUG
+				if(current_server<0){
+					wclear(channel_text);
+					wmove(channel_text,0,0);
+					wprintw(channel_text,"Handling an escape, c=%i",c);
+					wrefresh(channel_text);
+				}
+#endif
+				
+				break;
+			//NOTE: I now have ALT+arrows bound to move between channels and servers
+			//these are the f1,f2,f3, and f4 bindings left for backwards compatibility only
+//					case ALT_UP:
+			//f3
+			case 267:
+				sprintf(key_combo_buffer,"%csl",client_escape);
+				parse_input(key_combo_buffer,FALSE);
+				break;
+//					case ALT_DOWN:
+			//f4
+			case 268:
+				sprintf(key_combo_buffer,"%csr",client_escape);
+				parse_input(key_combo_buffer,FALSE);
+				break;
+//					case ALT_LEFT:
+			//f1
+			case 265:
+				sprintf(key_combo_buffer,"%ccl",client_escape);
+				parse_input(key_combo_buffer,FALSE);
+				break;
+//					case ALT_RIGHT:
+			//f2
+			case 266:
+				sprintf(key_combo_buffer,"%ccr",client_escape);
+				parse_input(key_combo_buffer,FALSE);
+				break;
+			//user hit enter, meaning parse and handle the user's input
+			case '\n':
+				//note the input_buffer gets reset to all NULL after parse_input
+				parse_input(input_buffer,TRUE);
+				//reset the cursor for the next round of input
+				cursor_pos=0;
+				//and the input display start
+				input_display_start=0;
+				break;
+			//movement within the input line
+			case KEY_RIGHT:
+				if(cursor_pos<strlen(input_buffer)){
+					cursor_pos++;
+					if(cursor_pos>width){
+						input_display_start++;
+					}
+				}
+				refresh_user_input(input_buffer,cursor_pos,input_display_start);
+				break;
+			case KEY_LEFT:
+				if(cursor_pos>0){
+					cursor_pos--;
+					if(cursor_pos<input_display_start){
+						input_display_start--;
+					}
+				}
+				refresh_user_input(input_buffer,cursor_pos,input_display_start);
+				break;
+			//scroll back in the current channel
+			//TODO: compute correct stop scrolling bound in this case
+//				case KEY_PGUP:
+			case 339:
+				//if we are connected to a server
+				if(current_server>=0){
+					int line_count;
+					char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+					for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
+					
+					//if there is more text than area to display allow it scrollback (else don't)
+					//the -6 here is because there are 6 character rows used to display things other than channel text
+//						if(line_count>height-6){
+					if(line_count>0){
+						//if we're already scrolled back and we can go further
+						//note: the +6 here is because there are 6 character rows used to display things other than channel text
+//								if((scrollback_end-height+6)>0){
+						if(scrollback_end>1){
+							scrollback_end--;
+						//if we're not scrolled back start now
+						}else if(scrollback_end<0){
+							int n;
+							//note after this loop n will be one line AFTER the last valid line of scrollback
+							for(n=0;(n<MAX_SCROLLBACK)&&(scrollback[n]!=NULL);n++);
+							//so subtract one
+							n--;
+							//if there is scrollback to view
+							if(n>=0){
+								scrollback_end=n;
+							}
+						}
+					}
+					refresh_channel_text();
+				}
+				break;
+			//scroll forward in the current channel
+//				case KEY_PGDN:
+			case 338:
+				//if we are connected to a server
+				if(current_server>=0){
+					char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+					//if we're already scrolled back and there is valid scrollback below this
+					if((scrollback_end>=0)&&(scrollback_end<(MAX_SCROLLBACK-1))&&(scrollback[scrollback_end+1]!=NULL)){
+						scrollback_end++;
+					//if we're out of scrollback to view, re-set and make this display new data as it gets here
+					}else if(scrollback_end>=0){
+						scrollback_end=-1;
+					}
+					refresh_channel_text();
+				}
+				break;
+			//handle text entry history
+			case KEY_UP:
+				//reset cursor position always, since the strings in history are probably not the same length as the current input string
+				cursor_pos=0;
+				input_display_start=0;
+				
+				if(input_line>0){
+					input_line--;
+					//actually view that line
+					strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
+				//if the user hasn't yet started scrolling into history, start now
+				}else if(input_line<0){
+					int n;
+					//note after this loop n will be one line AFTER the last valid line of scrollback
+					for(n=0;(n<MAX_SCROLLBACK)&&(input_history[n]!=NULL);n++);
+					//so subtract one
+					n--;
+					//if there is scrollback to view
+					if(n>=0){
+						input_line=n;
+						//store this line for if we cease viewing history
+						strncpy(pre_history,input_buffer,BUFFER_SIZE);
+						strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
+					}
+				}
+				refresh_user_input(input_buffer,cursor_pos,input_display_start);
+				break;
+			//handle text entry history
+			case KEY_DOWN:
+				//reset cursor position always, since the strings in history are probably not the same length as the current input string
+				cursor_pos=0;
+				input_display_start=0;
+				
+				//if there is valid history below this go there
+				if((input_line>=0)&&(input_line<(MAX_SCROLLBACK-1))&&(input_history[input_line+1]!=NULL)){
+					input_line++;
+					//actually view that line
+					strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
+				//otherwise if we're out of history, re-set and make this what the input was before history was viewed
+				}else if(input_line>=0){
+					strncpy(input_buffer,pre_history,BUFFER_SIZE);
+					//note we are now not viewing history
+					input_line=-1;
+				}
+				refresh_user_input(input_buffer,cursor_pos,input_display_start);
+				break;
+			//handle user name completion
+			case '\t':
+				tab_completions=name_complete(input_buffer,&cursor_pos,input_display_start,tab_completions);
+				break;
+			case KEY_HOME:
+				cursor_pos=0;
+				input_display_start=0;
+				refresh_user_input(input_buffer,cursor_pos,input_display_start);
+				break;
+			case KEY_END:
+				cursor_pos=strlen(input_buffer);
+				if(strlen(input_buffer)>width){
+					input_display_start=strlen(input_buffer)-width;
+				}else{
+					input_display_start=0;
+				}
+				refresh_user_input(input_buffer,cursor_pos,input_display_start);
+				break;
+			//this accounts for some odd-ness in terminals, it's just backspace (^H)
+			case 127:
+			//user wants to destroy something they entered
+			case KEY_BACKSPACE:
+				if(cursor_pos>0){
+					if(strremove(input_buffer,cursor_pos-1)){
+						//and update the cursor position upon success
+						cursor_pos--;
+						if(cursor_pos<input_display_start){
+							input_display_start--;
+						}
+					}
+				}
+				break;
+			//user wants to destroy something they entered
+			case KEY_DEL:
+				if(cursor_pos<strlen(input_buffer)){
+					strremove(input_buffer,cursor_pos);
+					//note cursor position doesn't change here
+				}
+				break;
+			//NOTE: this is alt+tab also, f5 left here only for backwards compatibility
+			//f5 sends a literal tab
+			case 269:
+			//and f6 sends a 0x01 (since screen catches the real one)
+			case 270:
+			//f7 is a literal 0x03 for mirc color sending
+			case 271:
+				//these are mutually exclusive, so an if is needed
+				if(c==269){
+					c='\t';
+				}else if(c==270){
+					c=0x01;
+				}else if(c==271){
+					c=0x03;
+				}
+			//normal input
+			default:
+				if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
+					cursor_pos++;
+					//if we would go off the end
+					if((cursor_pos-input_display_start)>width){
+						//make the end one char further down
+						input_display_start++;
+					}
+				}
+				
+				//reset the unsuccessful tab attempt counter
+				tab_completions=0;
+				
+#ifdef DEBUG
+				if(current_server<0){
+					wclear(channel_text);
+					wmove(channel_text,0,0);
+					wprintw(channel_text,"%i",c);
+					wrefresh(channel_text);
+				}
+#endif
+				break;
+		}
+	}
+	
+	//look for new data on all connected servers; if some is found, handle it!
+	read_server_data();
+	
+	//unix epoch clock in bottom_border, update it when the time changes
+	uintmax_t current_time=(uintmax_t)(time(NULL));
+	//if the time has changed
+	if(current_time>old_time){
+		wclear(bottom_border);
+		
+		sprintf(time_buffer,"%ju",old_time);
+		wmove(bottom_border,0,0);
+		wprintw(bottom_border,time_buffer);
+		
+		int n;
+		for(n=strlen(time_buffer);n<width;n++){
+			wprintw(bottom_border,"-");
+		}
+		//refresh the window from the buffer
+		wrefresh(bottom_border);
+		
+		//re-set for next iteration
+		old_time=current_time;
+		
+		//make sure the user doesn't see their cursor move
+		wrefresh(user_input);
+	}
+	
+	//output the most up-to-date information about servers, channels, topics, and various whatnot
+	//(do this where changes occur so we're not CONSTANTLY refreshing, which causes flicker among other things)
+	if((old_server!=current_server)&&(current_server>=0)){
+		refresh_server_list();
+		refresh_channel_list();
+		refresh_channel_topic();
+		refresh_channel_text();
+	//if the server didn't change but the channel did, still update the channel text
+	}else if((current_server>=0)&&(old_channel!=(servers[current_server]->current_channel))){
+		refresh_channel_list();
+		refresh_channel_topic();
+		refresh_channel_text();
+	}
+	
+	//the cursor is one thing that should ALWAYS be visible
+	wmove(user_input,0,cursor_pos);
+	
+	//if the user typed something
+	if(strcmp(input_buffer,old_input_buffer)!=0){
+		//if the string is not as wide as the display allows re-set the input display starting point to show the whole string always
+		if(strlen(input_buffer)<width){
+			input_display_start=0;
+		}
+		refresh_user_input(input_buffer,cursor_pos,input_display_start);
+	}
+	
+	//update persistent variables (pointers) for the next iteration of the event polling loop
+	(*persistent_cursor_pos)=cursor_pos;
+	(*persistent_input_display_start)=input_display_start;
+	(*persistent_current_server)=current_server;
+	(*persistent_tab_completions)=tab_completions;
+	(*persistent_old_time)=old_time;
+}
+
 //runtime
 int main(int argc, char *argv[]){
 	//handle special argument cases like --version, --help, etc.
@@ -3297,374 +3691,16 @@ int main(int argc, char *argv[]){
 	//where in the string to start displaying (needed when the string being input is larger than the width of the window)
 	int input_display_start=0;
 	//one character of input
-	int c;
+	int c=0;
 	//how many unsuccessful tab completions we've had since the last successful one or non-tab character
 	int tab_completions=0;
 	//determine if we're done
 	done=FALSE;
-	//main loop
+	
+	//MAIN LOOP, everything between initialization and shutdown is HERE
 	while(!done){
-		//store what the current_server and channel in that server were previously so we know if they change
-		//if they change we'll update the display
-		int old_server=current_server;
-		int old_channel=-1;
-		if(current_server>=0){
-			old_channel=servers[current_server]->current_channel;
-		}
-		
-		//store the previous input buffer so we know if it changed
-		char old_input_buffer[BUFFER_SIZE];
-		strncpy(old_input_buffer,input_buffer,BUFFER_SIZE);
-		
-		c=wgetch(user_input);
-		if(c>=0){
-			switch(c){
-				//handle for resize events
-				case KEY_RESIZE:
-					//if we were scrolled back we're not anymore!
-					scrollback_end=-1;
-					force_resize(input_buffer,cursor_pos,input_display_start);
-					break;
-				//NOTE: f7 now adds ^C=0x03 to the buffer for MIRC colors
-				//so ctrl+c /could/ be used for a break command
-				//but I'd rather a user not be able to accidentally close the program, so it's not
-				
-				//handle ctrl+c gracefully
-//				case BREAK:
-//					done=TRUE;
-//					break;
-				case KEY_ESCAPE:
-					c=wgetch(user_input);
-					switch(c){
-						case KEY_UP:
-							sprintf(key_combo_buffer,"%csl",client_escape);
-							parse_input(key_combo_buffer,FALSE);
-							break;
-						case KEY_DOWN:
-							sprintf(key_combo_buffer,"%csr",client_escape);
-							parse_input(key_combo_buffer,FALSE);
-							break;
-						case KEY_LEFT:
-							sprintf(key_combo_buffer,"%ccl",client_escape);
-							parse_input(key_combo_buffer,FALSE);
-							break;
-						case KEY_RIGHT:
-							sprintf(key_combo_buffer,"%ccr",client_escape);
-							parse_input(key_combo_buffer,FALSE);
-							break;
-						//alt+tab is a literal tab character, since tab-completion is done on regular tab
-						case '\t':
-							if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
-								cursor_pos++;
-								//if we would go off the end
-								if((cursor_pos-input_display_start)>width){
-									//make the end one char further down
-									input_display_start++;
-								}
-							}
-						//-1 is ERROR, meaning the escape was /just/ an escape and nothing more
-						//in that case we want to ignore the handling for subsequent characters
-						case -1:
-							break;
-						//2 escapes in a row should be ignored
-						case KEY_ESCAPE:
-							break;
-						default:
-							//this wasn't anything we handle specially for, so just ignore it
-							break;
-					}
-#ifdef DEBUG
-					if(current_server<0){
-						wclear(channel_text);
-						wmove(channel_text,0,0);
-						wprintw(channel_text,"Handling an escape, c=%i",c);
-						wrefresh(channel_text);
-					}
-#endif
-					
-					break;
-				//NOTE: I now have ALT+arrows bound to move between channels and servers
-				//these are the f1,f2,f3, and f4 bindings left for backwards compatibility only
-//					case ALT_UP:
-				//f3
-				case 267:
-					sprintf(key_combo_buffer,"%csl",client_escape);
-					parse_input(key_combo_buffer,FALSE);
-					break;
-//					case ALT_DOWN:
-				//f4
-				case 268:
-					sprintf(key_combo_buffer,"%csr",client_escape);
-					parse_input(key_combo_buffer,FALSE);
-					break;
-//					case ALT_LEFT:
-				//f1
-				case 265:
-					sprintf(key_combo_buffer,"%ccl",client_escape);
-					parse_input(key_combo_buffer,FALSE);
-					break;
-//					case ALT_RIGHT:
-				//f2
-				case 266:
-					sprintf(key_combo_buffer,"%ccr",client_escape);
-					parse_input(key_combo_buffer,FALSE);
-					break;
-				//user hit enter, meaning parse and handle the user's input
-				case '\n':
-					//note the input_buffer gets reset to all NULL after parse_input
-					parse_input(input_buffer,TRUE);
-					//reset the cursor for the next round of input
-					cursor_pos=0;
-					//and the input display start
-					input_display_start=0;
-					break;
-				//movement within the input line
-				case KEY_RIGHT:
-					if(cursor_pos<strlen(input_buffer)){
-						cursor_pos++;
-						if(cursor_pos>width){
-							input_display_start++;
-						}
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				case KEY_LEFT:
-					if(cursor_pos>0){
-						cursor_pos--;
-						if(cursor_pos<input_display_start){
-							input_display_start--;
-						}
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				//scroll back in the current channel
-				//TODO: compute correct stop scrolling bound in this case
-//				case KEY_PGUP:
-				case 339:
-					//if we are connected to a server
-					if(current_server>=0){
-						int line_count;
-						char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
-						for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
-						
-						//if there is more text than area to display allow it scrollback (else don't)
-						//the -6 here is because there are 6 character rows used to display things other than channel text
-//						if(line_count>height-6){
-						if(line_count>0){
-							//if we're already scrolled back and we can go further
-							//note: the +6 here is because there are 6 character rows used to display things other than channel text
-//								if((scrollback_end-height+6)>0){
-							if(scrollback_end>1){
-								scrollback_end--;
-							//if we're not scrolled back start now
-							}else if(scrollback_end<0){
-								int n;
-								//note after this loop n will be one line AFTER the last valid line of scrollback
-								for(n=0;(n<MAX_SCROLLBACK)&&(scrollback[n]!=NULL);n++);
-								//so subtract one
-								n--;
-								//if there is scrollback to view
-								if(n>=0){
-									scrollback_end=n;
-								}
-							}
-						}
-						refresh_channel_text();
-					}
-					break;
-				//scroll forward in the current channel
-//				case KEY_PGDN:
-				case 338:
-					//if we are connected to a server
-					if(current_server>=0){
-						char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
-						//if we're already scrolled back and there is valid scrollback below this
-						if((scrollback_end>=0)&&(scrollback_end<(MAX_SCROLLBACK-1))&&(scrollback[scrollback_end+1]!=NULL)){
-							scrollback_end++;
-						//if we're out of scrollback to view, re-set and make this display new data as it gets here
-						}else if(scrollback_end>=0){
-							scrollback_end=-1;
-						}
-						refresh_channel_text();
-					}
-					break;
-				//handle text entry history
-				case KEY_UP:
-					//reset cursor position always, since the strings in history are probably not the same length as the current input string
-					cursor_pos=0;
-					input_display_start=0;
-					
-					if(input_line>0){
-						input_line--;
-						//actually view that line
-						strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
-					//if the user hasn't yet started scrolling into history, start now
-					}else if(input_line<0){
-						int n;
-						//note after this loop n will be one line AFTER the last valid line of scrollback
-						for(n=0;(n<MAX_SCROLLBACK)&&(input_history[n]!=NULL);n++);
-						//so subtract one
-						n--;
-						//if there is scrollback to view
-						if(n>=0){
-							input_line=n;
-							//store this line for if we cease viewing history
-							strncpy(pre_history,input_buffer,BUFFER_SIZE);
-							strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
-						}
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				//handle text entry history
-				case KEY_DOWN:
-					//reset cursor position always, since the strings in history are probably not the same length as the current input string
-					cursor_pos=0;
-					input_display_start=0;
-					
-					//if there is valid history below this go there
-					if((input_line>=0)&&(input_line<(MAX_SCROLLBACK-1))&&(input_history[input_line+1]!=NULL)){
-						input_line++;
-						//actually view that line
-						strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
-					//otherwise if we're out of history, re-set and make this what the input was before history was viewed
-					}else if(input_line>=0){
-						strncpy(input_buffer,pre_history,BUFFER_SIZE);
-						//note we are now not viewing history
-						input_line=-1;
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				//handle user name completion
-				case '\t':
-					tab_completions=name_complete(input_buffer,&cursor_pos,input_display_start,tab_completions);
-					break;
-				case KEY_HOME:
-					cursor_pos=0;
-					input_display_start=0;
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				case KEY_END:
-					cursor_pos=strlen(input_buffer);
-					if(strlen(input_buffer)>width){
-						input_display_start=strlen(input_buffer)-width;
-					}else{
-						input_display_start=0;
-					}
-					refresh_user_input(input_buffer,cursor_pos,input_display_start);
-					break;
-				//this accounts for some odd-ness in terminals, it's just backspace (^H)
-				case 127:
-				//user wants to destroy something they entered
-				case KEY_BACKSPACE:
-					if(cursor_pos>0){
-						if(strremove(input_buffer,cursor_pos-1)){
-							//and update the cursor position upon success
-							cursor_pos--;
-							if(cursor_pos<input_display_start){
-								input_display_start--;
-							}
-						}
-					}
-					break;
-				//user wants to destroy something they entered
-				case KEY_DEL:
-					if(cursor_pos<strlen(input_buffer)){
-						strremove(input_buffer,cursor_pos);
-						//note cursor position doesn't change here
-					}
-					break;
-				//NOTE: this is alt+tab also, f5 left here only for backwards compatibility
-				//f5 sends a literal tab
-				case 269:
-				//and f6 sends a 0x01 (since screen catches the real one)
-				case 270:
-				//f7 is a literal 0x03 for mirc color sending
-				case 271:
-					//these are mutually exclusive, so an if is needed
-					if(c==269){
-						c='\t';
-					}else if(c==270){
-						c=0x01;
-					}else if(c==271){
-						c=0x03;
-					}
-				//normal input
-				default:
-					if(strinsert(input_buffer,(char)(c),cursor_pos,BUFFER_SIZE)){
-						cursor_pos++;
-						//if we would go off the end
-						if((cursor_pos-input_display_start)>width){
-							//make the end one char further down
-							input_display_start++;
-						}
-					}
-					
-					//reset the unsuccessful tab attempt counter
-					tab_completions=0;
-					
-#ifdef DEBUG
-					if(current_server<0){
-						wclear(channel_text);
-						wmove(channel_text,0,0);
-						wprintw(channel_text,"%i",c);
-						wrefresh(channel_text);
-					}
-#endif
-					break;
-			}
-		}
-		
-		//look for new data on all connected servers; if some is found, handle it!
-		read_server_data();
-		
-		//unix epoch clock in bottom_border, update it when the time changes
-		uintmax_t current_time=(uintmax_t)(time(NULL));
-		//if the time has changed
-		if(current_time>old_time){
-			wclear(bottom_border);
-			
-			sprintf(time_buffer,"%ju",old_time);
-			wmove(bottom_border,0,0);
-			wprintw(bottom_border,time_buffer);
-			
-			for(n=strlen(time_buffer);n<width;n++){
-				wprintw(bottom_border,"-");
-			}
-			//refresh the window from the buffer
-			wrefresh(bottom_border);
-			
-			//re-set for next iteration
-			old_time=current_time;
-			
-			//make sure the user doesn't see their cursor move
-			wrefresh(user_input);
-		}
-		
-		//output the most up-to-date information about servers, channels, topics, and various whatnot
-		//(do this where changes occur so we're not CONSTANTLY refreshing, which causes flicker among other things)
-		if((old_server!=current_server)&&(current_server>=0)){
-			refresh_server_list();
-			refresh_channel_list();
-			refresh_channel_topic();
-			refresh_channel_text();
-		//if the server didn't change but the channel did, still update the channel text
-		}else if((current_server>=0)&&(old_channel!=(servers[current_server]->current_channel))){
-			refresh_channel_list();
-			refresh_channel_topic();
-			refresh_channel_text();
-		}
-		
-		//the cursor is one thing that should ALWAYS be visible
-		wmove(user_input,0,cursor_pos);
-		
-		//if the user typed something
-		if(strcmp(input_buffer,old_input_buffer)!=0){
-			//if the string is not as wide as the display allows re-set the input display starting point to show the whole string always
-			if(strlen(input_buffer)<width){
-				input_display_start=0;
-			}
-			refresh_user_input(input_buffer,cursor_pos,input_display_start);
-		}
+		//EVENT POLLING (tons of side-effects here, which is why we're passing a bunch of pointers)
+		event_poll(c,input_buffer,&cursor_pos,&input_display_start,&current_server,&tab_completions,&old_time,time_buffer,key_combo_buffer,pre_history);
 	}
 	
 	//now that we're done, close the error log file
