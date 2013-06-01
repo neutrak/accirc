@@ -2254,8 +2254,8 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			//some clients prefer privmsg responses, others prefer notice response
 			int old_server=current_server;
 			current_server=server_index;
-//							sprintf(ctcp,":privmsg %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
-//							parse_input(ctcp,FALSE);
+//			sprintf(ctcp,":privmsg %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
+//			parse_input(ctcp,FALSE);
 			sprintf(ctcp,"%cnotice %s :%cVERSION accidental_irc v%s%c",server_escape,nick,0x01,VERSION,0x01);
 			parse_input(ctcp,FALSE);
 			current_server=old_server;
@@ -2431,6 +2431,182 @@ void server_part_command(int server_index, char *tmp_buffer, int first_space, ch
 	}
 }
 
+//handle the "kick" command from the server
+void server_kick_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *text){
+	char channel[BUFFER_SIZE];
+	substr(channel,text,0,strfind(" ",text));
+	
+	char kicked_user[BUFFER_SIZE];
+	int space_index=strfind(" ",text);
+	substr(kicked_user,text,space_index+1,strlen(text)-space_index-1);
+	
+	//if there was a kick message tear that out of the name (it'll still be in output buffer)
+	int space_colon_index=strfind(" :",kicked_user);
+	if(space_colon_index>=0){
+		substr(kicked_user,kicked_user,0,space_colon_index);
+	}
+	
+	//if we were the one who got kicked
+	if(!strcmp(kicked_user,servers[server_index]->nick)){
+		leave_channel(server_index,channel);
+		output_channel=0;
+		
+		//if we're to rejoin on a kick do that now
+		if(servers[server_index]->rejoin_on_kick){
+			int old_server=current_server;
+			current_server=server_index;
+			char to_parse[BUFFER_SIZE];
+			sprintf(to_parse,"%cjoin %s",server_escape,channel);
+			parse_input(to_parse,FALSE);
+			current_server=old_server;
+			
+			refresh_server_list();
+			refresh_channel_list();
+			refresh_channel_text();
+		}
+	//else it wasn't us getting kicked so just output the join message to that channel (which presumably we're in)
+	}else{
+		strtolower(channel,BUFFER_SIZE);
+		
+		int channel_index;
+		for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+			if(servers[server_index]->channel_name[channel_index]!=NULL){
+				char lower_case_channel[BUFFER_SIZE];
+				strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+				strtolower(lower_case_channel,BUFFER_SIZE);
+				
+				if(!strcmp(lower_case_channel,channel)){
+					*output_channel=channel_index;
+					channel_index=MAX_CHANNELS;
+				}
+			}
+		}
+		
+		del_name(server_index,*output_channel,kicked_user);
+	}
+}
+
+//handle the "nick" command from the server
+void server_nick_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
+	//if we changed our nick
+	if(!strcmp(nick,servers[server_index]->nick)){
+		//change it in relevant data structures
+		//leaving out the leading ":", if there is one
+		if(text[0]==':'){
+			substr(servers[server_index]->nick,text,1,strlen(text)-1);
+		}else{
+			substr(servers[server_index]->nick,text,0,strlen(text));
+		}
+		
+		//and update the display to reflect this change
+		refresh_server_list();
+	}
+	
+	//set the user's nick to be lower-case for case-insensitive string matching
+	strtolower(nick,BUFFER_SIZE);
+	
+	int channel_index;
+	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+		if(servers[server_index]->channel_name[channel_index]!=NULL){
+			int name_index;
+			for(name_index=0;name_index<MAX_NAMES;name_index++){
+				if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
+#ifdef DEBUG
+//					char really_really_tmp[BUFFER_SIZE];
+//					sprintf(really_really_tmp,"NICK debug 0, trying name \"%s\"",servers[server_index]->user_names[channel_index][name_index]);
+//					scrollback_output(server_index,0,really_really_tmp);
+#endif
+					
+					char this_name[BUFFER_SIZE];
+					strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
+					strtolower(this_name,BUFFER_SIZE);
+					
+					//found it!
+					if(!strcmp(this_name,nick)){
+						//output to the appropriate channel
+						scrollback_output(server_index,channel_index,output_buffer);
+						
+						char new_nick[BUFFER_SIZE];
+						if(text[0]==':'){
+							substr(new_nick,text,1,strlen(text)-1);
+						}else{
+							substr(new_nick,text,0,strlen(text));
+						}
+						
+						//update this user's entry in that channel's names array
+						strncpy(servers[server_index]->user_names[channel_index][name_index],new_nick,BUFFER_SIZE);
+						
+						//we found a channel with this nick, so we've already done special output
+						//no need to output again to server area
+						*special_output=TRUE;
+					}
+				}
+			}
+		}
+	}
+}
+
+//handle the "topic" command from the server
+void server_topic_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
+	char channel[BUFFER_SIZE];
+	int space_colon_index=strfind(" :",tmp_buffer);
+	substr(channel,tmp_buffer,0,space_colon_index);
+	
+	substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
+	
+	strncpy(text,tmp_buffer,BUFFER_SIZE);
+	
+	//lower case the channel so we can do a case-insensitive string match against it
+	strtolower(channel,BUFFER_SIZE);
+	
+	//output to the correct place
+	*output_channel=find_output_channel(server_index,channel);
+	
+	//update the topic for this channel on this server
+	//leaving out the leading ":", if there is one
+	if(text[0]==':'){
+		substr(servers[server_index]->channel_topic[*output_channel],text,1,strlen(text)-1);
+	}else{
+		substr(servers[server_index]->channel_topic[*output_channel],text,0,strlen(text));
+	}
+	
+	//update the display
+	refresh_channel_topic();
+}
+
+//handle the "quit" command from the server
+void server_quit_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
+	//set the user's nick to be lower-case for case-insensitive string matching
+	strtolower(nick,BUFFER_SIZE);
+	
+	int channel_index;
+	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+		if(servers[server_index]->channel_name[channel_index]!=NULL){
+			int name_index;
+			for(name_index=0;name_index<MAX_NAMES;name_index++){
+				if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
+					char this_name[BUFFER_SIZE];
+					strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
+					strtolower(this_name,BUFFER_SIZE);
+					
+					//found it!
+					if(!strcmp(this_name,nick)){
+						//output to the appropriate channel
+						scrollback_output(server_index,channel_index,output_buffer);
+						
+						//remove this user from that channel's names array
+						free(servers[server_index]->user_names[channel_index][name_index]);
+						servers[server_index]->user_names[channel_index][name_index]=NULL;
+						
+						//for handling later; just let us know we found a channel to output to
+						*special_output=TRUE;
+					}
+				}
+			}
+		}
+	}
+}
+
 //parse incoming data from a server
 void parse_server(int server_index){
 	//clear out the remainder of the buffer since we re-use this memory
@@ -2593,139 +2769,16 @@ void parse_server(int server_index){
 					server_part_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
 				//or ":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
 				}else if(!strcmp(command,"KICK")){
-					char channel[BUFFER_SIZE];
-					substr(channel,text,0,strfind(" ",text));
-					
-					char kicked_user[BUFFER_SIZE];
-					int space_index=strfind(" ",text);
-					substr(kicked_user,text,space_index+1,strlen(text)-space_index-1);
-					
-					//if there was a kick message tear that out of the name (it'll still be in output buffer)
-					int space_colon_index=strfind(" :",kicked_user);
-					if(space_colon_index>=0){
-						substr(kicked_user,kicked_user,0,space_colon_index);
-					}
-					
-					//if we were the one who got kicked
-					if(!strcmp(kicked_user,servers[server_index]->nick)){
-						leave_channel(server_index,channel);
-						output_channel=0;
-						
-						//if we're to rejoin on a kick do that now
-						if(servers[server_index]->rejoin_on_kick){
-							int old_server=current_server;
-							current_server=server_index;
-							char to_parse[BUFFER_SIZE];
-							sprintf(to_parse,"%cjoin %s",server_escape,channel);
-							parse_input(to_parse,FALSE);
-							current_server=old_server;
-							
-							refresh_server_list();
-							refresh_channel_list();
-							refresh_channel_text();
-						}
-					//else it wasn't us getting kicked so just output the join message to that channel (which presumably we're in)
-					}else{
-						strtolower(channel,BUFFER_SIZE);
-						
-						int channel_index;
-						for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-							if(servers[server_index]->channel_name[channel_index]!=NULL){
-								char lower_case_channel[BUFFER_SIZE];
-								strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-								strtolower(lower_case_channel,BUFFER_SIZE);
-								
-								if(!strcmp(lower_case_channel,channel)){
-									output_channel=channel_index;
-									channel_index=MAX_CHANNELS;
-								}
-							}
-						}
-						
-						del_name(server_index,output_channel,kicked_user);
-					}
+					server_kick_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel,text);
 				//":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
 				//handle for NICK changes, especially the special case of our own, where server[server_index]->nick should get reset
 				//NICK changes are server-wide so I'll only be able to handle this better once I have a list of users in each channel
 				}else if(!strcmp(command,"NICK")){
-					char our_nick_changed=FALSE;
-					//if we changed our nick
-					if(!strcmp(nick,servers[server_index]->nick)){
-						//change it in relevant data structures
-						//leaving out the leading ":", if there is one
-						if(text[0]==':'){
-							substr(servers[server_index]->nick,text,1,strlen(text)-1);
-						}else{
-							substr(servers[server_index]->nick,text,0,strlen(text));
-						}
-						
-						//and update the display to reflect this change
-						refresh_server_list();
-						our_nick_changed=TRUE;
-					}
-					
-					//set the user's nick to be lower-case for case-insensitive string matching
-					strtolower(nick,BUFFER_SIZE);
-					
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							int name_index;
-							for(name_index=0;name_index<MAX_NAMES;name_index++){
-								if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
-#ifdef DEBUG
-//									char really_really_tmp[BUFFER_SIZE];
-//									sprintf(really_really_tmp,"NICK debug 0, trying name \"%s\"",servers[server_index]->user_names[channel_index][name_index]);
-//									scrollback_output(server_index,0,really_really_tmp);
-#endif
-									
-									char this_name[BUFFER_SIZE];
-									strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
-									strtolower(this_name,BUFFER_SIZE);
-									
-									//found it!
-									if(!strcmp(this_name,nick)){
-										//output to the appropriate channel
-										scrollback_output(server_index,channel_index,output_buffer);
-										
-										char new_nick[BUFFER_SIZE];
-										if(text[0]==':'){
-											substr(new_nick,text,1,strlen(text)-1);
-										}else{
-											substr(new_nick,text,0,strlen(text));
-										}
-										
-										//update this user's entry in that channel's names array
-										strncpy(servers[server_index]->user_names[channel_index][name_index],new_nick,BUFFER_SIZE);
-									}
-								}
-							}
-						}
-					}
-					
-					//if it was us go ahead and output to the reserved server channel also
-					if(our_nick_changed){
-						special_output=FALSE;
-					}else{
-						//we output here already so don't output at the end
-						special_output=TRUE;
-					}
+					server_nick_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text,&special_output);
 				//handle for topic changes
 				//":accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking"
 				}else if(!strcmp(command,"TOPIC")){
-					char channel[BUFFER_SIZE];
-					int space_colon_index=strfind(" :",tmp_buffer);
-					substr(channel,tmp_buffer,0,space_colon_index);
-					
-					substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
-					
-					strncpy(text,tmp_buffer,BUFFER_SIZE);
-					
-					//lower case the channel so we can do a case-insensitive string match against it
-					strtolower(channel,BUFFER_SIZE);
-					
-					//output to the correct place
-					output_channel=find_output_channel(server_index,channel);
+					server_topic_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
 				//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
 				}else if(!strcmp(command,"MODE")){
 					char channel[BUFFER_SIZE];
@@ -2749,41 +2802,7 @@ void parse_server(int server_index){
 				//using channel names lists, output quits to the correct channel
 				//(this will require outputting multiple times, which I don't have the faculties for at the moment)
 				}else if(!strcmp(command,"QUIT")){
-					//set the user's nick to be lower-case for case-insensitive string matching
-					strtolower(nick,BUFFER_SIZE);
-					
-					int channel_index;
-					for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-						if(servers[server_index]->channel_name[channel_index]!=NULL){
-							int name_index;
-							for(name_index=0;name_index<MAX_NAMES;name_index++){
-								if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
-									char this_name[BUFFER_SIZE];
-									strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
-									strtolower(this_name,BUFFER_SIZE);
-									
-									//found it!
-									if(!strcmp(this_name,nick)){
-										//output to the appropriate channel
-										scrollback_output(server_index,channel_index,output_buffer);
-										
-										//remove this user from that channel's names array
-										free(servers[server_index]->user_names[channel_index][name_index]);
-										servers[server_index]->user_names[channel_index][name_index]=NULL;
-										
-										//for handling later; just let us know we found a channel to output to
-										output_channel=channel_index;
-									}
-								}
-							}
-						}
-					}
-					
-					//if we found the channel this user was in
-					if(output_channel!=0){
-						//don't output this to the system channel
-						special_output=TRUE;
-					}
+					server_quit_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text,&special_output);
 				}
 			}
 		}
