@@ -3171,12 +3171,11 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 //listen for the next relevant thing to happen and handle it accordingly
 //this may be a user input or network read from any connected network
 //this is the body of the "main" loop, called from main
-void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *persistent_input_display_start, int *persistent_current_server, int *persistent_tab_completions, uintmax_t *persistent_old_time, char *time_buffer, char *key_combo_buffer, char *pre_history){
+void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *persistent_input_display_start, int *persistent_tab_completions, uintmax_t *persistent_old_time, char *time_buffer, char *key_combo_buffer, char *pre_history){
 	//make local variables out of the persistent variables from higher scopes
 	//note the persistent vars will be re-set to these values at the end of this function
 	int cursor_pos=(*persistent_cursor_pos);
 	int input_display_start=(*persistent_input_display_start);
-	int current_server=(*persistent_current_server);
 	int tab_completions=(*persistent_tab_completions);
 	uintmax_t old_time=(*persistent_old_time);
 	
@@ -3207,9 +3206,9 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 			//but I'd rather a user not be able to accidentally close the program, so it's not
 			
 			//handle ctrl+c gracefully
-//				case BREAK:
-//					done=TRUE;
-//					break;
+//			case BREAK:
+//				done=TRUE;
+//				break;
 			case KEY_ESCAPE:
 				c=wgetch(user_input);
 				switch(c){
@@ -3262,25 +3261,25 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 				break;
 			//NOTE: I now have ALT+arrows bound to move between channels and servers
 			//these are the f1,f2,f3, and f4 bindings left for backwards compatibility only
-//					case ALT_UP:
+//			case ALT_UP:
 			//f3
 			case 267:
 				sprintf(key_combo_buffer,"%csl",client_escape);
 				parse_input(key_combo_buffer,FALSE);
 				break;
-//					case ALT_DOWN:
+//			case ALT_DOWN:
 			//f4
 			case 268:
 				sprintf(key_combo_buffer,"%csr",client_escape);
 				parse_input(key_combo_buffer,FALSE);
 				break;
-//					case ALT_LEFT:
+//			case ALT_LEFT:
 			//f1
 			case 265:
 				sprintf(key_combo_buffer,"%ccl",client_escape);
 				parse_input(key_combo_buffer,FALSE);
 				break;
-//					case ALT_RIGHT:
+//			case ALT_RIGHT:
 			//f2
 			case 266:
 				sprintf(key_combo_buffer,"%ccr",client_escape);
@@ -3316,7 +3315,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 				break;
 			//scroll back in the current channel
 			//TODO: compute correct stop scrolling bound in this case
-//				case KEY_PGUP:
+//			case KEY_PGUP:
 			case 339:
 				//if we are connected to a server
 				if(current_server>=0){
@@ -3326,11 +3325,11 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 					
 					//if there is more text than area to display allow it scrollback (else don't)
 					//the -6 here is because there are 6 character rows used to display things other than channel text
-//						if(line_count>height-6){
+//					if(line_count>height-6){
 					if(line_count>0){
 						//if we're already scrolled back and we can go further
 						//note: the +6 here is because there are 6 character rows used to display things other than channel text
-//								if((scrollback_end-height+6)>0){
+//						if((scrollback_end-height+6)>0){
 						if(scrollback_end>1){
 							scrollback_end--;
 						//if we're not scrolled back start now
@@ -3350,7 +3349,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 				}
 				break;
 			//scroll forward in the current channel
-//				case KEY_PGDN:
+//			case KEY_PGDN:
 			case 338:
 				//if we are connected to a server
 				if(current_server>=0){
@@ -3545,9 +3544,10 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	}
 	
 	//update persistent variables (pointers) for the next iteration of the event polling loop
+	//these are side-effects because C; in other languages they should have maybe been a list that got returned
+	//anyway, consider this essentially a set of return values
 	(*persistent_cursor_pos)=cursor_pos;
 	(*persistent_input_display_start)=input_display_start;
-	(*persistent_current_server)=current_server;
 	(*persistent_tab_completions)=tab_completions;
 	(*persistent_old_time)=old_time;
 }
@@ -3700,7 +3700,7 @@ int main(int argc, char *argv[]){
 	//MAIN LOOP, everything between initialization and shutdown is HERE
 	while(!done){
 		//EVENT POLLING (tons of side-effects here, which is why we're passing a bunch of pointers)
-		event_poll(c,input_buffer,&cursor_pos,&input_display_start,&current_server,&tab_completions,&old_time,time_buffer,key_combo_buffer,pre_history);
+		event_poll(c,input_buffer,&cursor_pos,&input_display_start,&tab_completions,&old_time,time_buffer,key_combo_buffer,pre_history);
 	}
 	
 	//now that we're done, close the error log file
