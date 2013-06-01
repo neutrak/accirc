@@ -50,6 +50,8 @@
 #define MAX_SCROLLBACK 1000
 //maximum number of users in a channel
 #define MAX_NAMES 200
+//maximum number of aliases that can be registered
+#define MAX_ALIASES 128
 
 //for MIRC colors (these are indexes in an array)
 #define FOREGROUND 0
@@ -104,7 +106,8 @@ enum {
 	MIRC_COLOR_MAX
 };
 
-//global variables
+//structures
+//this holds an entire server's worth of information
 typedef struct irc_connection irc_connection;
 struct irc_connection {
 	//behind-the-scenes data, the user never sees it
@@ -147,6 +150,17 @@ struct irc_connection {
 	char last_pm_user[BUFFER_SIZE];
 };
 
+//this holds an "alias"
+typedef struct alias alias;
+struct alias {
+	//what the user types to activate this alias
+	char trigger[BUFFER_SIZE];
+	//what is substituted for the alias before literal interpretation
+	char substitution[BUFFER_SIZE];
+};
+
+//global variables
+
 //the file pointer to log non-fatal errors to
 FILE *error_file;
 
@@ -166,6 +180,8 @@ int input_line;
 //the location in the scrollback for the current channel we're at now
 //(this var stores the index of the LAST line to output, hence "end")
 int scrollback_end;
+//any aliases the user has registered (initialized to all NULL)
+alias *alias_array[MAX_ALIASES];
 
 //determine if we're done
 char done;
@@ -1429,73 +1445,140 @@ void exit_command(char *input_buffer, char *command, char *parameters){
 
 //the "cli_escape" client command
 void cli_escape_command(char *input_buffer, char *command, char *parameters){
-	//if there's no server we can still set the escape, but we can't tell the user about it
-	//since we can't give good output in this case, we instead ignore it so there is no silent behavior
-	//this is intentional behavior
-	if(current_server>=0){
-		if(!strcmp(parameters,"")){
-			//too few arguments given, do nothing (give up)
-			
-			//tell the user there were too few arguments
-			char error_buffer[BUFFER_SIZE];
-			sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+	if(!strcmp(parameters,"")){
+		//too few arguments given, do nothing (give up)
+		
+		//tell the user there were too few arguments
+		char error_buffer[BUFFER_SIZE];
+		sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+		
+		//use the ncurses UI if possible; if not fall back to the error log file
+		if(current_server>=0){
 			scrollback_output(current_server,0,error_buffer);
 		}else{
-			//we got an argument, since this is always a 1-character escape take the first char
-			char tmp_client_escape=parameters[0];
+			fprintf(error_file,error_buffer);
+		}
+	}else{
+		//we got an argument, since this is always a 1-character escape take the first char
+		char tmp_client_escape=parameters[0];
+		
+		//a buffer to use when replying to the user
+		char reply_buffer[BUFFER_SIZE];
+		
+		//if this isn't already the server escape
+		if(tmp_client_escape!=server_escape){
+			//set it to be the new client escape (discarding the old one)
+			client_escape=tmp_client_escape;
 			
-			//a buffer to use when replying to the user
-			char reply_buffer[BUFFER_SIZE];
-			
-			//if this isn't already the server escape
-			if(tmp_client_escape!=server_escape){
-				//set it to be the new client escape (discarding the old one)
-				client_escape=tmp_client_escape;
-				
-				//tell the user we set the escape
-				sprintf(reply_buffer,"accirc: client escape set to \"%c\"",client_escape);
-			}else{
-				sprintf(reply_buffer,"accirc: Err: client escape could not be set to \"%c\", that escape is already in use",tmp_client_escape);
-			}
-			
+			//tell the user we set the escape
+			sprintf(reply_buffer,"accirc: client escape set to \"%c\"",client_escape);
+		}else{
+			sprintf(reply_buffer,"accirc: Err: client escape could not be set to \"%c\", that escape is already in use",tmp_client_escape);
+		}
+		
+		//use the ncurses UI if possible; if not fall back to the error log file
+		if(current_server>=0){
 			scrollback_output(current_server,0,reply_buffer);
+		}else{
+			fprintf(error_file,reply_buffer);
 		}
 	}
 }
 
 //the "ser_escape" client command
 void ser_escape_command(char *input_buffer, char *command, char *parameters){
-	//if there's no server we can still set the escape, but we can't tell the user about it
-	//since we can't give good output in this case, we instead ignore it so there is no silent behavior
-	//this is intentional behavior
-	if(current_server>=0){
-		if(!strcmp(parameters,"")){
-			//too few arguments given, do nothing (give up)
-			
-			//tell the user there were too few arguments
-			char error_buffer[BUFFER_SIZE];
-			sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+	if(!strcmp(parameters,"")){
+		//too few arguments given, do nothing (give up)
+		
+		//tell the user there were too few arguments
+		char error_buffer[BUFFER_SIZE];
+		sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+		
+		//use the ncurses UI if possible; if not fall back to the error log file
+		if(current_server>=0){
 			scrollback_output(current_server,0,error_buffer);
 		}else{
-			//we got an argument, since this is always a 1-character escape take the first char
-			char tmp_server_escape=parameters[0];
-			
-			//a buffer to use when replying to the user
-			char reply_buffer[BUFFER_SIZE];
-			
-			//if this isn't already the client escape
-			if(tmp_server_escape!=client_escape){
-				//set it to be the new server escape (discarding the old one)
-				server_escape=tmp_server_escape;
-				
-				//tell the user we set the escape
-				sprintf(reply_buffer,"accirc: server escape set to \"%c\"",server_escape);
-			}else{
-				sprintf(reply_buffer,"accirc: Err: server escape could not be set to \"%c\", that escape is already in use",tmp_server_escape);
-			}
-			
-			scrollback_output(current_server,0,reply_buffer);
+			fprintf(error_file,error_buffer);
 		}
+	}else{
+		//we got an argument, since this is always a 1-character escape take the first char
+		char tmp_server_escape=parameters[0];
+		
+		//a buffer to use when replying to the user
+		char reply_buffer[BUFFER_SIZE];
+		
+		//if this isn't already the client escape
+		if(tmp_server_escape!=client_escape){
+			//set it to be the new server escape (discarding the old one)
+			server_escape=tmp_server_escape;
+			
+			//tell the user we set the escape
+			sprintf(reply_buffer,"accirc: server escape set to \"%c\"",server_escape);
+		}else{
+			sprintf(reply_buffer,"accirc: Err: server escape could not be set to \"%c\", that escape is already in use",tmp_server_escape);
+		}
+		
+		//use the ncurses UI if possible; if not fall back to the error log file
+		if(current_server>=0){
+			scrollback_output(current_server,0,reply_buffer);
+		}else{
+			fprintf(error_file,reply_buffer);
+		}
+	}
+}
+
+//the "alias" client command (registers a new alias in the substitution array)
+void alias_command(char *input_buffer, char *command, char *parameters){
+	//the first space-delimited item in parameters is the trigger to check
+	char trigger[BUFFER_SIZE];
+	char substitution[BUFFER_SIZE];
+	int first_space=strfind(" ",parameters);
+	
+	//error handling, don't get ahead of ourselves
+	if(first_space<0){
+		//write this to the error log, so the user can view it if they choose
+		fprintf(error_file,"Err: too few arguments given to \"%s\"\n",command);
+		return;
+	}
+	
+	//set (local) trigger and substitution appropriately (what the user asked us to set)
+	substr(trigger,parameters,0,first_space);
+	substr(substitution,parameters,first_space+strlen(" "),strlen(parameters)-first_space-strlen(" "));
+	
+	//until we find an alias we say it's new
+	char found_alias=FALSE;
+	
+	//go through all aliased commands, see if this alias already exists
+	int n;
+	for(n=0;n<MAX_ALIASES;n++){
+		if(alias_array[n]!=NULL){
+			//NOTE: aliases are case-sensitive (intentionally)
+			if(!strncmp(trigger,alias_array[n]->trigger,BUFFER_SIZE)){
+				found_alias=TRUE;
+				break;
+			}
+		}
+	}
+	
+	//if we already had an alias for this, just change that one
+	if(found_alias){
+		strncpy(alias_array[n]->substitution,substitution,BUFFER_SIZE);
+	//if it's a new alias look for the first NULL entry in the alias_array and slide it on in
+	}else{
+		int n;
+		for(n=0;(n<MAX_ALIASES) && (alias_array[n]!=NULL);n++);
+		if((n<MAX_ALIASES) && (alias_array[n]==NULL)){
+			alias_array[n]=(alias*)(malloc(sizeof(alias)));
+			strncpy(alias_array[n]->trigger,trigger,BUFFER_SIZE);
+			strncpy(alias_array[n]->substitution,substitution,BUFFER_SIZE);
+		}
+	}
+	
+	//if possible, tell the user what's going on (if not possible, still do it, just be silent)
+	if(current_server>=0){
+		char output_buffer[BUFFER_SIZE];
+		sprintf(output_buffer,"accirc: setting alias \"%s\" to complete to \"%s\"",trigger,substitution);
+		scrollback_output(current_server,0,output_buffer);
 	}
 }
 
@@ -1690,10 +1773,10 @@ void privmsg_command(char *input_buffer){
 			if(strfind(ctcp,input_buffer)==0){
 				char tmp_buffer[BUFFER_SIZE];
 				substr(tmp_buffer,input_buffer,strlen(ctcp),strlen(input_buffer)-strlen(ctcp)-1);
-//					sprintf(output_buffer,">> %ju *%s %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,tmp_buffer);
+//				sprintf(output_buffer,">> %ju *%s %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,tmp_buffer);
 				sprintf(output_buffer,">> *%s %s",servers[current_server]->nick,tmp_buffer);
 			}else{
-//					sprintf(output_buffer,">> %ju <%s> %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,input_buffer);
+//				sprintf(output_buffer,">> %ju <%s> %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,input_buffer);
 				sprintf(output_buffer,">> <%s> %s",servers[current_server]->nick,input_buffer);
 			}
 			
@@ -1711,6 +1794,28 @@ void privmsg_command(char *input_buffer){
 //		wrefresh(channel_text);
 #endif
 	}
+}
+
+//check for aliased commands, if one is found do the substitution and feed it back into parse_input without using history
+//returns TRUE if an alised substitution was made, else FALSE
+char handle_aliased_command(char *command, char *parameters){
+	int n;
+	for(n=0;n<MAX_ALIASES;n++){
+		if(alias_array[n]!=NULL){
+			//NOTE: aliases are not case-sensitive; this is intentional
+			//if a command is found to match, do the substitution and parse it again
+			if(!strncmp(alias_array[n]->trigger,command,BUFFER_SIZE)){
+				char new_command_buffer[BUFFER_SIZE];
+				sprintf(new_command_buffer,"%s %s",alias_array[n]->substitution,parameters);
+				parse_input(new_command_buffer,FALSE);
+				
+				return TRUE;
+			}
+		}
+	}
+	
+	//if we got here and didn't handle a command, there was no alias for that
+	return FALSE;
 }
 
 //END parse_input HELPER FUNCTIONS
@@ -1780,7 +1885,6 @@ void parse_input(char *input_buffer, char keep_history){
 			connect_command(input_buffer,command,parameters);
 		}else if(!strcmp(command,"exit")){
 			exit_command(input_buffer,command,parameters);
-		//TODO: add an "alias" command allowing users to set client-side commands referencing other command strings (other may be client or server commands)
 		//sleep command
 		}else if(!strcmp(command,"sleep")){
 			scrollback_output(current_server,0,"accirc: sleeping...");
@@ -1801,7 +1905,9 @@ void parse_input(char *input_buffer, char keep_history){
 		//reset the escape character for server
 		}else if(!strcmp(command,"ser_escape")){
 			ser_escape_command(input_buffer,command,parameters);
-		
+		//register a new alias that will work for the remainder of this session
+		}else if(!strcmp(command,"alias")){
+			alias_command(input_buffer,command,parameters);
 		//this set of command depends on being connected to a server, so first check that we are
 		}else if(current_server>=0){
 			//move a server to the left
@@ -1878,12 +1984,16 @@ void parse_input(char *input_buffer, char keep_history){
 			}else if(!strcmp(command,"no_log")){
 				no_log_command();
 			//unknown command error
-	//		}else if(!alias_command()){ //TODO: handle aliased commands in a function that gets called here
-			}else{
+			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
+			}else if(!handle_aliased_command(command,parameters)){
 				char error_buffer[BUFFER_SIZE];
 				sprintf(error_buffer,"accirc: Err: unknown command \"%s\"",command);
 				scrollback_output(current_server,0,error_buffer);
 			}
+		}else{
+			//the return is not used here because it's pretty inconsequential
+			//if it isn't an aliased command we do nothing
+			handle_aliased_command(command,parameters);
 		}
 	//if it's a server command send the raw text to the server
 	}else if(server_command){
@@ -3620,6 +3730,10 @@ int main(int argc, char *argv[]){
 	int n;
 	for(n=0;n<MAX_SERVERS;n++){
 		servers[n]=NULL;
+	}
+	
+	for(n=0;n<MAX_ALIASES;n++){
+		alias_array[n]=NULL;
 	}
 	
 	//location in input history, starting at "not looking at history" state
