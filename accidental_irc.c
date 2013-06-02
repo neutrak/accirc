@@ -182,6 +182,8 @@ int input_line;
 int scrollback_end;
 //any aliases the user has registered (initialized to all NULL)
 alias *alias_array[MAX_ALIASES];
+//format to output time in (used for scrollback_output and the clock)
+char time_format[BUFFER_SIZE];
 
 //determine if we're done
 char done;
@@ -423,6 +425,14 @@ char safe_recv(int socket, char *buffer){
 		buffer[n]='\0';
 	}
 	return TRUE;
+}
+
+//formats the given time and stores the result in the given buffer
+void custom_format_time(char *time_buffer, time_t current_unixtime){
+	struct tm *current_localtime=localtime(&current_unixtime);
+	strftime(time_buffer,BUFFER_SIZE,time_format,current_localtime);
+	
+	//NOTE: apparently current_localtime gets free'd by strftime or something; definitely don't do it here
 }
 
 void properly_close(int server_index){
@@ -1012,8 +1022,16 @@ void scrollback_output(int server_index, int output_channel, char *to_output){
 	strncpy(output_buffer,to_output,BUFFER_SIZE);
 	
 	//regardless of what our output was, timestamp it
+	//for logging, always use the unix timestamp
+	char log_buffer[BUFFER_SIZE];
+	sprintf(log_buffer,"%ju %s",(uintmax_t)(time(NULL)),output_buffer);
+	
+	//for outputting to the user in ncurses, use a custom time format (by default unix timestamp)
 	char time_buffer[BUFFER_SIZE];
-	sprintf(time_buffer,"%ju %s",(uintmax_t)(time(NULL)),output_buffer);
+	char custom_time[BUFFER_SIZE];
+	custom_format_time(custom_time,time(NULL));
+	
+	sprintf(time_buffer,"%s %s",custom_time,output_buffer);
 	strncpy(output_buffer,time_buffer,BUFFER_SIZE);
 	
 	//add the message to the relevant channel scrollback structure
@@ -1050,7 +1068,7 @@ void scrollback_output(int server_index, int output_channel, char *to_output){
 	
 	//if we're keeping logs write to them
 	if((servers[server_index]->keep_logs)&&(servers[server_index]->log_file[output_channel]!=NULL)){
-		fprintf(servers[server_index]->log_file[output_channel],"%s\n",output_buffer);
+		fprintf(servers[server_index]->log_file[output_channel],"%s\n",log_buffer);
 	}
 	
 	//if this was currently in view update it there
@@ -1887,12 +1905,12 @@ void parse_input(char *input_buffer, char keep_history){
 			exit_command(input_buffer,command,parameters);
 		//sleep command
 		}else if(!strcmp(command,"sleep")){
-			scrollback_output(current_server,0,"accirc: sleeping...");
+//			scrollback_output(current_server,0,"accirc: sleeping...");
 			//sleep as requested (in seconds)
 			sleep(atoi(parameters));
 		//usleep command
 		}else if(!strcmp(command,"usleep")){
-			scrollback_output(current_server,0,"accirc: usleeping...");
+//			scrollback_output(current_server,0,"accirc: usleeping...");
 			//sleep as requested (in milliseconds)
 			usleep(atoi(parameters));
 		//comment command (primarily for the .rc file)
@@ -1908,6 +1926,17 @@ void parse_input(char *input_buffer, char keep_history){
 		//register a new alias that will work for the remainder of this session
 		}else if(!strcmp(command,"alias")){
 			alias_command(input_buffer,command,parameters);
+		//change the time format to output
+		}else if(!strcmp(command,"time_format")){
+			if(strlen(parameters)>0){
+				strncpy(time_format,parameters,BUFFER_SIZE);
+			}
+			
+			if(current_server>=0){
+				char notify_buffer[BUFFER_SIZE];
+				sprintf(notify_buffer,"accirc: updated time format to \"%s\"",parameters);
+				scrollback_output(current_server,0,notify_buffer);
+			}
 		//this set of command depends on being connected to a server, so first check that we are
 		}else if(current_server>=0){
 			//move a server to the left
@@ -3068,8 +3097,8 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	
 	//unix epoch clock (initialization)
 	char time_buffer[BUFFER_SIZE];
-	uintmax_t old_time=(uintmax_t)(time(NULL));
-	sprintf(time_buffer,"%ju",old_time);
+	time_t old_time=time(NULL);
+	custom_format_time(time_buffer,old_time);
 	wprintw(bottom_border,time_buffer);
 	
 	for(n=strlen(time_buffer);n<width;n++){
@@ -3609,7 +3638,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	if(current_time>old_time){
 		wclear(bottom_border);
 		
-		sprintf(time_buffer,"%ju",old_time);
+		custom_format_time(time_buffer,current_time);
 		wmove(bottom_border,0,0);
 		wprintw(bottom_border,time_buffer);
 		
@@ -3735,6 +3764,9 @@ int main(int argc, char *argv[]){
 	for(n=0;n<MAX_ALIASES;n++){
 		alias_array[n]=NULL;
 	}
+	
+	//by default the time format is unix time, this can be changed with the "time_format" client command
+	sprintf(time_format,"%%s");
 	
 	//location in input history, starting at "not looking at history" state
 	input_line=-1;

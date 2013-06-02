@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "01 Jun 2013"
+.TH ACCIRC 1 "02 Jun 2013"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -34,6 +34,9 @@ changes the server raw data escape character to <new>, if possible
 .TP
 \fB/alias\fP \fItrigger\fP \fIsubstitution\fP
 registers an alias; when the client escape is used with the trigger the trigger will be substituted for whatever substitution is specified; for example "/alias part :part" would allow you to use /part in place of :part, note this is a direct text substitution and does no additional handling
+.TP
+\fB/time_format\fP \fInew_format\fP
+sets the time format for viewing (the clock and timestamps on messages in ncurses); note that logs always use unix timestamps, and ignore this formatting
 .TP
 \fB/reconnect\fP
 reconnect to the currently selected server if connection is lost for any reason
@@ -138,7 +141,11 @@ A log of any errors that couldn't be output through ncurses
 .SH "EXAMPLE RC FILE
 .TP
 \fB~/.config/accirc/config.rc\fR
+/comment set aliases and time for common preference, then connect to a server and join a channel
+
 /alias quit /exit
+
+/time_format %Y-%m-%d %R:%S
 
 /connect daemonic.foonetic.net 6667
 
@@ -148,6 +155,8 @@ A log of any errors that couldn't be output through ncurses
 
 /autojoin #faid3.0
 
+/comment some error handling just in case the desired nick is unavailable or connection gets lost, etc.
+
 /fallback_nick accirc_user
 
 /reconnect
@@ -155,7 +164,7 @@ A log of any errors that couldn't be output through ncurses
 /rejoin_on_kick
 
 .SH "SEE ALSO"
-ncurses(3)
+ncurses(3) strftime(3)
 .SH BUGS
 MIRC colors don't work under screen; auto-reconnecting on drop is unreliable; flicker occurs frequently, since the clock updates every second (this is less noticable in screen or tmux for some reason)
 .SH WWW
