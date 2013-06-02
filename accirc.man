@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "24 Feb 2013"
+.TH ACCIRC 1 "01 Jun 2013"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -31,6 +31,9 @@ changes the client command escape character to <new>, if possible
 .TP
 \fB/ser_escape\fP \fInew\fP
 changes the server raw data escape character to <new>, if possible
+.TP
+\fB/alias\fP \fItrigger\fP \fIsubstitution\fP
+registers an alias; when the client escape is used with the trigger the trigger will be substituted for whatever substitution is specified; for example "/alias part :part" would allow you to use /part in place of :part, note this is a direct text substitution and does no additional handling
 .TP
 \fB/reconnect\fP
 reconnect to the currently selected server if connection is lost for any reason
@@ -135,6 +138,8 @@ A log of any errors that couldn't be output through ncurses
 .SH "EXAMPLE RC FILE
 .TP
 \fB~/.config/accirc/config.rc\fR
+/alias quit /exit
+
 /connect daemonic.foonetic.net 6667
 
 :nick accirc_user
@@ -144,6 +149,8 @@ A log of any errors that couldn't be output through ncurses
 /autojoin #faid3.0
 
 /fallback_nick accirc_user
+
+/reconnect
 
 /rejoin_on_kick
 
