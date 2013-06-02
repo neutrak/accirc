@@ -1024,7 +1024,7 @@ void scrollback_output(int server_index, int output_channel, char *to_output){
 	//regardless of what our output was, timestamp it
 	//for logging, always use the unix timestamp
 	char log_buffer[BUFFER_SIZE];
-	sprintf(log_buffer,"%ju %s",time(NULL),output_buffer);
+	sprintf(log_buffer,"%ju %s",(uintmax_t)(time(NULL)),output_buffer);
 	
 	//for outputting to the user in ncurses, use a custom time format (by default unix timestamp)
 	char time_buffer[BUFFER_SIZE];
@@ -1474,7 +1474,7 @@ void cli_escape_command(char *input_buffer, char *command, char *parameters){
 		if(current_server>=0){
 			scrollback_output(current_server,0,error_buffer);
 		}else{
-			fprintf(error_file,error_buffer);
+			fprintf(error_file,"%s\n",error_buffer);
 		}
 	}else{
 		//we got an argument, since this is always a 1-character escape take the first char
@@ -1498,7 +1498,7 @@ void cli_escape_command(char *input_buffer, char *command, char *parameters){
 		if(current_server>=0){
 			scrollback_output(current_server,0,reply_buffer);
 		}else{
-			fprintf(error_file,reply_buffer);
+			fprintf(error_file,"%s\n",reply_buffer);
 		}
 	}
 }
@@ -1516,7 +1516,7 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 		if(current_server>=0){
 			scrollback_output(current_server,0,error_buffer);
 		}else{
-			fprintf(error_file,error_buffer);
+			fprintf(error_file,"%s\n",error_buffer);
 		}
 	}else{
 		//we got an argument, since this is always a 1-character escape take the first char
@@ -1540,7 +1540,7 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 		if(current_server>=0){
 			scrollback_output(current_server,0,reply_buffer);
 		}else{
-			fprintf(error_file,reply_buffer);
+			fprintf(error_file,"%s\n",reply_buffer);
 		}
 	}
 }
