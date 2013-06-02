@@ -530,9 +530,9 @@ void properly_close(int server_index){
 		if(next_server<MAX_SERVERS){
 			//try to reconnect again and again until we're either connected or we timed out
 			char timeout=FALSE;
-			uintmax_t start_time=time(NULL);
+			time_t start_time=time(NULL);
 			while((!timeout)&&(servers[next_server]==NULL)){
-				uintmax_t current_time=time(NULL);
+				time_t current_time=time(NULL);
 				if((current_time-start_time)>RECONNECT_TIMEOUT){
 					timeout=TRUE;
 				}else{
@@ -1024,7 +1024,7 @@ void scrollback_output(int server_index, int output_channel, char *to_output){
 	//regardless of what our output was, timestamp it
 	//for logging, always use the unix timestamp
 	char log_buffer[BUFFER_SIZE];
-	sprintf(log_buffer,"%ju %s",(uintmax_t)(time(NULL)),output_buffer);
+	sprintf(log_buffer,"%ju %s",time(NULL),output_buffer);
 	
 	//for outputting to the user in ncurses, use a custom time format (by default unix timestamp)
 	char time_buffer[BUFFER_SIZE];
@@ -1791,10 +1791,8 @@ void privmsg_command(char *input_buffer){
 			if(strfind(ctcp,input_buffer)==0){
 				char tmp_buffer[BUFFER_SIZE];
 				substr(tmp_buffer,input_buffer,strlen(ctcp),strlen(input_buffer)-strlen(ctcp)-1);
-//				sprintf(output_buffer,">> %ju *%s %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,tmp_buffer);
 				sprintf(output_buffer,">> *%s %s",servers[current_server]->nick,tmp_buffer);
 			}else{
-//				sprintf(output_buffer,">> %ju <%s> %s",(uintmax_t)(time(NULL)),servers[current_server]->nick,input_buffer);
 				sprintf(output_buffer,">> <%s> %s",servers[current_server]->nick,input_buffer);
 			}
 			
@@ -2034,7 +2032,6 @@ void parse_input(char *input_buffer, char keep_history){
 			
 			//format the text for my viewing benefit (this is also what will go in logs, with a newline)
 			char output_buffer[BUFFER_SIZE];
-	//		sprintf(output_buffer,"%ju %s",(uintmax_t)(time(NULL)),input_buffer);
 			sprintf(output_buffer,"%s",input_buffer);
 			
 			//place my own text in the scrollback for this server and channel
@@ -2325,7 +2322,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	if(!strcmp(tmp_nick,channel)){
 #ifdef DEBUG
 		char sys_call_buffer[BUFFER_SIZE];
-		sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+		sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",time(NULL),nick,text,servers[server_index]->nick);
 		system(sys_call_buffer);
 #endif
 		//set this to the last PM-ing user, so we can later reply if we so choose
@@ -2437,7 +2434,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 #ifdef DEBUG
 		//take any desired additional steps upon ping here (could add notify-send or something, if desired)
 		char sys_call_buffer[BUFFER_SIZE];
-		sprintf(sys_call_buffer,"echo \"%ju ***<%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+		sprintf(sys_call_buffer,"echo \"%ju ***<%s> %s\" | mail -s \"PING\" \"%s\"",time(NULL),nick,text,servers[server_index]->nick);
 		system(sys_call_buffer);
 #endif
 		//audio output
@@ -3310,13 +3307,13 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 //listen for the next relevant thing to happen and handle it accordingly
 //this may be a user input or network read from any connected network
 //this is the body of the "main" loop, called from main
-void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *persistent_input_display_start, int *persistent_tab_completions, uintmax_t *persistent_old_time, char *time_buffer, char *key_combo_buffer, char *pre_history){
+void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *persistent_input_display_start, int *persistent_tab_completions, time_t *persistent_old_time, char *time_buffer, char *key_combo_buffer, char *pre_history){
 	//make local variables out of the persistent variables from higher scopes
 	//note the persistent vars will be re-set to these values at the end of this function
 	int cursor_pos=(*persistent_cursor_pos);
 	int input_display_start=(*persistent_input_display_start);
 	int tab_completions=(*persistent_tab_completions);
-	uintmax_t old_time=(*persistent_old_time);
+	time_t old_time=(*persistent_old_time);
 	
 	
 	//store what the current_server and channel in that server were previously so we know if they change
@@ -3633,7 +3630,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	read_server_data();
 	
 	//unix epoch clock in bottom_border, update it when the time changes
-	uintmax_t current_time=(uintmax_t)(time(NULL));
+	time_t current_time=time(NULL);
 	//if the time has changed
 	if(current_time>old_time){
 		wclear(bottom_border);
@@ -3818,7 +3815,7 @@ int main(int argc, char *argv[]){
 	load_rc(rc_file);
 	
 	//start the clock
-	uintmax_t old_time=(uintmax_t)(time(NULL));
+	time_t old_time=time(NULL);
 	
 	//start the cursor in the user input area
 	wmove(user_input,0,0);
