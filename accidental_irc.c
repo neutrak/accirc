@@ -19,6 +19,13 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+//ssl support via openssl, enable with -D OPENSSL
+//(left as a confguration option for platform support on devices that don't have those libs)
+#ifdef _OPENSSL
+	#include <openssl/rand.h>
+	#include <openssl/ssl.h>
+	#include <openssl/err.h>
+#endif
 //non-blocking
 #include <fcntl.h>
 #include <errno.h>
@@ -133,6 +140,14 @@ struct irc_connection {
 	char fallback_nick[BUFFER_SIZE];
 	//whether to try to reconnect to this server if connection is lost
 	char reconnect;
+	
+#ifdef _OPENSSL
+	//SSL additions
+	//whether to use ssl for this connection or not (since read/write is different depending)
+	char use_ssl;
+	SSL *ssl_handle;
+	SSL_CTX *ssl_context;
+#endif
 	
 	//this data is what the user sees (but is also used for other things)
 	char server_name[BUFFER_SIZE];
@@ -399,6 +414,50 @@ void wcoloroff(WINDOW *win, int fg, int bg){
 	wattroff(win,COLOR_PAIR((fg<<4)|(bg<<0)));
 }
 
+//attempts to connect to given host and port
+//returns a descriptor for the socket used, -1 if connection was unsuccessful
+char make_socket_connection(char *input_buffer, char *host, int port){
+	//the address of the server
+	struct sockaddr_in serv_addr;
+	
+	//set the socket file descriptor
+	//arguments mean ipv4, stream type, and tcp protocol
+	int new_socket_fd=socket(AF_INET,SOCK_STREAM,0);
+	
+	if(new_socket_fd<0){
+		//handle failed socket openings gracefully here (by telling the user and giving up)
+		fprintf(error_file,"Err: Could not open socket\n");
+		strncpy(input_buffer,"\0",BUFFER_SIZE);
+		return -1;
+	}
+	
+	//that's "get host by name"
+	struct hostent *server=gethostbyname(host);
+	if(server==NULL){
+		//handle failed hostname lookups gracefully here (by telling the user and giving up)
+		fprintf(error_file,"Err: Could not find server \"%s\"\n",host);
+		strncpy(input_buffer,"\0",BUFFER_SIZE);
+		return -1;
+	}
+	
+	//configure the server address information
+	bzero((char *)(&serv_addr),sizeof(serv_addr));
+	serv_addr.sin_family=AF_INET;
+	bcopy((char *)(server->h_addr),(char *)(&serv_addr.sin_addr.s_addr),server->h_length);
+	serv_addr.sin_port=htons(port);
+	//if we could successfully connect
+	//(side effects happen during this call to connect())
+	if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
+		//handle failed connections gracefully here (by telling the user and giving up)
+		fprintf(error_file,"Err: Could not connect to server \"%s\"\n",host);
+		strncpy(input_buffer,"\0",BUFFER_SIZE);
+		return -1;
+	}
+	
+	//if we got here and didn't return all was well, return the new socket descriptor!
+	return new_socket_fd;
+}
+
 //returns TRUE if successful
 //FALSE on error
 char safe_send(int socket, char *buffer){
@@ -411,10 +470,11 @@ char safe_send(int socket, char *buffer){
 	return TRUE;
 }
 
+
 //returns TRUE if successful
 //FALSE on error
 char safe_recv(int socket, char *buffer){
-	int bytes_transferred=recv(socket,buffer,BUFFER_SIZE,0);
+	int bytes_transferred=recv(socket,buffer,BUFFER_SIZE-1,0);
 	if(bytes_transferred<=0){
 		fprintf(error_file,"Err: Could not receive data\n");
 		return FALSE;
@@ -426,6 +486,24 @@ char safe_recv(int socket, char *buffer){
 	}
 	return TRUE;
 }
+
+#ifdef _OPENSSL
+//returns TRUE if successful
+//FALSE on error
+char safe_ssl_send(SSL *ssl_handle, int socket, char *buffer){
+	//properly terminate the buffer just in case
+	buffer[BUFFER_SIZE-1]='\0';
+/*
+	if(SSL_send(ssl_handle,socket,buffer,strlen(buffer),0)<0){
+		fprintf(error_file,"Err: Could not send data\n");
+		return FALSE;
+	}
+*/
+	SSL_write(ssl_handle,buffer,strlen(buffer));
+	return TRUE;
+}
+
+#endif //_OPENSSL
 
 //formats the given time and stores the result in the given buffer
 void custom_format_time(char *time_buffer, time_t current_unixtime){
@@ -450,6 +528,11 @@ void properly_close(int server_index){
 	char reconnect_nick[BUFFER_SIZE];
 	char reconnect_ident[BUFFER_SIZE];
 	
+#ifdef _OPENSSL
+	//whether to use ssl when we reconnect
+	char reconnect_with_ssl;
+#endif
+	
 	//if we'll be reconnecting to this server
 	if(reconnect_this){
 		//remember all the necessary information in order to reconnect
@@ -470,6 +553,10 @@ void properly_close(int server_index){
 		
 		strncpy(reconnect_nick,servers[server_index]->nick,BUFFER_SIZE);
 		strncpy(reconnect_ident,servers[server_index]->ident,BUFFER_SIZE);
+		
+#ifdef _OPENSSL
+		reconnect_with_ssl=servers[server_index]->use_ssl;
+#endif
 	}
 	
 	//clean up the server
@@ -522,6 +609,13 @@ void properly_close(int server_index){
 	if(reconnect_this && (!done)){
 		char reconnect_command[BUFFER_SIZE];
 		sprintf(reconnect_command,"%cconnect %s %i",client_escape,reconnect_host,reconnect_port);
+		
+#ifdef _OPENSSL
+		if(reconnect_with_ssl){
+			sprintf(reconnect_command,"%csconnect %s %i",client_escape,reconnect_host,reconnect_port);
+		//else keep the default reconnect_command that was set just above this
+		}
+#endif
 		
 		//find where the next connection will go so we know if the command was successful
 		int next_server;
@@ -1209,6 +1303,16 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	}
 	
 	servers[server_index]=(irc_connection*)(malloc(sizeof(irc_connection)));
+
+#ifdef _OPENSSL
+	//by default don't use ssl; this will be set by sconnect as needed
+	servers[server_index]->use_ssl=FALSE;
+	
+	//clear out ssl-specific structures
+	servers[server_index]->ssl_handle=NULL;
+	servers[server_index]->ssl_context=NULL;
+#endif
+	
 	//initialize the buffer to all NULL bytes
 	int n;
 	for(n=0;n<BUFFER_SIZE;n++){
@@ -1342,8 +1446,8 @@ void add_history_entry(char *input_buffer){
 	input_line=-1;
 }
 
-//the "connect" client command handling
-void connect_command(char *input_buffer, char *command, char *parameters){
+//the "connect" client command handling, and "sconnect" via the ssl paramater (parsed out earlier)
+void connect_command(char *input_buffer, char *command, char *parameters, char ssl){
 	char host[BUFFER_SIZE];
 	char port_buffer[BUFFER_SIZE];
 	int first_space=strfind(" ",parameters);
@@ -1364,54 +1468,11 @@ void connect_command(char *input_buffer, char *command, char *parameters){
 		int port=atoi(port_buffer);
 		
 		//handle a new connection
-		//make a socket file descriptor
-		int new_socket_fd;
-		
-		//the address of the server
-		struct sockaddr_in serv_addr;
-		
-		//set the socket file descriptor
-		//arguments mean ipv4, stream type, and tcp protocol
-		new_socket_fd=socket(AF_INET,SOCK_STREAM,0);
-		
-		if(new_socket_fd<0){
-			//handle failed socket openings gracefully here (by telling the user and giving up)
-			fprintf(error_file,"Err: Could not open socket\n");
-			strncpy(input_buffer,"\0",BUFFER_SIZE);
+		int new_socket_fd=make_socket_connection(input_buffer,host,port);
+		//if the connection was unsuccessful give up
+		if(new_socket_fd==-1){
 			return;
 		}
-		
-		//that's "get host by name"
-		struct hostent *server=gethostbyname(host);
-		if(server==NULL){
-			//handle failed hostname lookups gracefully here (by telling the user and giving up)
-			fprintf(error_file,"Err: Could not find server \"%s\"\n",host);
-			strncpy(input_buffer,"\0",BUFFER_SIZE);
-			return;
-		}
-		
-		//configure the server address information
-		bzero((char *)(&serv_addr),sizeof(serv_addr));
-		serv_addr.sin_family=AF_INET;
-		bcopy((char *)(server->h_addr),(char *)(&serv_addr.sin_addr.s_addr),server->h_length);
-		serv_addr.sin_port=htons(port);
-		//if we could successfully connect
-		//(side effects happen during this call to connect())
-		if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
-			//handle failed connections gracefully here (by telling the user and giving up)
-			fprintf(error_file,"Err: Could not connect to server \"%s\"\n",host);
-			strncpy(input_buffer,"\0",BUFFER_SIZE);
-			return;
-		}
-		
-		//clear out the server list because we're probably gonna be modifying it
-		wclear(server_list);
-		wmove(server_list,0,0);
-		
-		//set the socket non-blocking
-		int flags=fcntl(new_socket_fd,F_GETFL,0);
-		flags=(flags==-1)?0:flags;
-		fcntl(new_socket_fd,F_SETFL,flags|O_NONBLOCK);
 		
 		//a flag to say if we've already added the sever
 		char added=FALSE;
@@ -1427,17 +1488,61 @@ void connect_command(char *input_buffer, char *command, char *parameters){
 				
 				//don't add this server again
 				added=TRUE;
-				
-				//output the server information (since we set current_server to this, it'll get output anyway on the next loop)
-			}else if(servers[server_index]!=NULL){
-				//another server, output it to the server list
-				wprintw(server_list,servers[server_index]->server_name);
-				wprintw(server_list," | ");
 			}
 		}
 		
-		//refresh the server list
-		wrefresh(server_list);
+		//NOTE: if ssl support is not compiled in the ssl parameter of this function is just totally ignored
+		//(this is intentional behavior)
+#ifdef _OPENSSL
+		//if this is an ssl connection, do some handshaking (the socket is known to be valid if we didn't return by now)
+		if(ssl){
+			//remember we're using SSL, this will be important for all reads and writes
+			servers[current_server]->use_ssl=TRUE;
+			
+			//register error strings for libcrypto and libssl
+			SSL_load_error_strings();
+			//register ciphers and digests
+			SSL_library_init();
+			
+			//new context stating we are client using SSL 2 or SSL 3
+			servers[current_server]->ssl_context=SSL_CTX_new(SSLv23_client_method());
+			if(servers[current_server]->ssl_context==NULL){
+				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (context error)\n",host,port);
+				properly_close(current_server);
+				return;
+			}
+			
+			//create an ssl struct for the connection based on the above context
+			servers[current_server]->ssl_handle=SSL_new(servers[current_server]->ssl_context);
+			if(servers[current_server]->ssl_handle==NULL){
+				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (handle error)\n",host,port);
+				properly_close(current_server);
+				return;
+			}
+			
+			//associate the SSL struct with the socket
+			if(!SSL_set_fd(servers[current_server]->ssl_handle,new_socket_fd)){
+				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (set_fd error)\n",host,port);
+				properly_close(current_server);
+				return;
+			}
+			
+			//do the SSL handshake
+			if(SSL_connect(servers[current_server]->ssl_handle)!=1){
+				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (hanshake error)\n",host,port);
+				properly_close(current_server);
+				return;
+			}
+		}
+#endif
+		
+		//set the socket non-blocking
+		int flags=fcntl(new_socket_fd,F_GETFL,0);
+		flags=(flags==-1)?0:flags;
+		fcntl(new_socket_fd,F_SETFL,flags|O_NONBLOCK);
+		
+		//output the server information (note we set current_server to the new index in add_server())
+		refresh_server_list();
 	}
 }
 
@@ -1457,7 +1562,15 @@ void exit_command(char *input_buffer, char *command, char *parameters){
 	int n;
 	for(n=0;n<MAX_SERVERS;n++){
 		if(servers[n]!=NULL){
+#ifdef _OPENSSL
+			if(servers[n]->use_ssl){
+				safe_ssl_send(servers[n]->ssl_handle,servers[n]->socket_fd,quit_message);
+			}else{
+#endif
 			safe_send(servers[n]->socket_fd,quit_message);
+#ifdef _OPENSSL
+			}
+#endif
 		}
 	}
 }
@@ -1783,7 +1896,15 @@ void privmsg_command(char *input_buffer){
 			//format the text for the server's benefit
 			char output_buffer[BUFFER_SIZE];
 			sprintf(output_buffer,"PRIVMSG %s :%s\n",servers[current_server]->channel_name[servers[current_server]->current_channel],input_buffer);
+#ifdef _OPENSSL
+			if(servers[current_server]->use_ssl){
+				safe_ssl_send(servers[current_server]->ssl_handle,servers[current_server]->socket_fd,output_buffer);
+			}else{
+#endif
 			safe_send(servers[current_server]->socket_fd,output_buffer);
+#ifdef _OPENSSL
+			}
+#endif
 			
 			//then format the text for my viewing benefit (this is also what will go in logs, with a newline)
 			//accounting specially for if the user sent a CTCP ACTION
@@ -1899,7 +2020,12 @@ void parse_input(char *input_buffer, char keep_history){
 		//this set of commands does not depend on being connected to a server
 		//connect to a server
 		if(!strcmp("connect",command)){
-			connect_command(input_buffer,command,parameters);
+			connect_command(input_buffer,command,parameters,FALSE);
+#ifdef _OPENSSL
+		//connect to a server with encryption
+		}else if(!strcmp("sconnect",command)){
+			connect_command(input_buffer,command,parameters,TRUE);
+#endif
 		}else if(!strcmp(command,"exit")){
 			exit_command(input_buffer,command,parameters);
 		//sleep command
@@ -2029,7 +2155,15 @@ void parse_input(char *input_buffer, char keep_history){
 		if(current_server>=0){
 			char to_send[BUFFER_SIZE];
 			sprintf(to_send,"%s\n",input_buffer);
+#ifdef _OPENSSL
+			if(servers[current_server]->use_ssl){
+				safe_ssl_send(servers[current_server]->ssl_handle,servers[current_server]->socket_fd,to_send);
+			}else{
+#endif
 			safe_send(servers[current_server]->socket_fd,to_send);
+#ifdef _OPENSSL
+			}
+#endif
 			
 			//format the text for my viewing benefit (this is also what will go in logs, with a newline)
 			char output_buffer[BUFFER_SIZE];
@@ -2780,7 +2914,15 @@ void parse_server(int server_index){
 	if(!strcmp(command,"PING")){
 		char to_send[BUFFER_SIZE];
 		sprintf(to_send,"PONG :%s",parameters);
+#ifdef _OPENSSL
+		if(servers[server_index]->use_ssl){
+			safe_ssl_send(servers[server_index]->ssl_handle,servers[server_index]->socket_fd,to_send);
+		}else{
+#endif
 		safe_send(servers[server_index]->socket_fd,to_send);
+#ifdef _OPENSSL
+		}
+#endif
 	//if we got an error, close the link and clean up the structures
 	}else if(!strcmp(command,"ERROR")){
 		properly_close(server_index);
@@ -2859,7 +3001,15 @@ void parse_server(int server_index){
 					strncpy(servers[server_index]->fallback_nick,new_nick,BUFFER_SIZE);
 					
 					sprintf(new_nick,"NICK %s\n",servers[server_index]->fallback_nick);
+#ifdef _OPENSSL
+					if(servers[server_index]->use_ssl){
+						safe_ssl_send(servers[server_index]->ssl_handle,servers[server_index]->socket_fd,new_nick);
+					}else{
+#endif
 					safe_send(servers[server_index]->socket_fd,new_nick);
+#ifdef _OPENSSL
+					}
+#endif
 				}
 			//a message from another user
 			}else{
@@ -3123,8 +3273,19 @@ void read_server_data(){
 		if(servers[server_index]!=NULL){
 			//read a buffer_size at a time for speed (if you read a character at a time the kernel re-schedules that each operation)
 			char server_in_buffer[BUFFER_SIZE];
+			int bytes_transferred;
 			//the -1 here is so we always have a byte for null-termination
-			int bytes_transferred=recv(servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1,0);
+#ifdef _OPENSSL
+			if(servers[server_index]->use_ssl){
+//				bytes_transferred=SSL_recv(servers[server_index]->ssl_handle,servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1,0);
+				bytes_transferred=SSL_read(servers[server_index]->ssl_handle,server_in_buffer,BUFFER_SIZE-1);
+			}else{
+#endif
+			bytes_transferred=recv(servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1,0);
+#ifdef _OPENSSL
+			}
+#endif
+			
 			if((bytes_transferred<=0)&&(errno!=EAGAIN)){
 				//handle connection errors gracefully here (as much as possible)
 				fprintf(error_file,"Err: connection error with server %i, host %s\n",server_index,servers[server_index]->server_name);
