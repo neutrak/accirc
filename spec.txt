@@ -15,10 +15,9 @@ irc client (accidental IRC) (// indicates "tentatively done")
 		MIRC colors //some work done but incompabilities between terminals are a nightmare
 //	neulang if possible //I'll rewrite it when I have that language implemented worth a damn
 
-to refactor:
-	definitely
-//		void parse_input()
-//		void parse_server()
-		int main()
+todo:
+	SSL support (TLS) (/sconnect)
+	handle SIGHUP cleanly
+	scroll-by-search feature (center searched term where possible)
 
 

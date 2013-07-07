@@ -49,7 +49,7 @@
 //the number of lines of scrollback to store (per channel, and for input history) (each line being BUFFER_SIZE chars long)
 #define MAX_SCROLLBACK 1000
 //maximum number of users in a channel
-#define MAX_NAMES 200
+#define MAX_NAMES 8000
 //maximum number of aliases that can be registered
 #define MAX_ALIASES 128
 
@@ -1441,6 +1441,7 @@ void connect_command(char *input_buffer, char *command, char *parameters){
 	}
 }
 
+//TODO: handle SIGHUP by cleanly exiting ("accirc: terminal closed" or something)
 //the "exit" client command
 void exit_command(char *input_buffer, char *command, char *parameters){
 	done=TRUE;
