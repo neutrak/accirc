@@ -460,21 +460,46 @@ char make_socket_connection(char *input_buffer, char *host, int port){
 
 //returns TRUE if successful
 //FALSE on error
-char safe_send(int socket, char *buffer){
+char server_write(int server_index, char *buffer){
 	//properly terminate the buffer just in case
 	buffer[BUFFER_SIZE-1]='\0';
-	if(send(socket,buffer,strlen(buffer),0)<0){
+#ifdef _OPENSSL
+	if(servers[server_index]->use_ssl){
+		if(SSL_write(servers[server_index]->ssl_handle,buffer,strlen(buffer))<0){
+			fprintf(error_file,"Err: Could not send (ecrypted) data\n");
+			return FALSE;
+		}
+	}else{
+#endif
+	if(write(servers[server_index]->socket_fd,buffer,strlen(buffer))<0){
 		fprintf(error_file,"Err: Could not send data\n");
 		return FALSE;
 	}
+#ifdef _OPENSSL
+	}
+#endif
 	return TRUE;
 }
 
 
 //returns TRUE if successful
 //FALSE on error
-char safe_recv(int socket, char *buffer){
-	int bytes_transferred=recv(socket,buffer,BUFFER_SIZE-1,0);
+char server_read(int server_index, char *buffer){
+	int bytes_transferred;
+#ifdef _OPENSSL
+	if(servers[server_index]->use_ssl){
+		bytes_transferred=SSL_read(servers[server_index]->ssl_handle,buffer,BUFFER_SIZE-1);
+	}else{
+#endif
+	bytes_transferred=read(servers[server_index]->socket_fd,buffer,BUFFER_SIZE-1);
+#ifdef _OPENSSL
+	}
+#endif
+	//if there's nothing to read right now just do nothing and check again later
+	if(errno==EAGAIN){
+		return FALSE;
+	}
+	
 	if(bytes_transferred<=0){
 		fprintf(error_file,"Err: Could not receive data\n");
 		return FALSE;
@@ -486,24 +511,6 @@ char safe_recv(int socket, char *buffer){
 	}
 	return TRUE;
 }
-
-#ifdef _OPENSSL
-//returns TRUE if successful
-//FALSE on error
-char safe_ssl_send(SSL *ssl_handle, int socket, char *buffer){
-	//properly terminate the buffer just in case
-	buffer[BUFFER_SIZE-1]='\0';
-/*
-	if(SSL_send(ssl_handle,socket,buffer,strlen(buffer),0)<0){
-		fprintf(error_file,"Err: Could not send data\n");
-		return FALSE;
-	}
-*/
-	SSL_write(ssl_handle,buffer,strlen(buffer));
-	return TRUE;
-}
-
-#endif //_OPENSSL
 
 //formats the given time and stores the result in the given buffer
 void custom_format_time(char *time_buffer, time_t current_unixtime){
@@ -731,6 +738,13 @@ void refresh_server_list(){
 					was_pingged=((was_pingged)||(servers[n]->was_pingged[n1]));
 				}
 			}
+			
+#ifdef _OPENSSL
+			//if this server is using encryption for our connection display that with a "+"
+			if(servers[n]->use_ssl){
+				wprintw(server_list,"+");
+			}
+#endif
 			
 			//if it's the active server bold it
 			if(current_server==n){
@@ -1562,15 +1576,7 @@ void exit_command(char *input_buffer, char *command, char *parameters){
 	int n;
 	for(n=0;n<MAX_SERVERS;n++){
 		if(servers[n]!=NULL){
-#ifdef _OPENSSL
-			if(servers[n]->use_ssl){
-				safe_ssl_send(servers[n]->ssl_handle,servers[n]->socket_fd,quit_message);
-			}else{
-#endif
-			safe_send(servers[n]->socket_fd,quit_message);
-#ifdef _OPENSSL
-			}
-#endif
+			server_write(n,quit_message);
 		}
 	}
 }
@@ -1896,15 +1902,7 @@ void privmsg_command(char *input_buffer){
 			//format the text for the server's benefit
 			char output_buffer[BUFFER_SIZE];
 			sprintf(output_buffer,"PRIVMSG %s :%s\n",servers[current_server]->channel_name[servers[current_server]->current_channel],input_buffer);
-#ifdef _OPENSSL
-			if(servers[current_server]->use_ssl){
-				safe_ssl_send(servers[current_server]->ssl_handle,servers[current_server]->socket_fd,output_buffer);
-			}else{
-#endif
-			safe_send(servers[current_server]->socket_fd,output_buffer);
-#ifdef _OPENSSL
-			}
-#endif
+			server_write(current_server,output_buffer);
 			
 			//then format the text for my viewing benefit (this is also what will go in logs, with a newline)
 			//accounting specially for if the user sent a CTCP ACTION
@@ -2155,15 +2153,7 @@ void parse_input(char *input_buffer, char keep_history){
 		if(current_server>=0){
 			char to_send[BUFFER_SIZE];
 			sprintf(to_send,"%s\n",input_buffer);
-#ifdef _OPENSSL
-			if(servers[current_server]->use_ssl){
-				safe_ssl_send(servers[current_server]->ssl_handle,servers[current_server]->socket_fd,to_send);
-			}else{
-#endif
-			safe_send(servers[current_server]->socket_fd,to_send);
-#ifdef _OPENSSL
-			}
-#endif
+			server_write(current_server,to_send);
 			
 			//format the text for my viewing benefit (this is also what will go in logs, with a newline)
 			char output_buffer[BUFFER_SIZE];
@@ -2914,15 +2904,7 @@ void parse_server(int server_index){
 	if(!strcmp(command,"PING")){
 		char to_send[BUFFER_SIZE];
 		sprintf(to_send,"PONG :%s",parameters);
-#ifdef _OPENSSL
-		if(servers[server_index]->use_ssl){
-			safe_ssl_send(servers[server_index]->ssl_handle,servers[server_index]->socket_fd,to_send);
-		}else{
-#endif
-		safe_send(servers[server_index]->socket_fd,to_send);
-#ifdef _OPENSSL
-		}
-#endif
+		server_write(server_index,to_send);
 	//if we got an error, close the link and clean up the structures
 	}else if(!strcmp(command,"ERROR")){
 		properly_close(server_index);
@@ -3001,15 +2983,7 @@ void parse_server(int server_index){
 					strncpy(servers[server_index]->fallback_nick,new_nick,BUFFER_SIZE);
 					
 					sprintf(new_nick,"NICK %s\n",servers[server_index]->fallback_nick);
-#ifdef _OPENSSL
-					if(servers[server_index]->use_ssl){
-						safe_ssl_send(servers[server_index]->ssl_handle,servers[server_index]->socket_fd,new_nick);
-					}else{
-#endif
-					safe_send(servers[server_index]->socket_fd,new_nick);
-#ifdef _OPENSSL
-					}
-#endif
+					server_write(server_index,new_nick);
 				}
 			//a message from another user
 			}else{
@@ -3277,11 +3251,10 @@ void read_server_data(){
 			//the -1 here is so we always have a byte for null-termination
 #ifdef _OPENSSL
 			if(servers[server_index]->use_ssl){
-//				bytes_transferred=SSL_recv(servers[server_index]->ssl_handle,servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1,0);
 				bytes_transferred=SSL_read(servers[server_index]->ssl_handle,server_in_buffer,BUFFER_SIZE-1);
 			}else{
 #endif
-			bytes_transferred=recv(servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1,0);
+			bytes_transferred=read(servers[server_index]->socket_fd,server_in_buffer,BUFFER_SIZE-1);
 #ifdef _OPENSSL
 			}
 #endif
