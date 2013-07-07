@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "02 Jun 2013"
+.TH ACCIRC 1 "07 Jul 2013"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -21,7 +21,10 @@ escapes the first character of the input string (in case you want a literal : or
 sends raw data to the current server (if there is one)
 .TP
 \fB/connect\fP \fIhost\fP \fIport\fP
-connects to an irc server at <host> on port <port>
+attempts to connect to an irc server at <host> on port <port>
+.TP
+\fB/sconnect\fP \fIhost\fP \fIport\fP
+attempts to connect to an irc server at <host> on port <port> using ssl (via openssl) (the "nossl" make option disables this)
 .TP
 \fB/exit\fP [ message ]
 sends a QUIT to every irc server you're connected to
@@ -146,6 +149,10 @@ A log of any errors that couldn't be output through ncurses
 /alias quit /exit
 
 /time_format %Y-%m-%d %R:%S
+
+/comment ssl connection commented out
+
+/comment /sconnect daemonic.foonetic.net 7001
 
 /connect daemonic.foonetic.net 6667
 
