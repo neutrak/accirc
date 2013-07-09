@@ -92,6 +92,9 @@
 //how many completion attempts to give the user before telling them the possiblities
 #define COMPLETION_ATTEMPTS 2
 
+//how many user names to output when resolving non-unique tab completions
+#define MAX_OUTPUT_NICKS 8
+
 enum {
 	MIRC_WHITE,
 	MIRC_BLACK,
@@ -1167,6 +1170,9 @@ void scrollback_output(int server_index, int output_channel, char *to_output){
 	//but we don't want the read_buffer changed above
 //	strncpy(scrollback[scrollback_line],servers[server_index]->read_buffer,BUFFER_SIZE);
 	strncpy(scrollback[scrollback_line],output_buffer,BUFFER_SIZE);
+	
+	//defensively null-terminate, just in case
+	scrollback[scrollback_line][BUFFER_SIZE-1]='\0';
 	
 	//indicate that there is new text if the user is not currently in this channel
 	//through the channel_list and server_list
@@ -3404,6 +3410,7 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 			sprintf(output_text,"accirc: Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->channel_name[servers[current_server]->current_channel]);
 			
 			//iterate through all tne nicks in this channel, if we find a possible completion, output that
+			int output_nicks=0;
 			for(n=0;n<MAX_NAMES;n++){
 				if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
 					char nick_to_match[BUFFER_SIZE];
@@ -3412,7 +3419,12 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 					
 					//if this nick started with the partial_nick
 					if(strfind(partial_nick,nick_to_match)==0){
-						sprintf(output_text,"%s%s ",output_text,nick_to_match);
+						if(output_nicks<MAX_OUTPUT_NICKS){
+							sprintf(output_text,"%s%s ",output_text,nick_to_match);
+						}else if(output_nicks==MAX_OUTPUT_NICKS){
+							sprintf(output_text,"%s%s",output_text,LINE_OVERFLOW_ERROR);
+						}
+						output_nicks++;
 					}
 				}
 			}
