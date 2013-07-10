@@ -11,6 +11,8 @@
 #include <ctype.h>
 #include <string.h>
 #include <sys/stat.h>
+//signals
+#include <signal.h>
 //ncurses
 #include <ncurses.h>
 //networking
@@ -69,6 +71,9 @@
 
 //and in case the user doesn't give a proper quit message
 #define DEFAULT_QUIT_MESSAGE "accidental_irc exited"
+
+//for the SIGHUP handler
+#define DEFAULT_TERM_LOST_MESSAGE "accidental_irc exited (lost terminal)"
 
 //for reconnecting we should re-send user information, it'll use this
 #define DEFAULT_USER "1 2 3 4"
@@ -521,6 +526,13 @@ void custom_format_time(char *time_buffer, time_t current_unixtime){
 	strftime(time_buffer,BUFFER_SIZE,time_format,current_localtime);
 	
 	//NOTE: apparently current_localtime gets free'd by strftime or something; definitely don't do it here
+}
+
+//handles SIGHUP by sending a default exit message to every server currently in use
+void terminal_close(int signal){
+	char quit_buffer[BUFFER_SIZE];
+	sprintf(quit_buffer,"%cexit %s",client_escape,DEFAULT_TERM_LOST_MESSAGE);
+	parse_input(quit_buffer,FALSE);
 }
 
 void properly_close(int server_index){
@@ -1566,7 +1578,6 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 	}
 }
 
-//TODO: handle SIGHUP by cleanly exiting ("accirc: terminal closed" or something)
 //the "exit" client command
 void exit_command(char *input_buffer, char *command, char *parameters){
 	done=TRUE;
@@ -3897,6 +3908,11 @@ int main(int argc, char *argv[]){
 	if(!verify_or_make_dir(log_dir)){
 		fprintf(error_file,"Warn: Could not find or create the log directory\n");
 		can_log=FALSE;
+	}
+	
+	//register signal handlers
+	if(signal(SIGHUP,terminal_close)==SIG_ERR){
+		fprintf(error_file,"Warn: Could not register the SIGHUP signal handler (closing terminal will time out)\n");
 	}
 	
 	//initialize the global variables appropriately
