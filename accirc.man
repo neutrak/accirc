@@ -47,6 +47,9 @@ reconnect to the currently selected server if connection is lost for any reason
 \fB/no_reconnect\fP
 don't reconnect to the currently selected server
 .TP
+\fB/manual_reconnect\fP
+attempt to manually reconnect to this server, even if the connection is not detected as dropped
+.TP
 \fB/log\fP
 keep logs for the currently selected server (this is the default)
 .TP

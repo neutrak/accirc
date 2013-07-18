@@ -549,6 +549,7 @@ void properly_close(int server_index){
 	char *reconnect_channels[MAX_CHANNELS];
 	char reconnect_nick[BUFFER_SIZE];
 	char reconnect_ident[BUFFER_SIZE];
+	char reconnect_fallback_nick[BUFFER_SIZE];
 	
 #ifdef _OPENSSL
 	//whether to use ssl when we reconnect
@@ -575,6 +576,12 @@ void properly_close(int server_index){
 		
 		strncpy(reconnect_nick,servers[server_index]->nick,BUFFER_SIZE);
 		strncpy(reconnect_ident,servers[server_index]->ident,BUFFER_SIZE);
+		
+		//if a fallback nick was set, use that as the fallback; else use the nick the user is currently using
+		strncpy(reconnect_fallback_nick,servers[server_index]->nick,BUFFER_SIZE);
+		if(!strcmp(servers[server_index]->fallback_nick,"")){
+			strncpy(reconnect_fallback_nick,servers[server_index]->fallback_nick,BUFFER_SIZE);
+		}
 		
 #ifdef _OPENSSL
 		reconnect_with_ssl=servers[server_index]->use_ssl;
@@ -674,6 +681,10 @@ void properly_close(int server_index){
 				parse_input(command_buffer,FALSE);
 				sprintf(command_buffer,"%cuser %s",server_escape,DEFAULT_USER);
 				parse_input(command_buffer,FALSE);
+				
+				sprintf(command_buffer,"%cfallback_nick %s",client_escape,reconnect_fallback_nick);
+				parse_input(command_buffer,FALSE);
+				
 				if(strcmp(reconnect_ident,"")!=0){
 					sprintf(command_buffer,"%cautoident %s",client_escape,reconnect_ident);
 					parse_input(command_buffer,FALSE);
@@ -2148,6 +2159,14 @@ void parse_input(char *input_buffer, char keep_history){
 			}else if(!strcmp(command,"no_reconnect")){
 				servers[current_server]->reconnect=FALSE;
 				scrollback_output(current_server,0,"accirc: reconnect set to FALSE");
+			}else if(!strcmp(command,"manual_reconnect")){
+				char old_reconnect_setting=servers[current_server]->reconnect;
+				servers[current_server]->reconnect=TRUE;
+				scrollback_output(current_server,0,"accirc: attempting a manual reconnect, please hold while we throw some bits through the tubes...");
+				properly_close(current_server);
+				if(servers[current_server]!=NULL){
+					servers[current_server]->reconnect=old_reconnect_setting;
+				}
 			}else if(!strcmp(command,"log")){
 				log_command();
 			}else if(!strcmp(command,"no_log")){
