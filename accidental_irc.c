@@ -1916,6 +1916,63 @@ void no_log_command(){
 	}
 }
 
+//the "rsearch" client command (searches from bottom to top for a string)
+void rsearch_command(char *input_buffer, char *command, char *parameters, int old_scrollback_end){
+	if(!strcmp(parameters,"")){
+		//too few arguments given, do nothing (give up)
+		
+		//tell the user there were too few arguments
+		char error_buffer[BUFFER_SIZE];
+		sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+		
+		//use the ncurses UI to notify the user
+		//NOTE: the rsearch command is only called after a check for current_server being valid from within parse_input
+		//this means we can depend on current server being usable at this point
+		//(and the current channel is always valid, no channels connected goes to raw server output area)
+		scrollback_output(current_server,servers[current_server]->current_channel,error_buffer);
+	}else{
+		//the entire scrollback for the current channel
+		char **channel_scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+		
+		//the line to start the reverse search at
+		int search_line=0;
+		//if the user is already viewing history start from where they are viewing
+		if(old_scrollback_end>=0){
+			search_line=old_scrollback_end;
+		}else{
+			//if they are not viewing history start from the end
+			int n;
+			for(n=0;n<MAX_SCROLLBACK;n++){
+				if(channel_scrollback[n]!=NULL){
+					search_line++;
+				}
+			}
+		}
+		
+		//search for the given parameters in every line from the end up until either they are found or we run out of lines
+		while(search_line>=0){
+			//(the null check here is defensive, since there are nulls in the structure, but none of the lines we're checking should be null)
+			if((channel_scrollback[search_line]!=NULL) && (strfind(parameters,channel_scrollback[search_line])>=0)){
+				break;
+			}
+			
+			search_line--;
+		}
+		
+		//if we didn't run out of lines, we found the string in question, set the user's display to that and update
+		if(search_line>=0){
+			//the +1 here is because scrollback_end is not inclusive (output loops with a  a "<scrollback_end" condition)
+			scrollback_end=(search_line+1);
+			refresh_channel_text();
+		//display an error if the term was not found
+		}else{
+			char error_buffer[BUFFER_SIZE];
+			sprintf(error_buffer,"accirc: Could not find search term \"%s\"",parameters);
+			scrollback_output(current_server,servers[current_server]->current_channel,error_buffer);
+		}
+	}
+}
+
 
 //privmsg from user input (treated as a pseudo-command)
 void privmsg_command(char *input_buffer){
@@ -1987,6 +2044,8 @@ char handle_aliased_command(char *command, char *parameters){
 //parse user's input (note this is conextual based on current server and channel)
 //because some input may be given recursively or from key bindings, there is a history flag to tell if we should actually consider this input in the history
 void parse_input(char *input_buffer, char keep_history){
+	//store the old scrollback for rsearch
+	int old_scrollback_end=scrollback_end;
 	//go to the end of scrollback because why would the user input something and not want to see it?
 	scrollback_end=-1;
 	
@@ -2171,6 +2230,19 @@ void parse_input(char *input_buffer, char keep_history){
 				log_command();
 			}else if(!strcmp(command,"no_log")){
 				no_log_command();
+			//TODO: write the commands (probably in seperate functions) for the empty cases below
+			}else if(!strcmp(command,"rsearch")){
+				rsearch_command(input_buffer,command,parameters,old_scrollback_end);
+/*
+			}else if(!strcmp(command,"up")){
+				up_command(input_buffer,command,parameters);
+			}else if(!strcmp(command,"down")){
+				down_command(input_buffer,command,parameters);
+			}else if(!strcmp(command,"head")){
+				head_command();
+			}else if(!strcmp(command,"tail")){
+				tail_command();
+*/
 			//unknown command error
 			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
 			}else if(!handle_aliased_command(command,parameters)){

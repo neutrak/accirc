@@ -56,6 +56,9 @@ keep logs for the currently selected server (this is the default)
 \fB/no_log\fP
 don't keep logs for the currently selected server
 .TP
+\fB/rsearch\fP \fIsearch_string\fP
+searches up from the current scroll position for the given search_string (exact string search, case sensitive, no globbing or regexes)
+.TP
 \fB/sl\fP
 sets active server one left of current server
 .TP
