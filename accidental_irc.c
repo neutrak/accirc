@@ -1973,6 +1973,34 @@ void rsearch_command(char *input_buffer, char *command, char *parameters, int ol
 	}
 }
 
+//the "head" client command (scrolls to top of scrollback area)
+void head_command(){
+	char **channel_scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+	int line_count=0;
+	int n;
+	for(n=0;n<MAX_SCROLLBACK;n++){
+		if(channel_scrollback[n]!=NULL){
+			line_count++;
+		}
+	}
+	
+	//if there are any lines at all, go to the first one
+	if(line_count>0){
+		scrollback_end=1;
+	//otherwise go to the last (there are none, so really there is no "last", but you know)
+	}else{
+		scrollback_end=-1;
+	}
+	
+	refresh_channel_text();
+}
+
+//the "tail" client command (scrolls to bottom of scrollback area)
+void tail_command(){
+	//NOTE: scrollback_end got set to -1 at the start of parse_input so tail just needs to update the display
+	refresh_channel_text();
+}
+
 
 //privmsg from user input (treated as a pseudo-command)
 void privmsg_command(char *input_buffer){
@@ -2238,11 +2266,11 @@ void parse_input(char *input_buffer, char keep_history){
 				up_command(input_buffer,command,parameters);
 			}else if(!strcmp(command,"down")){
 				down_command(input_buffer,command,parameters);
+*/
 			}else if(!strcmp(command,"head")){
 				head_command();
 			}else if(!strcmp(command,"tail")){
 				tail_command();
-*/
 			//unknown command error
 			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
 			}else if(!handle_aliased_command(command,parameters)){
