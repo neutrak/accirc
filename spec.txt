@@ -6,7 +6,7 @@ irc client (accidental IRC) (// indicates "tentatively done")
 //		/ will send it to client command handling code
 //		\: or \/ for a literal
 //	tab-completed nicks (using a system very similar to what apathy IRC already does)
-	needs a live search feature
+//	needs a live search feature
 //	needs to be tolerant to disconnects
 //		attempt to reconnect
 //		not die hard or eat RAM or some shit
@@ -15,9 +15,10 @@ irc client (accidental IRC) (// indicates "tentatively done")
 		MIRC colors //some work done but incompabilities between terminals are a nightmare
 //	neulang if possible //I'll rewrite it when I have that language implemented worth a damn
 
+//	SSL support (TLS) (/sconnect) //openssl used for this
+//	handle SIGHUP cleanly
+//	scroll-by-search feature (center searched term where possible) //decided searched term should display at bottom
+
 todo:
-	SSL support (TLS) (/sconnect)
-	handle SIGHUP cleanly
-	scroll-by-search feature (center searched term where possible)
 
 
