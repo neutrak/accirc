@@ -1470,7 +1470,7 @@ void add_history_entry(char *input_buffer){
 	//note input_line can be used here since we're re-setting it after a user input anyway
 	for(input_line=0;(input_line<MAX_SCROLLBACK)&&(input_history[input_line]!=NULL);input_line++);
 	//if we're out of history scrollback clear out the first entry from there
-		if(input_line>=MAX_SCROLLBACK){
+	if(input_line>=MAX_SCROLLBACK){
 		//free the line we're pushing out of the buffer
 		free(input_history[0]);
 		//move all other lines back
@@ -4062,7 +4062,7 @@ int main(int argc, char *argv[]){
 	char input_buffer[BUFFER_SIZE];
 	for(n=0;n<BUFFER_SIZE;n++){
 		input_buffer[n]='\0';
-		time_buffer[BUFFER_SIZE]='\0';
+		time_buffer[n]='\0';
 	}
 	
 	//start ncurses interface
