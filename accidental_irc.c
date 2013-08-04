@@ -3910,24 +3910,32 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	time_t current_time=time(NULL);
 	//if the time has changed
 	if(current_time>old_time){
-		wclear(bottom_border);
-		
+		//this logic sees if, even if the time changed, did the output to the user change!?
+		char old_time_buffer[BUFFER_SIZE];
+		strncpy(old_time_buffer,time_buffer,BUFFER_SIZE);
 		custom_format_time(time_buffer,current_time);
-		wmove(bottom_border,0,0);
-		wprintw(bottom_border,time_buffer);
 		
-		int n;
-		for(n=strlen(time_buffer);n<width;n++){
-			wprintw(bottom_border,"-");
+		//only refresh the display if what the user sees changed
+		//(if it's not displaying in seconds and only the seconds updated, don't refresh)
+		if(strcmp(old_time_buffer,time_buffer)!=0){
+			wclear(bottom_border);
+			
+			wmove(bottom_border,0,0);
+			wprintw(bottom_border,time_buffer);
+			
+			int n;
+			for(n=strlen(time_buffer);n<width;n++){
+				wprintw(bottom_border,"-");
+			}
+			//refresh the window from the buffer
+			wrefresh(bottom_border);
+			
+			//re-set for next iteration
+			old_time=current_time;
+			
+			//make sure the user doesn't see their cursor move
+			wrefresh(user_input);
 		}
-		//refresh the window from the buffer
-		wrefresh(bottom_border);
-		
-		//re-set for next iteration
-		old_time=current_time;
-		
-		//make sure the user doesn't see their cursor move
-		wrefresh(user_input);
 	}
 	
 	//output the most up-to-date information about servers, channels, topics, and various whatnot
