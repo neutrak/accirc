@@ -225,7 +225,7 @@ WINDOW *top_border;
 WINDOW *bottom_border;
 
 //forward declarations (trying to be minimal with these)
-void scrollback_output(int server_index, int output_channel, char *to_output);
+void scrollback_output(int server_index, int output_channel, char *to_output, char refresh);
 void parse_input(char *input_buffer, char keep_history);
 void refresh_server_list();
 void refresh_channel_list();
@@ -1151,7 +1151,73 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 	wrefresh(user_input);
 }
 
-void scrollback_output(int server_index, int output_channel, char *to_output){
+//refresh the bottom bar above the input area
+void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
+	time_t old_time=(*persistent_old_time);
+	
+	//initially the user is not scrolled
+	static char was_scrolled=FALSE;
+	
+	//output for when the user is scrolled up and by how much
+	char scroll_status[BUFFER_SIZE];
+	strncpy(scroll_status,"",BUFFER_SIZE);
+	
+	//if the user is scrolled up at all, give them some info
+	if(scrollback_end>=0){
+		sprintf(scroll_status,"[scrolled to line %i]",scrollback_end);
+		//this is so we know when scrolling stops
+		was_scrolled=TRUE;
+		
+		//this is to "trick" the time check into updating even when it otherwise wouldn't have
+		old_time=0;
+		strncpy(time_buffer,"",BUFFER_SIZE);
+	
+	}else if(was_scrolled){
+		old_time=0;
+		strncpy(time_buffer,"",BUFFER_SIZE);
+		
+		was_scrolled=FALSE;
+	}
+	scroll_status[BUFFER_SIZE-1]='\0';
+	
+	//unix epoch clock in bottom_border, update it when the time changes
+	time_t current_time=time(NULL);
+	//if the time has changed
+	if(current_time>old_time){
+		//this logic sees if, even if the time changed, did the output to the user change!?
+		char old_time_buffer[BUFFER_SIZE];
+		strncpy(old_time_buffer,time_buffer,BUFFER_SIZE);
+		custom_format_time(time_buffer,current_time);
+		
+		//only refresh the display if what the user sees changed
+		//(if it's not displaying in seconds and only the seconds updated, don't refresh)
+		if(strcmp(old_time_buffer,time_buffer)!=0){
+			wclear(bottom_border);
+			
+			wmove(bottom_border,0,0);
+			wprintw(bottom_border,time_buffer);
+			
+			int n;
+			for(n=strlen(time_buffer);n<(width-strlen(scroll_status));n++){
+				wprintw(bottom_border,"-");
+			}
+			wprintw(bottom_border,scroll_status);
+			//refresh the window from the buffer
+			wrefresh(bottom_border);
+			
+			//re-set for next iteration
+			old_time=current_time;
+			
+			//make sure the user doesn't see their cursor move
+			wrefresh(user_input);
+		}
+	}
+	
+	(*persistent_old_time)=old_time;
+}
+
+
+void scrollback_output(int server_index, int output_channel, char *to_output, char refresh){
 	char output_buffer[BUFFER_SIZE];
 	strncpy(output_buffer,to_output,BUFFER_SIZE);
 	
@@ -1200,8 +1266,10 @@ void scrollback_output(int server_index, int output_channel, char *to_output){
 	//indicate that there is new text if the user is not currently in this channel
 	//through the channel_list and server_list
 	servers[server_index]->new_channel_content[output_channel]=TRUE;
-	refresh_channel_list();
-	refresh_server_list();
+	if(refresh){
+		refresh_channel_list();
+		refresh_server_list();
+	}
 	
 	//if we're keeping logs write to them
 	if((servers[server_index]->keep_logs)&&(servers[server_index]->log_file[output_channel]!=NULL)){
@@ -1209,7 +1277,7 @@ void scrollback_output(int server_index, int output_channel, char *to_output){
 	}
 	
 	//if this was currently in view update it there
-	if((current_server==server_index)&&(servers[server_index]->current_channel==output_channel)){
+	if((current_server==server_index) && (servers[server_index]->current_channel==output_channel) && (refresh)){
 		refresh_channel_text();
 	}
 }
@@ -1411,12 +1479,12 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 			//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
 			servers[server_index]->log_file[0]=fopen(file_location,"a");
 			if(servers[server_index]->log_file[0]==NULL){
-				scrollback_output(server_index,0,"accirc: Err: could not make log file");
+				scrollback_output(server_index,0,"accirc: Err: could not make log file",TRUE);
 			}
 		//this fails in a non-silent way, the user should know there was a problem
 		//if we couldn't make the directory then don't keep logs rather than failing hard
 		}else{
-			scrollback_output(server_index,0,"accirc: Err: could not make logging directory");
+			scrollback_output(server_index,0,"accirc: Err: could not make logging directory",TRUE);
 			servers[server_index]->keep_logs=FALSE;
 		}
 	}
@@ -1620,7 +1688,7 @@ void cli_escape_command(char *input_buffer, char *command, char *parameters){
 		
 		//use the ncurses UI if possible; if not fall back to the error log file
 		if(current_server>=0){
-			scrollback_output(current_server,0,error_buffer);
+			scrollback_output(current_server,0,error_buffer,TRUE);
 		}else{
 			fprintf(error_file,"%s\n",error_buffer);
 		}
@@ -1644,7 +1712,7 @@ void cli_escape_command(char *input_buffer, char *command, char *parameters){
 		
 		//use the ncurses UI if possible; if not fall back to the error log file
 		if(current_server>=0){
-			scrollback_output(current_server,0,reply_buffer);
+			scrollback_output(current_server,0,reply_buffer,TRUE);
 		}else{
 			fprintf(error_file,"%s\n",reply_buffer);
 		}
@@ -1662,7 +1730,7 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 		
 		//use the ncurses UI if possible; if not fall back to the error log file
 		if(current_server>=0){
-			scrollback_output(current_server,0,error_buffer);
+			scrollback_output(current_server,0,error_buffer,TRUE);
 		}else{
 			fprintf(error_file,"%s\n",error_buffer);
 		}
@@ -1686,7 +1754,7 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 		
 		//use the ncurses UI if possible; if not fall back to the error log file
 		if(current_server>=0){
-			scrollback_output(current_server,0,reply_buffer);
+			scrollback_output(current_server,0,reply_buffer,TRUE);
 		}else{
 			fprintf(error_file,"%s\n",reply_buffer);
 		}
@@ -1744,7 +1812,7 @@ void alias_command(char *input_buffer, char *command, char *parameters){
 	if(current_server>=0){
 		char output_buffer[BUFFER_SIZE];
 		sprintf(output_buffer,"accirc: setting alias \"%s\" to complete to \"%s\"",trigger,substitution);
-		scrollback_output(current_server,0,output_buffer);
+		scrollback_output(current_server,0,output_buffer,TRUE);
 	}
 }
 
@@ -1866,7 +1934,7 @@ void log_command(){
 		//if we have the ability to make logs
 		if(can_log){
 			servers[current_server]->keep_logs=TRUE;
-			scrollback_output(current_server,0,"accirc: keep_logs set to TRUE (opening log files)");
+			scrollback_output(current_server,0,"accirc: keep_logs set to TRUE (opening log files)",TRUE);
 			
 			//open any log files we may need
 			//look through the channels
@@ -1888,10 +1956,10 @@ void log_command(){
 				}
 			}
 		}else{
-			scrollback_output(current_server,0,"accirc: Err: your environment doesn't support logging, cannot set it!");
+			scrollback_output(current_server,0,"accirc: Err: your environment doesn't support logging, cannot set it!",TRUE);
 		}
 	}else{
-		scrollback_output(current_server,0,"accirc: Err: keep_logs already set to TRUE, no changes made");
+		scrollback_output(current_server,0,"accirc: Err: keep_logs already set to TRUE, no changes made",TRUE);
 	}
 }
 
@@ -1899,7 +1967,7 @@ void log_command(){
 void no_log_command(){
 	if(servers[current_server]->keep_logs==TRUE){
 		servers[current_server]->keep_logs=FALSE;
-		scrollback_output(current_server,0,"accirc: keep_logs set to FALSE (closing log files)");
+		scrollback_output(current_server,0,"accirc: keep_logs set to FALSE (closing log files)",TRUE);
 		
 		//close any open logs we were writing to
 		int n;
@@ -1912,7 +1980,7 @@ void no_log_command(){
 			}
 		}
 	}else{
-		scrollback_output(current_server,0,"accirc: Err: keep_logs already set to FALSE, no changes made");
+		scrollback_output(current_server,0,"accirc: Err: keep_logs already set to FALSE, no changes made",TRUE);
 	}
 }
 
@@ -1929,16 +1997,16 @@ void rsearch_command(char *input_buffer, char *command, char *parameters, int ol
 		//NOTE: the rsearch command is only called after a check for current_server being valid from within parse_input
 		//this means we can depend on current server being usable at this point
 		//(and the current channel is always valid, no channels connected goes to raw server output area)
-		scrollback_output(current_server,servers[current_server]->current_channel,error_buffer);
+		scrollback_output(current_server,servers[current_server]->current_channel,error_buffer,TRUE);
 	}else{
 		//the entire scrollback for the current channel
 		char **channel_scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
 		
 		//the line to start the reverse search at
 		int search_line=0;
-		//if the user is already viewing history start from where they are viewing
+		//if the user is already viewing history start from just above where they are viewing
 		if(old_scrollback_end>=0){
-			search_line=old_scrollback_end;
+			search_line=old_scrollback_end-2;
 		}else{
 			//if they are not viewing history start from the end
 			int n;
@@ -1968,7 +2036,7 @@ void rsearch_command(char *input_buffer, char *command, char *parameters, int ol
 		}else{
 			char error_buffer[BUFFER_SIZE];
 			sprintf(error_buffer,"accirc: Could not find search term \"%s\"",parameters);
-			scrollback_output(current_server,servers[current_server]->current_channel,error_buffer);
+			scrollback_output(current_server,servers[current_server]->current_channel,error_buffer,TRUE);
 		}
 	}
 }
@@ -2030,7 +2098,7 @@ void privmsg_command(char *input_buffer){
 			}
 			
 			//place my own text in the scrollback for this server and channel
-			scrollback_output(current_server,servers[current_server]->current_channel,output_buffer);
+			scrollback_output(current_server,servers[current_server]->current_channel,output_buffer,TRUE);
 		}
 	}else{
 #ifdef DEBUG
@@ -2143,12 +2211,12 @@ void parse_input(char *input_buffer, char keep_history){
 			exit_command(input_buffer,command,parameters);
 		//sleep command
 		}else if(!strcmp(command,"sleep")){
-//			scrollback_output(current_server,0,"accirc: sleeping...");
+			scrollback_output(current_server,0,"accirc: sleeping...",TRUE);
 			//sleep as requested (in seconds)
 			sleep(atoi(parameters));
 		//usleep command
 		}else if(!strcmp(command,"usleep")){
-//			scrollback_output(current_server,0,"accirc: usleeping...");
+			scrollback_output(current_server,0,"accirc: usleeping...",TRUE);
 			//sleep as requested (in milliseconds)
 			usleep(atoi(parameters));
 		//comment command (primarily for the .rc file)
@@ -2173,7 +2241,7 @@ void parse_input(char *input_buffer, char keep_history){
 			if(current_server>=0){
 				char notify_buffer[BUFFER_SIZE];
 				sprintf(notify_buffer,"accirc: updated time format to \"%s\"",parameters);
-				scrollback_output(current_server,0,notify_buffer);
+				scrollback_output(current_server,0,notify_buffer,TRUE);
 			}
 		//this set of command depends on being connected to a server, so first check that we are
 		}else if(current_server>=0){
@@ -2220,36 +2288,36 @@ void parse_input(char *input_buffer, char keep_history){
 				if(ch<MAX_CHANNELS){
 					servers[current_server]->autojoin_channel[ch]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 					strncpy(servers[current_server]->autojoin_channel[ch],parameters,BUFFER_SIZE);
-					scrollback_output(current_server,0,"accirc: autojoin channel added, will join when possible");
+					scrollback_output(current_server,0,"accirc: autojoin channel added, will join when possible",TRUE);
 				}else{
-					scrollback_output(current_server,0,"accirc: autojoin channel could not be added, would overflow");
+					scrollback_output(current_server,0,"accirc: autojoin channel could not be added, would overflow",TRUE);
 				}
 			//automatically identify when the server is ready to recieve that information
 			}else if(!strcmp(command,"autoident")){
 				strncpy(servers[current_server]->ident,parameters,BUFFER_SIZE);
-				scrollback_output(current_server,0,"accirc: autoident given, will ident when possible");
+				scrollback_output(current_server,0,"accirc: autoident given, will ident when possible",TRUE);
 			//a nick to fall back to if the nick you want is taken
 			}else if(!strcmp(command,"fallback_nick")){
 				strncpy(servers[current_server]->fallback_nick,parameters,BUFFER_SIZE);
 				char output_buffer[BUFFER_SIZE];
 				sprintf(output_buffer,"accirc: fallback_nick set to %s",servers[current_server]->fallback_nick);
-				scrollback_output(current_server,0,output_buffer);
+				scrollback_output(current_server,0,output_buffer,TRUE);
 			}else if(!strcmp(command,"rejoin_on_kick")){
 				servers[current_server]->rejoin_on_kick=TRUE;
-				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to TRUE");
+				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to TRUE",TRUE);
 			}else if(!strcmp(command,"no_rejoin_on_kick")){
 				servers[current_server]->rejoin_on_kick=FALSE;
-				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to FALSE");
+				scrollback_output(current_server,0,"accirc: rejoin_on_kick set to FALSE",TRUE);
 			}else if(!strcmp(command,"reconnect")){
 				servers[current_server]->reconnect=TRUE;
-				scrollback_output(current_server,0,"accirc: reconnect set to TRUE");
+				scrollback_output(current_server,0,"accirc: reconnect set to TRUE",TRUE);
 			}else if(!strcmp(command,"no_reconnect")){
 				servers[current_server]->reconnect=FALSE;
-				scrollback_output(current_server,0,"accirc: reconnect set to FALSE");
+				scrollback_output(current_server,0,"accirc: reconnect set to FALSE",TRUE);
 			}else if(!strcmp(command,"manual_reconnect")){
 				char old_reconnect_setting=servers[current_server]->reconnect;
 				servers[current_server]->reconnect=TRUE;
-				scrollback_output(current_server,0,"accirc: attempting a manual reconnect, please hold while we throw some bits through the tubes...");
+				scrollback_output(current_server,0,"accirc: attempting a manual reconnect, please hold while we throw some bits through the tubes...",TRUE);
 				properly_close(current_server);
 				if(servers[current_server]!=NULL){
 					servers[current_server]->reconnect=old_reconnect_setting;
@@ -2276,7 +2344,7 @@ void parse_input(char *input_buffer, char keep_history){
 			}else if(!handle_aliased_command(command,parameters)){
 				char error_buffer[BUFFER_SIZE];
 				sprintf(error_buffer,"accirc: Err: unknown command \"%s\"",command);
-				scrollback_output(current_server,0,error_buffer);
+				scrollback_output(current_server,0,error_buffer,TRUE);
 			}
 		}else{
 			//the return is not used here because it's pretty inconsequential
@@ -2296,7 +2364,7 @@ void parse_input(char *input_buffer, char keep_history){
 			sprintf(output_buffer,"%s",input_buffer);
 			
 			//place my own text in the scrollback for this server and channel
-			scrollback_output(current_server,0,output_buffer);
+			scrollback_output(current_server,0,output_buffer,TRUE);
 			
 			//refresh the channel text just in case
 			refresh_channel_text();
@@ -2537,7 +2605,7 @@ void server_353_command(int server_index, char *tmp_buffer, int first_space, cha
 //		int n;
 //		for(n=0;n<MAX_NAMES;n++){
 //			if(servers[server_index]->user_names[output_channel][n]!=NULL){
-//				scrollback_output(server_index,0,servers[server_index]->user_names[output_channel][n]);
+//				scrollback_output(server_index,0,servers[server_index]->user_names[output_channel][n],TRUE);
 //			}
 //		}
 #endif
@@ -2781,7 +2849,7 @@ void server_join_command(int server_index, char *tmp_buffer, int first_space, ch
 		}else{
 			char error_buffer[BUFFER_SIZE];
 			sprintf(error_buffer,"accirc: Err: out of available channels in structure (limit is %i); output will go to the SERVER channel; use %cprivmsg to send data",MAX_CHANNELS,server_escape);
-			scrollback_output(server_index,0,error_buffer);
+			scrollback_output(server_index,0,error_buffer,TRUE);
 		}
 	//else it wasn't us doing the join so just output the join message to that channel (which presumably we're in)
 	}else{
@@ -2919,7 +2987,7 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 #ifdef DEBUG
 //					char really_really_tmp[BUFFER_SIZE];
 //					sprintf(really_really_tmp,"NICK debug 0, trying name \"%s\"",servers[server_index]->user_names[channel_index][name_index]);
-//					scrollback_output(server_index,0,really_really_tmp);
+//					scrollback_output(server_index,0,really_really_tmp,TRUE);
 #endif
 					
 					char this_name[BUFFER_SIZE];
@@ -2929,7 +2997,7 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 					//found it!
 					if(!strcmp(this_name,nick)){
 						//output to the appropriate channel
-						scrollback_output(server_index,channel_index,output_buffer);
+						scrollback_output(server_index,channel_index,output_buffer,TRUE);
 						
 						char new_nick[BUFFER_SIZE];
 						if(text[0]==':'){
@@ -2997,7 +3065,7 @@ void server_quit_command(int server_index, char *tmp_buffer, int first_space, ch
 					//found it!
 					if(!strcmp(this_name,nick)){
 						//output to the appropriate channel
-						scrollback_output(server_index,channel_index,output_buffer);
+						scrollback_output(server_index,channel_index,output_buffer,TRUE);
 						
 						//remove this user from that channel's names array
 						free(servers[server_index]->user_names[channel_index][name_index]);
@@ -3217,7 +3285,7 @@ void parse_server(int server_index){
 		//if we haven't already done some crazy kind of output
 		if(!special_output){
 			//do the normal kind of output
-			scrollback_output(server_index,output_channel,output_buffer);
+			scrollback_output(server_index,output_channel,output_buffer,TRUE);
 		}
 	}
 	
@@ -3440,7 +3508,7 @@ void read_server_data(){
 						//tell the user this happened
 						char error_buffer[BUFFER_SIZE];
 						sprintf(error_buffer,"accirc: Err: read queue has overflowed (nothing we can do), clearing");
-						scrollback_output(server_index,0,error_buffer);
+						scrollback_output(server_index,0,error_buffer,TRUE);
 						
 						//we can't do anything but clear this and ignore it, since we could end up reading garbage data
 						int n;
@@ -3558,7 +3626,7 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 					}
 				}
 			}
-			scrollback_output(current_server,servers[current_server]->current_channel,output_text);
+			scrollback_output(current_server,servers[current_server]->current_channel,output_text,TRUE);
 		//this was either not a match or not a unique match
 		}else{
 			//this was an unsuccessful tab-complete attempt
@@ -3906,37 +3974,8 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	//look for new data on all connected servers; if some is found, handle it!
 	read_server_data();
 	
-	//unix epoch clock in bottom_border, update it when the time changes
-	time_t current_time=time(NULL);
-	//if the time has changed
-	if(current_time>old_time){
-		//this logic sees if, even if the time changed, did the output to the user change!?
-		char old_time_buffer[BUFFER_SIZE];
-		strncpy(old_time_buffer,time_buffer,BUFFER_SIZE);
-		custom_format_time(time_buffer,current_time);
-		
-		//only refresh the display if what the user sees changed
-		//(if it's not displaying in seconds and only the seconds updated, don't refresh)
-		if(strcmp(old_time_buffer,time_buffer)!=0){
-			wclear(bottom_border);
-			
-			wmove(bottom_border,0,0);
-			wprintw(bottom_border,time_buffer);
-			
-			int n;
-			for(n=strlen(time_buffer);n<width;n++){
-				wprintw(bottom_border,"-");
-			}
-			//refresh the window from the buffer
-			wrefresh(bottom_border);
-			
-			//re-set for next iteration
-			old_time=current_time;
-			
-			//make sure the user doesn't see their cursor move
-			wrefresh(user_input);
-		}
-	}
+	//refresh the bottom bar above the input area
+	refresh_statusbar(&old_time,time_buffer);
 	
 	//output the most up-to-date information about servers, channels, topics, and various whatnot
 	//(do this where changes occur so we're not CONSTANTLY refreshing, which causes flicker among other things)
