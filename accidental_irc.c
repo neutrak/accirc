@@ -203,6 +203,8 @@ int input_line;
 //the location in the scrollback for the current channel we're at now
 //(this var stores the index of the LAST line to output, hence "end")
 int scrollback_end;
+//where the previous scrollback was, so we know if it changed
+int prev_scrollback_end;
 //any aliases the user has registered (initialized to all NULL)
 alias *alias_array[MAX_ALIASES];
 //format to output time in (used for scrollback_output and the clock)
@@ -1155,9 +1157,6 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 	time_t old_time=(*persistent_old_time);
 	
-	//initially the user is not scrolled
-	static char was_scrolled=FALSE;
-	
 	//output for when the user is scrolled up and by how much
 	char scroll_status[BUFFER_SIZE];
 	strncpy(scroll_status,"",BUFFER_SIZE);
@@ -1165,19 +1164,14 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 	//if the user is scrolled up at all, give them some info
 	if(scrollback_end>=0){
 		sprintf(scroll_status,"[scrolled to line %i]",scrollback_end);
-		//this is so we know when scrolling stops
-		was_scrolled=TRUE;
-		
+	}
+	
+	if(scrollback_end!=prev_scrollback_end){
 		//this is to "trick" the time check into updating even when it otherwise wouldn't have
 		old_time=0;
 		strncpy(time_buffer,"",BUFFER_SIZE);
-	
-	}else if(was_scrolled){
-		old_time=0;
-		strncpy(time_buffer,"",BUFFER_SIZE);
-		
-		was_scrolled=FALSE;
 	}
+	
 	scroll_status[BUFFER_SIZE-1]='\0';
 	
 	//unix epoch clock in bottom_border, update it when the time changes
@@ -2142,6 +2136,7 @@ char handle_aliased_command(char *command, char *parameters){
 void parse_input(char *input_buffer, char keep_history){
 	//store the old scrollback for rsearch
 	int old_scrollback_end=scrollback_end;
+	
 	//go to the end of scrollback because why would the user input something and not want to see it?
 	scrollback_end=-1;
 	
@@ -3660,6 +3655,8 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	int tab_completions=(*persistent_tab_completions);
 	time_t old_time=(*persistent_old_time);
 	
+	//store the last scrollback position before the event is handled, so we know if an event changed it
+	prev_scrollback_end=scrollback_end;
 	
 	//store what the current_server and channel in that server were previously so we know if they change
 	//if they change we'll update the display
