@@ -2970,6 +2970,13 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 		refresh_server_list();
 	}
 	
+	//TODO: if this is the last user we PM-d, update that
+/*
+	if(!strcmp(servers[server_index]->last_pm_user,nick)){
+		strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
+	}
+*/
+	
 	//set the user's nick to be lower-case for case-insensitive string matching
 	strtolower(nick,BUFFER_SIZE);
 	
