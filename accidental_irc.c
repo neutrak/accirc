@@ -1164,6 +1164,8 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 	//if the user is scrolled up at all, give them some info
 	if(scrollback_end>=0){
 		sprintf(scroll_status,"[scrolled to line %i]",scrollback_end);
+	}else{
+		strncpy(scroll_status,"[end]",BUFFER_SIZE);
 	}
 	
 	if(scrollback_end!=prev_scrollback_end){
