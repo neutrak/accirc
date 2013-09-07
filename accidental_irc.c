@@ -2386,7 +2386,6 @@ void parse_input(char *input_buffer, char keep_history){
 				log_command();
 			}else if(!strcmp(command,"no_log")){
 				no_log_command();
-			//TODO: write the commands (probably in seperate functions) for the empty cases below
 			}else if(!strcmp(command,"rsearch")){
 				rsearch_command(input_buffer,command,parameters,old_scrollback_end);
 			}else if(!strcmp(command,"up")){
@@ -3025,15 +3024,21 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 		refresh_server_list();
 	}
 	
-	//TODO: if this is the last user we PM-d, update that
-/*
-	if(!strcmp(servers[server_index]->last_pm_user,nick)){
-		strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
-	}
-*/
-	
 	//set the user's nick to be lower-case for case-insensitive string matching
 	strtolower(nick,BUFFER_SIZE);
+	
+	//unless otherwise noted don't update the last pm-d user
+	char update_pm_user=FALSE;
+	
+	char lower_last_pm_user[BUFFER_SIZE];
+	strncpy(lower_last_pm_user,servers[server_index]->last_pm_user,BUFFER_SIZE);
+	strtolower(lower_last_pm_user,BUFFER_SIZE);
+	
+	//if this is the last user we PM-d, update that
+	if(!strcmp(nick,lower_last_pm_user)){
+		//we can't update directly here because we haven't parsed out the new nick yet, so set a flag and we'll do so when we get there
+		update_pm_user=TRUE;
+	}
 	
 	int channel_index;
 	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
@@ -3055,6 +3060,11 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 							substr(new_nick,text,1,strlen(text)-1);
 						}else{
 							substr(new_nick,text,0,strlen(text));
+						}
+						
+						//if we were pm-ing with this user, update that reference
+						if(update_pm_user){
+							strncpy(servers[server_index]->last_pm_user,new_nick,BUFFER_SIZE);
 						}
 						
 						//update this user's entry in that channel's names array
@@ -3411,7 +3421,7 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	
 	if((height<MIN_HEIGHT)||(width<MIN_WIDTH)){
 		endwin();
-		fprintf(stderr,"Err: Window too small, would segfault if I stayed, exiting...");
+		fprintf(stderr,"Err: Window too small, would segfault if I stayed, exiting...\n");
 		exit(1);
 	}
 	
