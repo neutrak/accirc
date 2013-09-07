@@ -2035,6 +2035,62 @@ void rsearch_command(char *input_buffer, char *command, char *parameters, int ol
 	}
 }
 
+//the "up" client command (scroll back in the current channel)
+//TODO: compute correct stop scrolling bound in this case
+void up_command(char *input_buffer, char *command, char *parameters, int old_scrollback_end){
+	//start at wherever the user was
+	scrollback_end=old_scrollback_end;
+	
+	//if we are connected to a server
+	if(current_server>=0){
+		int line_count;
+		char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+		for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
+		
+		//if there is more text than area to display allow it scrollback (else don't)
+		//the -6 here is because there are 6 character rows used to display things other than channel text
+//		if(line_count>height-6){
+		if(line_count>0){
+			//if we're already scrolled back and we can go further
+			//note: the +6 here is because there are 6 character rows used to display things other than channel text
+//			if((scrollback_end-height+6)>0){
+			if(scrollback_end>1){
+				scrollback_end--;
+			//if we're not scrolled back start now
+			}else if(scrollback_end<0){
+				int n;
+				//note after this loop n will be one line AFTER the last valid line of scrollback
+				for(n=0;(n<MAX_SCROLLBACK)&&(scrollback[n]!=NULL);n++);
+				//so subtract one
+				n--;
+				//if there is scrollback to view
+				if(n>=0){
+					scrollback_end=n;
+				}
+			}
+		}
+		refresh_channel_text();
+	}
+}
+
+//the "down" client command (scroll forward in the current channel)
+void down_command(char *input_buffer, char *command, char *parameters, int old_scrollback_end){
+	scrollback_end=old_scrollback_end;
+	
+	//if we are connected to a server
+	if(current_server>=0){
+		char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+		//if we're already scrolled back and there is valid scrollback below this
+		if((scrollback_end>=0)&&(scrollback_end<(MAX_SCROLLBACK-1))&&(scrollback[scrollback_end+1]!=NULL)){
+			scrollback_end++;
+		//if we're out of scrollback to view, re-set and make this display new data as it gets here
+		}else if(scrollback_end>=0){
+			scrollback_end=-1;
+		}
+		refresh_channel_text();
+	}
+}
+
 //the "head" client command (scrolls to top of scrollback area)
 void head_command(){
 	char **channel_scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
@@ -2194,8 +2250,20 @@ void parse_input(char *input_buffer, char keep_history){
 		//the good stuff, the heart of command handling :)
 		
 		//this set of commands does not depend on being connected to a server
+		
+		if(!strcmp("help",command)){
+			if(current_server>=0){
+				char notify_buffer[BUFFER_SIZE];
+				strncpy(notify_buffer,"accirc: For help please read the manual page",BUFFER_SIZE);
+				scrollback_output(current_server,0,notify_buffer,TRUE);
+			}else{
+				wclear(channel_text);
+				wmove(channel_text,0,0);
+				wprintw(channel_text,"accirc: For help please read the manual page, the /connect command is probably what you're looking for if you're reading this");
+				wrefresh(channel_text);
+			}
 		//connect to a server
-		if(!strcmp("connect",command)){
+		}else if(!strcmp("connect",command)){
 			connect_command(input_buffer,command,parameters,FALSE);
 #ifdef _OPENSSL
 		//connect to a server with encryption
@@ -2204,11 +2272,6 @@ void parse_input(char *input_buffer, char keep_history){
 #endif
 		}else if(!strcmp(command,"exit")){
 			exit_command(input_buffer,command,parameters);
-		//sleep command
-		}else if(!strcmp(command,"sleep")){
-			scrollback_output(current_server,0,"accirc: sleeping...",TRUE);
-			//sleep as requested (in seconds)
-			sleep(atoi(parameters));
 		//usleep command
 		}else if(!strcmp(command,"usleep")){
 			scrollback_output(current_server,0,"accirc: usleeping...",TRUE);
@@ -2324,12 +2387,10 @@ void parse_input(char *input_buffer, char keep_history){
 			//TODO: write the commands (probably in seperate functions) for the empty cases below
 			}else if(!strcmp(command,"rsearch")){
 				rsearch_command(input_buffer,command,parameters,old_scrollback_end);
-/*
 			}else if(!strcmp(command,"up")){
-				up_command(input_buffer,command,parameters);
+				up_command(input_buffer,command,parameters,old_scrollback_end);
 			}else if(!strcmp(command,"down")){
-				down_command(input_buffer,command,parameters);
-*/
+				down_command(input_buffer,command,parameters,old_scrollback_end);
 			}else if(!strcmp(command,"head")){
 				head_command();
 			}else if(!strcmp(command,"tail")){
@@ -2596,14 +2657,6 @@ void server_353_command(int server_index, char *tmp_buffer, int first_space, cha
 			
 			add_name(server_index,*output_channel,this_name);
 		}
-#ifdef DEBUG
-//		int n;
-//		for(n=0;n<MAX_NAMES;n++){
-//			if(servers[server_index]->user_names[output_channel][n]!=NULL){
-//				scrollback_output(server_index,0,servers[server_index]->user_names[output_channel][n],TRUE);
-//			}
-//		}
-#endif
 	}
 }
 
@@ -2986,12 +3039,6 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 			int name_index;
 			for(name_index=0;name_index<MAX_NAMES;name_index++){
 				if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
-#ifdef DEBUG
-//					char really_really_tmp[BUFFER_SIZE];
-//					sprintf(really_really_tmp,"NICK debug 0, trying name \"%s\"",servers[server_index]->user_names[channel_index][name_index]);
-//					scrollback_output(server_index,0,really_really_tmp,TRUE);
-#endif
-					
 					char this_name[BUFFER_SIZE];
 					strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
 					strtolower(this_name,BUFFER_SIZE);
@@ -3635,17 +3682,6 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 			tab_completions++;
 			beep();
 		}
-#ifdef DEBUG
-/*
-		fprintf(stderr,"tab-complete debug, attempting to match \"%s\" to array [",partial_nick);
-		for(n=0;n<MAX_NAMES;n++){
-			if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
-				fprintf(stderr,"\"%s\" ",servers[current_server]->user_names[servers[current_server]->current_channel][n]);
-			}
-		}
-		fprintf(stderr,"]\n");
-*/
-#endif
 	}
 	
 	return tab_completions;
@@ -3798,56 +3834,15 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 				}
 				refresh_user_input(input_buffer,cursor_pos,input_display_start);
 				break;
-			//scroll back in the current channel
-			//TODO: compute correct stop scrolling bound in this case
 //			case KEY_PGUP:
 			case 339:
-				//if we are connected to a server
-				if(current_server>=0){
-					int line_count;
-					char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
-					for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
-					
-					//if there is more text than area to display allow it scrollback (else don't)
-					//the -6 here is because there are 6 character rows used to display things other than channel text
-//					if(line_count>height-6){
-					if(line_count>0){
-						//if we're already scrolled back and we can go further
-						//note: the +6 here is because there are 6 character rows used to display things other than channel text
-//						if((scrollback_end-height+6)>0){
-						if(scrollback_end>1){
-							scrollback_end--;
-						//if we're not scrolled back start now
-						}else if(scrollback_end<0){
-							int n;
-							//note after this loop n will be one line AFTER the last valid line of scrollback
-							for(n=0;(n<MAX_SCROLLBACK)&&(scrollback[n]!=NULL);n++);
-							//so subtract one
-							n--;
-							//if there is scrollback to view
-							if(n>=0){
-								scrollback_end=n;
-							}
-						}
-					}
-					refresh_channel_text();
-				}
+				sprintf(key_combo_buffer,"%cup",client_escape);
+				parse_input(key_combo_buffer,FALSE);
 				break;
-			//scroll forward in the current channel
 //			case KEY_PGDN:
 			case 338:
-				//if we are connected to a server
-				if(current_server>=0){
-					char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
-					//if we're already scrolled back and there is valid scrollback below this
-					if((scrollback_end>=0)&&(scrollback_end<(MAX_SCROLLBACK-1))&&(scrollback[scrollback_end+1]!=NULL)){
-						scrollback_end++;
-					//if we're out of scrollback to view, re-set and make this display new data as it gets here
-					}else if(scrollback_end>=0){
-						scrollback_end=-1;
-					}
-					refresh_channel_text();
-				}
+				sprintf(key_combo_buffer,"%cdown",client_escape);
+				parse_input(key_combo_buffer,FALSE);
 				break;
 			//handle text entry history
 			case KEY_UP:
