@@ -168,6 +168,8 @@ struct irc_connection {
 	char was_pingged[MAX_CHANNELS];
 	//this is a flag to tell if there's new content in a channel
 	char new_channel_content[MAX_CHANNELS];
+	//a flag to tell if the current channel is a special "PM" channel
+	char is_pm[MAX_CHANNELS];
 	int current_channel;
 	//the last user to PM us (so we know who to send a reply to)
 	char last_pm_user[BUFFER_SIZE];
@@ -1505,6 +1507,7 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 		servers[server_index]->channel_topic[n]=NULL;
 		servers[server_index]->new_channel_content[n]=FALSE;
 		servers[server_index]->was_pingged[n]=FALSE;
+		servers[server_index]->is_pm[n]=FALSE;
 		servers[server_index]->log_file[n]=NULL;
 		servers[server_index]->autojoin_channel[n]=NULL;
 		servers[server_index]->user_names[n]=NULL;
@@ -1552,6 +1555,101 @@ void add_history_entry(char *input_buffer){
 	//set input_line to -1 (indicating current input); so if the user was scrolled up in the history they're now at the end
 	input_line=-1;
 }
+
+//a helper function to output to the correct channel based on a given channel name
+int find_output_channel(int server_index, char *channel){
+	int output_channel=0;
+	
+	//lower case the channel name
+	strtolower(channel,BUFFER_SIZE);
+	
+	int channel_index;
+	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
+		if(servers[server_index]->channel_name[channel_index]!=NULL){
+			char lower_case_channel[BUFFER_SIZE];
+			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+			strtolower(lower_case_channel,BUFFER_SIZE);
+			
+			if(!strcmp(channel,lower_case_channel)){
+				output_channel=channel_index;
+				channel_index=MAX_CHANNELS;
+			}
+		}
+	}
+	
+	return output_channel;
+}
+
+//join a new channel (used when join is received from the server, and for the hi command)
+//the pm_flag dictates whether this will be a PM or normal channel
+void join_new_channel(int server_index, char *channel, char *output_buffer, int *output_channel, char pm_flag){
+	//NOTE: there is no need to make sure we're not already in this channel
+	//because if we're already in the channel the server will never send us the corresponding JOIN when we tell it to join again
+	//(if we get the join we're not in it, at least as far as the server knows)
+	
+	//add this channel to the list of channels on this server, make associated scrollback, etc.
+	int channel_index;
+	for(channel_index=0;(channel_index<MAX_CHANNELS)&&(servers[server_index]->channel_name[channel_index]!=NULL);channel_index++);
+	if(channel_index<MAX_CHANNELS){
+		servers[server_index]->channel_name[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+		//initialize the channel name to be what was joined
+		strncpy(servers[server_index]->channel_name[channel_index],channel,BUFFER_SIZE);
+		
+		//default to a null topic
+		servers[server_index]->channel_topic[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+		strncpy(servers[server_index]->channel_topic[channel_index],"",BUFFER_SIZE);
+		
+		servers[server_index]->channel_content[channel_index]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
+		//null out the content to start with
+		int n;
+		for(n=0;n<MAX_SCROLLBACK;n++){
+			servers[server_index]->channel_content[channel_index][n]=NULL;
+		}
+		
+		servers[server_index]->user_names[channel_index]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
+		for(n=0;n<MAX_NAMES;n++){
+			servers[server_index]->user_names[channel_index][n]=NULL;
+		}
+		
+		//if we should be keeping logs make sure we are
+		if(servers[server_index]->keep_logs){
+			char file_location[BUFFER_SIZE];
+			sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[channel_index]);
+			//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
+			servers[server_index]->log_file[channel_index]=fopen(file_location,"a");
+			
+			
+			if(servers[server_index]->log_file[channel_index]!=NULL){
+				//turn off buffering since I need may this output immediately and buffers annoy me for that
+				setvbuf(servers[server_index]->log_file[channel_index],NULL,_IONBF,0);
+			}
+		}
+		
+		servers[server_index]->is_pm[channel_index]=pm_flag;
+		
+		//set this to be the current channel, we must want to be here if we joined
+		servers[server_index]->current_channel=channel_index;
+		
+		//if this is a PM opening we won't have the normal join, so add in a message to let the user know about it
+		if(pm_flag){
+			sprintf(output_buffer,"accirc: Joining new (faux) PM channel");
+		}
+		
+		//output the join at the top of this channel, why not
+		*output_channel=channel_index;
+		
+		//and refresh the channel list
+		refresh_channel_list();
+		
+	//handle being out of available channels (we can't do anything, so we just have to tell the user)
+	//this will just not have the new channel available, and as a result redirect all output to the system channel
+	}else{
+		char error_buffer[BUFFER_SIZE];
+		sprintf(error_buffer,"accirc: Err: out of available channels in structure (limit is %i); output will go to the SERVER channel; use %cprivmsg to send data",MAX_CHANNELS,server_escape);
+		scrollback_output(server_index,0,error_buffer,TRUE);
+	}
+}
+
 
 //the "connect" client command handling, and "sconnect" via the ssl paramater (parsed out earlier)
 void connect_command(char *input_buffer, char *command, char *parameters, char ssl){
@@ -2121,6 +2219,35 @@ void tail_command(){
 	refresh_channel_text();
 }
 
+//"join" a PM conversation
+void hi_command(char *input_buffer, char *command, char *parameters){
+	char output_buffer[BUFFER_SIZE];
+	int output_channel;
+	
+	//set some sane default output just in case it doesn't change
+	output_channel=0;
+	strncpy(output_buffer,"",BUFFER_SIZE);
+	
+	join_new_channel(current_server,parameters,output_buffer,&output_channel,TRUE);
+	scrollback_output(current_server,output_channel,output_buffer,TRUE);
+}
+
+//"part" a PM conversation
+void bye_command(char *input_buffer, char *command, char *parameters){
+	int channel_index=servers[current_server]->current_channel;
+	
+	char output_buffer[BUFFER_SIZE];
+	
+	//ensure this is a PM channel and not a real channel, don't want to /bye those, you gotta part like a good person
+	if(servers[current_server]->is_pm[channel_index]){
+		sprintf(output_buffer,"accirc: Parting (faux) PM channel \"%s\"",servers[current_server]->channel_name[channel_index]);
+		
+		leave_channel(current_server,servers[current_server]->channel_name[channel_index]);
+	}else{
+		strncpy(output_buffer,"accirc: Err: channel you tried to \"bye\" is not a PM!",BUFFER_SIZE);
+	}
+	scrollback_output(current_server,0,output_buffer,TRUE);
+}
 
 //privmsg from user input (treated as a pseudo-command)
 void privmsg_command(char *input_buffer){
@@ -2396,6 +2523,11 @@ void parse_input(char *input_buffer, char keep_history){
 				head_command();
 			}else if(!strcmp(command,"tail")){
 				tail_command();
+			//the "hi" and "bye" commands handle PMs as a channel
+			}else if(!strcmp(command,"hi")){
+				hi_command(input_buffer,command,parameters);
+			}else if(!strcmp(command,"bye")){
+				bye_command(input_buffer,command,parameters);
 			//unknown command error
 			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
 			}else if(!handle_aliased_command(command,parameters)){
@@ -2432,30 +2564,6 @@ void parse_input(char *input_buffer, char keep_history){
 	}
 	
 	strncpy(input_buffer,"\0",BUFFER_SIZE);
-}
-
-//a helper function to output to the correct channel based on a given channel name
-int find_output_channel(int server_index, char *channel){
-	int output_channel=0;
-	
-	//lower case the channel name
-	strtolower(channel,BUFFER_SIZE);
-	
-	int channel_index;
-	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-		if(servers[server_index]->channel_name[channel_index]!=NULL){
-			char lower_case_channel[BUFFER_SIZE];
-			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
-			strtolower(lower_case_channel,BUFFER_SIZE);
-			
-			if(!strcmp(channel,lower_case_channel)){
-				output_channel=channel_index;
-				channel_index=MAX_CHANNELS;
-			}
-		}
-	}
-	
-	return output_channel;
 }
 
 
@@ -2698,16 +2806,22 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	strtolower(tmp_nick,BUFFER_SIZE);
 	
 	if(!strcmp(tmp_nick,channel)){
+		//if there is a faux PM channel for this user, send the output there, rather than treating it specially
+		if(find_output_channel(server_index,nick)>0){
+			*output_channel=find_output_channel(server_index,nick);
+		}else{
+			
 #ifdef DEBUG
-		char sys_call_buffer[BUFFER_SIZE];
-		sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
-		system(sys_call_buffer);
+			char sys_call_buffer[BUFFER_SIZE];
+			sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+			system(sys_call_buffer);
 #endif
-		//set this to the last PM-ing user, so we can later reply if we so choose
-		strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
-		
-		//set the was_pingged flag for the server in the case of a PM
-		servers[server_index]->was_pingged[0]=TRUE;
+			//set this to the last PM-ing user, so we can later reply if we so choose
+			strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
+			
+			//set the was_pingged flag for the server in the case of a PM
+			servers[server_index]->was_pingged[0]=TRUE;
+		}
 	}
 	
 	//this is so pings can be case-insensitive
@@ -2842,64 +2956,7 @@ void server_join_command(int server_index, char *tmp_buffer, int first_space, ch
 	
 	//if it was us doing the join-ing
 	if(!strcmp(servers[server_index]->nick,nick)){
-		//NOTE: there is no need to make sure we're not already in this channel
-		//because if we're already in the channel the server will never send us the corresponding JOIN when we tell it to join again
-		//(if we get the join we're not in it, at least as far as the server knows)
-		
-		//add this channel to the list of channels on this server, make associated scrollback, etc.
-		int channel_index;
-		for(channel_index=0;(channel_index<MAX_CHANNELS)&&(servers[server_index]->channel_name[channel_index]!=NULL);channel_index++);
-		if(channel_index<MAX_CHANNELS){
-			servers[server_index]->channel_name[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-			//initialize the channel name to be what was joined
-			strncpy(servers[server_index]->channel_name[channel_index],channel,BUFFER_SIZE);
-			
-			//default to a null topic
-			servers[server_index]->channel_topic[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-			strncpy(servers[server_index]->channel_topic[channel_index],"",BUFFER_SIZE);
-			
-			servers[server_index]->channel_content[channel_index]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
-			//null out the content to start with
-			int n;
-			for(n=0;n<MAX_SCROLLBACK;n++){
-				servers[server_index]->channel_content[channel_index][n]=NULL;
-			}
-			
-			servers[server_index]->user_names[channel_index]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
-			for(n=0;n<MAX_NAMES;n++){
-				servers[server_index]->user_names[channel_index][n]=NULL;
-			}
-			
-			//if we should be keeping logs make sure we are
-			if(servers[server_index]->keep_logs){
-				char file_location[BUFFER_SIZE];
-				sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[channel_index]);
-				//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
-				servers[server_index]->log_file[channel_index]=fopen(file_location,"a");
-				
-				
-				if(servers[server_index]->log_file[channel_index]!=NULL){
-					//turn off buffering since I need may this output immediately and buffers annoy me for that
-					setvbuf(servers[server_index]->log_file[channel_index],NULL,_IONBF,0);
-				}
-			}
-			
-			//set this to be the current channel, we must want to be here if we joined
-			servers[server_index]->current_channel=channel_index;
-			
-			//output the join at the top of this channel, why not
-			*output_channel=channel_index;
-			
-			//and refresh the channel list
-			refresh_channel_list();
-			
-		//handle being out of available channels (we can't do anything, so we just have to tell the user)
-		//this will just not have the new channel available, and as a result redirect all output to the system channel
-		}else{
-			char error_buffer[BUFFER_SIZE];
-			sprintf(error_buffer,"accirc: Err: out of available channels in structure (limit is %i); output will go to the SERVER channel; use %cprivmsg to send data",MAX_CHANNELS,server_escape);
-			scrollback_output(server_index,0,error_buffer,TRUE);
-		}
+		join_new_channel(server_index,channel,output_buffer,output_channel,FALSE);
 	//else it wasn't us doing the join so just output the join message to that channel (which presumably we're in)
 	}else{
 		//lower case the channel so we can do a case-insensitive string match against it
@@ -3066,6 +3123,9 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 						if(update_pm_user){
 							strncpy(servers[server_index]->last_pm_user,new_nick,BUFFER_SIZE);
 						}
+						
+						//TODO: if there was a is_pm channel named after this user it should be changed
+						//(because there are files open for logs and things this isn't done now, it's a major pain)
 						
 						//update this user's entry in that channel's names array
 						strncpy(servers[server_index]->user_names[channel_index][name_index],new_nick,BUFFER_SIZE);

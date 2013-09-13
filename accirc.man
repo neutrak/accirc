@@ -74,6 +74,12 @@ scrolls to the top of the scrollback area for the current channel
 \fB/tail\fP
 scrolls to the bottom of the scrollback area for the current channel
 .TP
+\fB/hi \fInick\fP
+opens a faux-channel PM with the given nick, which keeps seperate logs, etc.
+.TP
+\fB/bye\fP
+parts the currently active faux-PM channel; if the active channel is not a PM, an error message is sent and this does nothing
+.TP
 \fB/sl\fP
 sets active server one left of current server
 .TP
@@ -191,7 +197,7 @@ A log of any errors that couldn't be output through ncurses
 .SH "SEE ALSO"
 ncurses(3) strftime(3) openssl(3)
 .SH BUGS
-MIRC colors don't work under screen; auto-reconnecting on drop is unreliable; flicker occurs frequently, since the clock updates every second (this is less noticable in screen or tmux for some reason)
+MIRC colors don't work under screen; auto-reconnecting on drop is unreliable; flicker occurs frequently, since the clock updates every second (this is less noticable in screen or tmux for some reason).  On the faux-channel PM handling, the PM conversation will behave weirdly if user's nick changes (it's a TODO in the code).  faux-PM channels are CASE-SENSITIVE, this shouldn't be noticable, but you never know
 .SH WWW
 http://somegenericsite.dyndns.org/index.php?p=code
 
