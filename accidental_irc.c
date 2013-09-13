@@ -2807,10 +2807,13 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	
 	if(!strcmp(tmp_nick,channel)){
 		//if there is a faux PM channel for this user, send the output there, rather than treating it specially
-		if(find_output_channel(server_index,nick)>0){
-			*output_channel=find_output_channel(server_index,nick);
+		char lower_nick[BUFFER_SIZE];
+		strncpy(lower_nick,nick,BUFFER_SIZE);
+		strtolower(lower_nick,BUFFER_SIZE);
+		
+		if(find_output_channel(server_index,lower_nick)>0){
+			*output_channel=find_output_channel(server_index,lower_nick);
 		}else{
-			
 #ifdef DEBUG
 			char sys_call_buffer[BUFFER_SIZE];
 			sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
