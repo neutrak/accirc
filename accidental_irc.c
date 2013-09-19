@@ -43,7 +43,7 @@
 #define MIN_HEIGHT 7
 #define MIN_WIDTH 12
 
-#define VERSION "0.4"
+#define VERSION "0.5"
 
 //these are for ncurses' benefit
 #define KEY_ESCAPE 27
