@@ -568,9 +568,11 @@ void properly_close(int server_index){
 		
 		//we'll automatically rejoin the channels we were already in
 		int n;
-		reconnect_channels[0]=NULL; //never reconnect to the reserved system channel
+		//never reconnect to the reserved system channel
+		reconnect_channels[0]=NULL;
 		for(n=1;n<MAX_CHANNELS;n++){
-			if(servers[server_index]->channel_name[n]!=NULL){
+			//NOTE: faux PM channels are not auto-rejoined
+			if(servers[server_index]->channel_name[n]!=NULL && (!(servers[server_index]->is_pm[n]))){
 				reconnect_channels[n]=malloc(BUFFER_SIZE*sizeof(char));
 				strncpy(reconnect_channels[n],servers[server_index]->channel_name[n],BUFFER_SIZE);
 			}else{
