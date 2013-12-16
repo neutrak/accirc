@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "19 Sep 2013"
+.TH ACCIRC 1 "16 Dec 2013"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -104,14 +104,14 @@ sleeps a given number of microseconds
 \fB/comment\fP
 ignore this line, a comment (for an rc file)
 .TP
-\fB/autojoin\fP \fIchannel\fP
-join this channel on the current server as soon as we can (for an rc file)
-.TP
-\fB/autoident\fP \fIpassword\fP
-auth for this nick on the current server as soon as we can (for an rc file)
-.TP
 \fB/fallback_nick\fP \fInick\fP
 set this as the backup nick if the nick specified is taken; if this nick is also taken _ is appended until one is unclaimed or we run out of characters allowed in the nick (for an rc file)
+.TP
+\fB/post \fIserver_command\fP
+delays exeuction of subsequent (server) commands for this server until the given server_command is received (used for rc files, for example nickserv ident and channel auto-joining should wait for an 001 message); note that client commands continue to execute as normal, and are not affected, even though server commands are delayed
+.TP
+\fB/no_post\fP
+a user-accessible way to get out of post-listening mode, in case you get stuck there
 .TP
 \fB/rejoin_on_kick\fP
 for channels on current server, rejoin when kicked
@@ -184,8 +184,6 @@ A log of any errors that couldn't be output through ncurses
 
 :user 1 2 3 4
 
-/autojoin #faid3.0
-
 /comment some error handling just in case the desired nick is unavailable or connection gets lost, etc.
 
 /fallback_nick accirc_user
@@ -194,10 +192,16 @@ A log of any errors that couldn't be output through ncurses
 
 /rejoin_on_kick
 
+/post 001
+
+:join #faid3.0
+
+:privmsg NickServ :IDENTIFY password
+
 .SH "SEE ALSO"
 ncurses(3) strftime(3) openssl(3)
 .SH BUGS
-MIRC colors don't work under screen; auto-reconnecting on drop is unreliable; flicker occurs frequently, since the clock updates every second (this is less noticable in screen or tmux for some reason).  On the faux-channel PM handling, the PM conversation will behave weirdly if user's nick changes (it's a TODO in the code).  faux-PM channels are CASE-SENSITIVE, this shouldn't be noticable, but you never know
+MIRC colors don't work under screen; auto-reconnecting on drop is unreliable; flicker occurs frequently, since the clock updates every second (this is less noticable in screen or tmux for some reason) (changing the time_format can cause the clock to update less often, reducing this problem).  On the faux-channel PM handling, the PM conversation will behave weirdly if user's nick changes (it's a TODO in the code).  faux-PM channels are CASE-SENSITIVE, this shouldn't be noticable, but you never know
 .SH WWW
 http://somegenericsite.dyndns.org/index.php?p=code
 

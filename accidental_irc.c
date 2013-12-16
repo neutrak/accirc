@@ -61,6 +61,8 @@
 #define MAX_NAMES 8000
 //maximum number of aliases that can be registered
 #define MAX_ALIASES 128
+//maximum number of lines allowed to be delayed by a post command
+#define MAX_POST_LINES 32
 
 //for MIRC colors (these are indexes in an array)
 #define FOREGROUND 0
@@ -138,10 +140,10 @@ struct irc_connection {
 	//logging information
 	char keep_logs;
 	FILE *log_file[MAX_CHANNELS];
-	//the channels we're waiting to join when ready
-	char *autojoin_channel[MAX_CHANNELS];
-	//the password to give NickServ once connected
-	char ident[BUFFER_SIZE];
+	//what message to wait for before sending subsequent commands
+	char post_type[BUFFER_SIZE];
+	//everything to parse after a given server message is received
+	char post_commands[MAX_POST_LINES*BUFFER_SIZE];
 	//whether, on this server, to rejoin channels when kicked
 	char rejoin_on_kick;
 	//the nick to use if the user's nick is already in use
@@ -211,6 +213,8 @@ int prev_scrollback_end;
 alias *alias_array[MAX_ALIASES];
 //format to output time in (used for scrollback_output and the clock)
 char time_format[BUFFER_SIZE];
+//whether or not we're currently listening for post commands
+char post_listen;
 
 //determine if we're done
 char done;
@@ -388,6 +392,7 @@ char load_rc(char *rc_file){
 	FILE *rc=fopen(rc_file,"r");
 	if(!rc){
 		fprintf(error_file,"Warn: rc file not found, not executing anything on startup\n");
+		post_listen=FALSE;
 		return FALSE;
 	}else{
 		//read in the .rc, parse_input each line until the end
@@ -413,8 +418,10 @@ char load_rc(char *rc_file){
 		}
 		
 		fclose(rc);
+		post_listen=FALSE;
 		return TRUE;
 	}
+	post_listen=FALSE;
 	return TRUE;
 }
 
@@ -550,10 +557,10 @@ void properly_close(int server_index){
 	
 	char reconnect_host[BUFFER_SIZE];
 	int reconnect_port;
-	char *reconnect_channels[MAX_CHANNELS];
 	char reconnect_nick[BUFFER_SIZE];
-	char reconnect_ident[BUFFER_SIZE];
 	char reconnect_fallback_nick[BUFFER_SIZE];
+	char reconnect_post_type[BUFFER_SIZE];
+	char reconnect_post_commands[BUFFER_SIZE*MAX_POST_LINES];
 	
 #ifdef _OPENSSL
 	//whether to use ssl when we reconnect
@@ -566,25 +573,11 @@ void properly_close(int server_index){
 		strncpy(reconnect_host,servers[server_index]->server_name,BUFFER_SIZE);
 		reconnect_port=servers[server_index]->port;
 		
-		//we'll automatically rejoin the channels we were already in
-		int n;
-		//never reconnect to the reserved system channel
-		reconnect_channels[0]=NULL;
-		for(n=1;n<MAX_CHANNELS;n++){
-			//until otherwise noted all reconnect channels are NULL
-			reconnect_channels[n]=NULL; 
-			
-			//NOTE: faux PM channels are not auto-rejoined
-			if(servers[server_index]->channel_name[n]!=NULL && (!(servers[server_index]->is_pm[n]))){
-				reconnect_channels[n]=malloc(BUFFER_SIZE*sizeof(char));
-				if(reconnect_channels[n]!=NULL){
-					strncpy(reconnect_channels[n],servers[server_index]->channel_name[n],BUFFER_SIZE);
-				}
-			}
-		}
+		//we'll automatically rejoin the channels we had on auto-join anyway, using the post command
+		strncpy(reconnect_post_type,servers[server_index]->post_type,BUFFER_SIZE);
+		strncpy(reconnect_post_commands,servers[server_index]->post_commands,BUFFER_SIZE*MAX_POST_LINES);
 		
 		strncpy(reconnect_nick,servers[server_index]->nick,BUFFER_SIZE);
-		strncpy(reconnect_ident,servers[server_index]->ident,BUFFER_SIZE);
 		
 		//if a fallback nick was set, use that as the fallback; else use the nick the user is currently using
 		strncpy(reconnect_fallback_nick,servers[server_index]->nick,BUFFER_SIZE);
@@ -606,7 +599,6 @@ void properly_close(int server_index){
 		if(servers[server_index]->channel_name[n]!=NULL){
 			free(servers[server_index]->channel_name[n]);
 			free(servers[server_index]->channel_topic[n]);
-			free(servers[server_index]->autojoin_channel[n]);
 			
 			int n1;
 			for(n1=0;n1<MAX_SCROLLBACK;n1++){
@@ -694,23 +686,9 @@ void properly_close(int server_index){
 				sprintf(command_buffer,"%cfallback_nick %s",client_escape,reconnect_fallback_nick);
 				parse_input(command_buffer,FALSE);
 				
-				if(strcmp(reconnect_ident,"")!=0){
-					sprintf(command_buffer,"%cautoident %s",client_escape,reconnect_ident);
-					parse_input(command_buffer,FALSE);
-				}
-				
-				//TODO: fix a bug where sometimes upon a successful reconnect rejoins cause a "double free or corruption" error
-				//rejoin the channels we were in when possible
-				int n;
-				for(n=0;n<MAX_CHANNELS;n++){
-					if(reconnect_channels[n]!=NULL){
-						sprintf(command_buffer,"%cautojoin %s",client_escape,reconnect_channels[n]);
-						parse_input(command_buffer,FALSE);
-						//free the memory
-						free(reconnect_channels[n]);
-						reconnect_channels[n]=NULL;
-					}
-				}
+				//re-send all the auto-sent text when relevant, just like on first connection
+				strncpy(servers[current_server]->post_type,reconnect_post_type,BUFFER_SIZE);
+				strncpy(servers[current_server]->post_commands,reconnect_post_commands,BUFFER_SIZE);
 				
 				//if you wanted to reconnect before you probably still want to
 				//this segfaults with parse_input but doesn't fail at all with just setting the value, not sure why that is
@@ -1515,12 +1493,12 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 		servers[server_index]->was_pingged[n]=FALSE;
 		servers[server_index]->is_pm[n]=FALSE;
 		servers[server_index]->log_file[n]=NULL;
-		servers[server_index]->autojoin_channel[n]=NULL;
 		servers[server_index]->user_names[n]=NULL;
 	}
 	
-	//clear out the ident information (the user will provide it in a startup (.rc) file if they so desire)
-	strncpy(servers[server_index]->ident,"",BUFFER_SIZE);
+	//clear out the post information
+	strncpy(servers[server_index]->post_type,"",BUFFER_SIZE);
+	strncpy(servers[server_index]->post_commands,"",MAX_POST_LINES*BUFFER_SIZE);
 	
 	//by default there is no new content on this server
 	//(because new server content is the OR of new channel content, and by default there is no new channel content)
@@ -1659,6 +1637,9 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 
 //the "connect" client command handling, and "sconnect" via the ssl paramater (parsed out earlier)
 void connect_command(char *input_buffer, char *command, char *parameters, char ssl){
+	//if we were listening for post before, we aren't now, this is a new server!
+	post_listen=FALSE;
+	
 	char host[BUFFER_SIZE];
 	char port_buffer[BUFFER_SIZE];
 	int first_space=strfind(" ",parameters);
@@ -2367,6 +2348,28 @@ void parse_input(char *input_buffer, char keep_history){
 		strncpy(input_buffer,tmp_buffer,BUFFER_SIZE);
 	}
 	
+	//NOTE: post ONLY delays /server/ commands, not client commands!
+	//if the lines are intended to be delayed then delay them
+	if(server_command && (current_server>=0) && post_listen && (!keep_history)){
+		//append this command to the current server's post_commands string
+		char tmp_buffer[BUFFER_SIZE*MAX_POST_LINES];
+		sprintf(tmp_buffer,"%s%s\n",servers[current_server]->post_commands,input_buffer);
+		strncpy(servers[current_server]->post_commands,tmp_buffer,BUFFER_SIZE*MAX_POST_LINES);
+		
+		//let the user know we did something
+		char notify_buffer[BUFFER_SIZE];
+		sprintf(notify_buffer,"accirc: Saving post-%s command \"%s\" for later",servers[current_server]->post_type,input_buffer);
+		scrollback_output(current_server,0,notify_buffer,TRUE);
+		
+		//stop, wait for "hammertime" before we do anything else
+		return;
+	//the user manually entered /post into the client, rather than putting it in an rc file
+	}else if(server_command && (current_server>=0) && post_listen){
+		char notify_buffer[BUFFER_SIZE];
+		strncpy(notify_buffer,"accirc: post_listen flag ignored (keep_history is true) (/post commands should only exist in an rc file!); use /no_post to stop seeing this",BUFFER_SIZE);
+		scrollback_output(current_server,0,notify_buffer,TRUE);
+	}
+	
 	//if it's a client command handle that here
 	if(client_command){
 		char command[BUFFER_SIZE];
@@ -2474,21 +2477,15 @@ void parse_input(char *input_buffer, char keep_history){
 				
 				//don't keep the recursion in the history
 				parse_input(tmp_buffer,FALSE);
-			//automatically join this channel when possible (after the server sends us a message saying we're connected)
-			}else if(!strcmp(command,"autojoin")){
-				int ch;
-				for(ch=0;(ch<MAX_CHANNELS)&&(servers[current_server]->autojoin_channel[ch]!=NULL);ch++);
-				if(ch<MAX_CHANNELS){
-					servers[current_server]->autojoin_channel[ch]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-					strncpy(servers[current_server]->autojoin_channel[ch],parameters,BUFFER_SIZE);
-					scrollback_output(current_server,0,"accirc: autojoin channel added, will join when possible",TRUE);
-				}else{
-					scrollback_output(current_server,0,"accirc: autojoin channel could not be added, would overflow",TRUE);
-				}
-			//automatically identify when the server is ready to recieve that information
-			}else if(!strcmp(command,"autoident")){
-				strncpy(servers[current_server]->ident,parameters,BUFFER_SIZE);
-				scrollback_output(current_server,0,"accirc: autoident given, will ident when possible",TRUE);
+			//automatically send subsequent commands in the rc file only after a certain message is received from the server
+			}else if(!strcmp(command,"post")){
+				strncpy(servers[current_server]->post_type,parameters,BUFFER_SIZE);
+				post_listen=TRUE;
+				scrollback_output(current_server,0,"accirc: listening for post- commands",TRUE);
+			//just a way to kick out of post mode in case you get stuck there
+			}else if(!strcmp(command,"no_post")){
+				post_listen=FALSE;
+				scrollback_output(current_server,0,"accirc: no longer listening for post- commands",TRUE);
 			//a nick to fall back to if the nick you want is taken
 			}else if(!strcmp(command,"fallback_nick")){
 				strncpy(servers[current_server]->fallback_nick,parameters,BUFFER_SIZE);
@@ -2589,45 +2586,6 @@ void server_001_command(int server_index, char *tmp_buffer, int first_space){
 	
 	//let the user know his nick is recognized
 	refresh_server_list();
-	
-	//if we got here the server recognized us, go through the autojoin channels and join them, then remove them from the autojoin array
-	int ch;
-	for(ch=0;ch<MAX_CHANNELS;ch++){
-		if(servers[server_index]->autojoin_channel[ch]!=NULL){
-			//remember what server we were on
-			int old_server=current_server;
-			
-			//parse a message headed to the server to autojoin on
-			current_server=server_index;
-			
-			char to_parse[BUFFER_SIZE];
-			sprintf(to_parse,"%cjoin :%s",server_escape,servers[server_index]->autojoin_channel[ch]);
-			parse_input(to_parse,FALSE);
-			
-			//remove this from autojoin channels from that server, we've now at least attempted to join
-			free(servers[server_index]->autojoin_channel[ch]);
-			servers[server_index]->autojoin_channel[ch]=NULL;
-			
-			//reset our server to whatever it used to be on
-			current_server=old_server;
-		}
-	}
-	
-	//if there is associated identification with this nickname send it to nickserv now
-	if(strcmp(servers[server_index]->ident,"")!=0){
-		//remember what server we were on
-		int old_server=current_server;
-		
-		//parse a message headed to the server to autojoin on
-		current_server=server_index;
-		
-		char to_parse[BUFFER_SIZE];
-		sprintf(to_parse,"%cprivmsg NickServ :IDENTIFY %s",server_escape,servers[server_index]->ident);
-		parse_input(to_parse,FALSE);
-		
-		//reset our server to whatever it used to be on
-		current_server=old_server;
-	}
 }
 
 //handle the "332" server command (channel topic)
@@ -2901,7 +2859,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			current_server=server_index;
 //			sprintf(ctcp,":privmsg %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
 //			parse_input(ctcp,FALSE);
-			sprintf(ctcp,"%cnotice %s :%cVERSION accidental_irc v%s%c",server_escape,nick,0x01,VERSION,0x01);
+			sprintf(ctcp,"%cnotice %s :%cVERSION accidental_irc v%s compiled %s %s%c",server_escape,nick,0x01,VERSION,__DATE__,__TIME__,0x01);
 			parse_input(ctcp,FALSE);
 			current_server=old_server;
 			
@@ -3288,6 +3246,47 @@ void parse_server(int server_index){
 				char tmp_buffer[BUFFER_SIZE];
 				substr(tmp_buffer,command,first_space+1,strlen(command)-first_space-1);
 				substr(command,tmp_buffer,0,strfind(" ",tmp_buffer));
+				
+				//firstly, if this is something we were waiting on, then start sending the text we were waiting to send
+				//(as it is now "hammertime")
+				if(!strcmp(command,servers[server_index]->post_type)){
+					//remember what server the user was on, because we need to hop over to the one that just sent us a message
+					int old_server=current_server;
+					current_server=server_index;
+					
+					//send the post commands (which are newline-separated)
+					char tmp_command_buffer[BUFFER_SIZE];
+					int first_newline=strfind("\n",servers[server_index]->post_commands);
+					if(first_newline>=0){
+						int start_index=0;
+						int length=first_newline;
+						//loop through the post commands
+						while(start_index+length<strlen(servers[server_index]->post_commands)){
+							//send one
+							substr(tmp_command_buffer,servers[server_index]->post_commands,start_index,length);
+							parse_input(tmp_command_buffer,FALSE);
+							
+							//find the next one, if there is one
+							//the +1 here skips the newline itself
+							start_index=start_index+length+1;
+							length=0;
+							while(((start_index+length)<strlen(servers[server_index]->post_commands)) && (servers[server_index]->post_commands[start_index+length]!='\n')){
+								length++;
+							}
+						}
+						
+						//NOTE: there should be a trailing newline so this actually shouldn't need to be here
+						//parse everything up to the end
+//						substr(tmp_command_buffer,servers[server_index]->post_commands,start_index,strlen(servers[server_index]->post_commands)-start_index);
+//						parse_input(tmp_command_buffer,FALSE);
+					//there was only one post command, just send that
+					}else{
+						parse_input(servers[server_index]->post_commands,FALSE);
+					}
+					
+					//go back to the user-specified server now that we're done parsing
+					current_server=old_server;
+				}
 				
 				//welcome message (we set the server NICK data here since it's clearly working for us)
 				if(!strcmp(command,"001")){
@@ -4098,7 +4097,7 @@ int main(int argc, char *argv[]){
 	//handle special argument cases like --version, --help, etc.
 	if(argc>1){
 		if(!strcmp(argv[1],"--version")){
-			printf("accidental_irc, the accidental irc client, version %s\n",VERSION);
+			printf("accidental_irc, the accidental irc client, version %s compiled %s %s\n",VERSION,__DATE__,__TIME__);
 			exit(0);
 		}else if(!strcmp(argv[1],"--help")){
 			printf("accidental_irc, the irc client that accidentally got written; see man page for docs\n");
@@ -4221,6 +4220,8 @@ int main(int argc, char *argv[]){
 		sprintf(rc_file,"config.rc");
 	}
 	
+	//until we're connected to a server we can't listen for post commands
+	post_listen=FALSE;
 	//if this fails no rc will be used
 	load_rc(rc_file);
 	
