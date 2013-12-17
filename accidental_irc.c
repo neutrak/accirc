@@ -2782,6 +2782,9 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			char sys_call_buffer[BUFFER_SIZE];
 			sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
 			system(sys_call_buffer);
+			
+			sprintf(sys_call_buffer,"notify-send \"PM: <%s>\" \"%s\"",nick,text);
+			system(sys_call_buffer);
 #endif
 			//set this to the last PM-ing user, so we can later reply if we so choose
 			strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
@@ -2894,6 +2897,9 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 		//take any desired additional steps upon ping here (could add notify-send or something, if desired)
 		char sys_call_buffer[BUFFER_SIZE];
 		sprintf(sys_call_buffer,"echo \"%ju ***<%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
+		system(sys_call_buffer);
+		
+		sprintf(sys_call_buffer,"notify-send \"PING: <%s>\" \"%s\"",nick,text);
 		system(sys_call_buffer);
 #endif
 		//audio output

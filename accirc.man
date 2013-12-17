@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "16 Dec 2013"
+.TH ACCIRC 1 "17 Dec 2013"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -11,7 +11,7 @@ accirc \- The accidental ncurses irc client
 tells you to read this man page
 .TP
 \fB--version\fP
-outputs the version of this software, in the form <major int>.<minor int>; major counts redesigns, minor counts updates; for both, even numbers are stable, odd numbers are unstable/testing
+outputs the version of this software, in the form <major int>.<minor int>; major counts redesigns, minor counts updates; for both, even numbers are stable, odd numbers are unstable/testing; also tells the compile date and time
 .SS Commands
 .TP
 \fB\\\fP
@@ -27,10 +27,10 @@ tells you to read this manual page
 attempts to connect to an irc server at <host> on port <port>
 .TP
 \fB/sconnect\fP \fIhost\fP \fIport\fP
-attempts to connect to an irc server at <host> on port <port> using ssl (via openssl) (the "nossl" make option disables this)
+attempts to connect to an irc server at <host> on port <port> using ssl (via openssl) (with the the "nossl" make option this command will not exist)
 .TP
 \fB/exit\fP [ message ]
-sends a QUIT to every irc server you're connected to
+sends a QUIT to every irc server you're connected to, and exits the program
 .TP
 \fB/cli_escape\fP \fInew\fP
 changes the client command escape character to <new>, if possible
@@ -39,10 +39,10 @@ changes the client command escape character to <new>, if possible
 changes the server raw data escape character to <new>, if possible
 .TP
 \fB/alias\fP \fItrigger\fP \fIsubstitution\fP
-registers an alias; when the client escape is used with the trigger the trigger will be substituted for whatever substitution is specified; for example "/alias part :part" would allow you to use /part in place of :part, note this is a direct text substitution and does no additional handling
+registers an alias; when the client escape is used with the trigger the trigger will be substituted for whatever substitution is specified; for example "/alias part :part" would allow you to use /part in place of :part ; note this is a direct text substitution and does no additional handling
 .TP
 \fB/time_format\fP \fInew_format\fP
-sets the time format for viewing (the clock and timestamps on messages in ncurses); note that logs always use unix timestamps, and ignore this formatting
+sets the time format for viewing (the clock and timestamps on messages in ncurses); note that logs always use unix timestamps, and ignore this formatting; for time formatting variables, see man 3 strftime
 .TP
 \fB/reconnect\fP
 reconnect to the currently selected server if connection is lost for any reason
@@ -65,7 +65,7 @@ searches up from the current scroll position for the given search_string (exact 
 \fB/up\fP
 scrolls up one line, if possible
 .TP
-\fB/up\fP
+\fB/down\fP
 scrolls down one line, if possible
 .TP
 \fB/head\fP
@@ -139,7 +139,7 @@ literal tab character (f5 left for backwards compatibility, alt+tab is recommend
 0x01 character, since screen intercepts literal ^A (for manually sending CTCP messages other than ACTION); displays as a bold \\ in input area
 .TP
 \fBf7\fP
-0x03 character for sending MIRC colors (MIRC color support is still experimental, and requires compilation with -D MIRC_COLOR); displays as a bold \^ in input area
+0x03 character for sending MIRC colors (MIRC color support is still experimental, and requires compilation with -D MIRC_COLOR); displays as a bold \^ (caret) in input area
 .TP
 \fB<tab>\fP
 complete a nickname based on nicks in current channel
