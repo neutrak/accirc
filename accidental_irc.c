@@ -1107,14 +1107,28 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 	wclear(user_input);
 	wmove(user_input,0,0);
 	
+	int manual_offset=0;
+	
 	//if we can output the whole string just do that no matter what
 	int length=strlen(input_buffer);
 	if(length<width){
 		input_display_start=0;
+		if(cursor_pos>=width){
+			cursor_pos=width-1;
+		}
+	}
+	if(cursor_pos<width){
+		input_display_start=0;
+	}
+	
+	//if we're at the end of the line don't display the last char, leave that for the cursor
+	if((cursor_pos-input_display_start)>=(width)){
+		manual_offset=-1;
+		input_display_start++;
 	}
 	
 	int n;
-	for(n=input_display_start;(n<(input_display_start+width))&&(n<BUFFER_SIZE);n++){
+	for(n=input_display_start;(n<(input_display_start+width+manual_offset))&&(n<BUFFER_SIZE);n++){
 		//if we hit the end of the string before the end of the window stop outputting early
 		if(input_buffer[n]!='\0'){
 			//the MIRC color code is not output like other characters (make it a bolded ^)
@@ -3906,7 +3920,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 			case KEY_RIGHT:
 				if(cursor_pos<strlen(input_buffer)){
 					cursor_pos++;
-					if(cursor_pos>width){
+					if((cursor_pos-input_display_start)>=width){
 						input_display_start++;
 					}
 				}
@@ -3915,7 +3929,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 			case KEY_LEFT:
 				if(cursor_pos>0){
 					cursor_pos--;
-					if(cursor_pos<input_display_start){
+					if((input_display_start>0) && (cursor_pos<input_display_start)){
 						input_display_start--;
 					}
 				}
