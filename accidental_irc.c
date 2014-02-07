@@ -3813,7 +3813,6 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	char old_input_buffer[BUFFER_SIZE];
 	strncpy(old_input_buffer,input_buffer,BUFFER_SIZE);
 	
-	//TODO: fix the input cases where the size of the input buffer is larger than the width of the window; the display gets mangled (cursor_pos and/or input_display_start isn't right)
 	c=wgetch(user_input);
 	if(c>=0){
 		switch(c){
