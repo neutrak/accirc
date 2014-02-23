@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "17 Dec 2013"
+.TH ACCIRC 1 "23 Feb 2014"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -133,7 +133,7 @@ server left (see /sl)
 server right (see /sr)
 .TP
 \fBf5 or alt+tab\fP
-literal tab character (f5 left for backwards compatibility, alt+tab is recommended)
+literal tab character, displays as a bold _ in the input and display areas
 .TP
 \fBf6\fP
 0x01 character, since screen intercepts literal ^A (for manually sending CTCP messages other than ACTION); displays as a bold \\ in input area
@@ -192,6 +192,10 @@ A log of any errors that couldn't be output through ncurses
 
 /rejoin_on_kick
 
+/comment the post client command replaces the old autoident and autojoin commands in versions including and prior to 0.4
+
+/comment this breaks backwards compatability but is much more general and flexible
+
 /post 001
 
 :join #faid3.0
@@ -201,7 +205,7 @@ A log of any errors that couldn't be output through ncurses
 .SH "SEE ALSO"
 ncurses(3) strftime(3) openssl(3)
 .SH BUGS
-MIRC colors don't work under screen; auto-reconnecting on drop is unreliable; flicker occurs frequently, since the clock updates every second (this is less noticable in screen or tmux for some reason) (changing the time_format can cause the clock to update less often, reducing this problem).  On the faux-channel PM handling, the PM conversation will behave weirdly if user's nick changes (it's a TODO in the code).  faux-PM channels are CASE-SENSITIVE, this shouldn't be noticable, but you never know
+MIRC colors don't work under screen. auto-reconnecting on drop is unreliable. On the faux-channel PM handling, the PM conversation will behave weirdly if user's nick changes (it's a TODO in the code).  faux-PM channels are CASE-SENSITIVE, this shouldn't be noticable, but you never know
 .SH WWW
 http://somegenericsite.dyndns.org/index.php?p=code
 

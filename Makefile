@@ -5,7 +5,7 @@ nossl: accidental_irc.c
 	./compile_accidental_irc.sh
 
 debug: accidental_irc.c
-	./compile_accidental_irc.sh -lssl -lcrypto -D _OPENSSL -D DEBUG
+	./compile_accidental_irc.sh -g -lssl -lcrypto -D _OPENSSL -D DEBUG
 
 install: accirc
 	cp accirc /usr/bin/

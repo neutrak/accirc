@@ -102,6 +102,15 @@
 //how many user names to output when resolving non-unique tab completions
 #define MAX_OUTPUT_NICKS 8
 
+//how many lines are reserved for something other than the channel text
+//one for server list
+//one for channel list
+//one for channel topic
+//one for upper delimeter
+//one for lower delimter and time
+//one for input area
+#define RESERVED_LINES 6
+
 enum {
 	MIRC_WHITE,
 	MIRC_BLACK,
@@ -425,6 +434,27 @@ char load_rc(char *rc_file){
 	return TRUE;
 }
 
+//writes over an entire window of given size with space characters
+//I'm hoping this fixes the flicker issues, which I think are caused by wclear calls
+void wblank(WINDOW *win, int win_width, int win_height){
+//	wclear(win);
+	
+	//go through the entire area and write spaces over it
+	int x;
+	for(x=0;x<win_width;x++){
+		int y;
+		for(y=0;y<win_height;y++){
+			//ncurses takes y first in wmove, don't judge
+			wmove(win,y,x);
+//			wprintw(win,"%c",' ');
+			waddch(win,' ');
+		}
+	}
+	
+	//re-set to 0,0 when done
+	wmove(win,0,0);
+}
+
 void wcoloron(WINDOW *win, int fg, int bg){
 	wattron(win,COLOR_PAIR((fg<<4)|(bg<<0)));
 }
@@ -704,10 +734,10 @@ void properly_close(int server_index){
 	
 	//output
 	if(current_server<0){
-		wclear(server_list);
-		wclear(channel_list);
-		wclear(channel_topic);
-		wclear(channel_text);
+		wblank(server_list,width,1);
+		wblank(channel_list,width,1);
+		wblank(channel_topic,width,1);
+		wblank(channel_text,width,height-RESERVED_LINES);
 		
 		wprintw(server_list,"(no servers)");
 		wprintw(channel_list,"(no channels)");
@@ -734,7 +764,7 @@ void refresh_server_list(){
 	}
 	
 	//update the display of the server list
-	wclear(server_list);
+	wblank(server_list,width,1);
 	wmove(server_list,0,0);
 	int n;
 	for(n=0;n<MAX_SERVERS;n++){
@@ -809,7 +839,7 @@ void refresh_channel_list(){
 	}
 	
 	//update the display of the channel list
-	wclear(channel_list);
+	wblank(channel_list,width,1);
 	wmove(channel_list,0,0);
 	int n;
 	for(n=0;n<MAX_CHANNELS;n++){
@@ -861,7 +891,7 @@ void refresh_channel_topic(){
 	
 	//print out the channel topic
 	//first clearing that window
-	wclear(channel_topic);
+	wblank(channel_topic,width,1);
 	
 	//start at the start of the line
 	wmove(channel_topic,0,0);
@@ -906,7 +936,7 @@ void refresh_channel_text(){
 	
 	//print out the channel text
 	//first clearing that window
-	wclear(channel_text);
+	wblank(channel_text,width,height-RESERVED_LINES);
 	
 	//where to stop outputting, by default this is the last line available
 	int output_end=message_count;
@@ -1082,6 +1112,11 @@ void refresh_channel_text(){
 						wattron(channel_text,A_BOLD);
 						wprintw(channel_text,"\\");
 						wattroff(channel_text,A_BOLD);
+					//a literal tab is output specially, as a bold "_", so that one character == one cursor position
+					}else if(output_text[n]=='\t'){
+						wattron(channel_text,A_BOLD);
+						wprintw(channel_text,"_");
+						wattroff(channel_text,A_BOLD);
 					//if this is not a special escape output it normally
 					}else{
 						wprintw(channel_text,"%c",output_text[n]);
@@ -1104,7 +1139,7 @@ void refresh_channel_text(){
 //refresh the user's input, duh
 void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_start){
 	//output the most recent text from the user so they can see what they're typing
-	wclear(user_input);
+	wblank(user_input,width,1);
 	wmove(user_input,0,0);
 	
 	int manual_offset=0;
@@ -1140,6 +1175,11 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 			}else if(input_buffer[n]==0x01){
 				wattron(user_input,A_BOLD);
 				wprintw(user_input,"\\");
+				wattroff(user_input,A_BOLD);
+			//a literal tab is output specially, as a bold "_", so that one character == one cursor position
+			}else if(input_buffer[n]=='\t'){
+				wattron(user_input,A_BOLD);
+				wprintw(user_input,"_");
 				wattroff(user_input,A_BOLD);
 			//if this is not a special escape output it normally
 			}else{
@@ -1188,7 +1228,7 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 		//only refresh the display if what the user sees changed
 		//(if it's not displaying in seconds and only the seconds updated, don't refresh)
 		if(strcmp(old_time_buffer,time_buffer)!=0){
-			wclear(bottom_border);
+			wblank(bottom_border,width,1);
 			
 			wmove(bottom_border,0,0);
 			wprintw(bottom_border,time_buffer);
@@ -2149,12 +2189,10 @@ void up_command(char *input_buffer, char *command, char *parameters, int old_scr
 		for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
 		
 		//if there is more text than area to display allow it scrollback (else don't)
-		//the -6 here is because there are 6 character rows used to display things other than channel text
-//		if(line_count>height-6){
+//		if(line_count>height-RESERVED_LINES){
 		if(line_count>0){
 			//if we're already scrolled back and we can go further
-			//note: the +6 here is because there are 6 character rows used to display things other than channel text
-//			if((scrollback_end-height+6)>0){
+//			if((scrollback_end-height+RESERVED_LINES)>0){
 			if(scrollback_end>1){
 				scrollback_end--;
 			//if we're not scrolled back start now
@@ -2284,7 +2322,7 @@ void privmsg_command(char *input_buffer){
 #ifdef DEBUG
 //		int foreground,background;
 //		sscanf(input_buffer,"%i %i",&foreground,&background);
-//		wclear(channel_text);
+//		wblank(channel_text,width,height-RESERVED_LINES);
 //		wcoloron(channel_text,foreground,background);
 //		wprintw(channel_text,"This is a sample string in fg=%i bg=%i",foreground,background);
 //		wcoloroff(channel_text,foreground,background);
@@ -2409,7 +2447,7 @@ void parse_input(char *input_buffer, char keep_history){
 				strncpy(notify_buffer,"accirc: For help please read the manual page",BUFFER_SIZE);
 				scrollback_output(current_server,0,notify_buffer,TRUE);
 			}else{
-				wclear(channel_text);
+				wblank(channel_text,width,height-RESERVED_LINES);
 				wmove(channel_text,0,0);
 				wprintw(channel_text,"accirc: For help please read the manual page, the /connect command is probably what you're looking for if you're reading this");
 				wrefresh(channel_text);
@@ -3306,6 +3344,9 @@ void parse_server(int server_index){
 					
 					//go back to the user-specified server now that we're done parsing
 					current_server=old_server;
+					
+					//refresh the channel text display since we just switched servers and switched back
+//					refresh_channel_text();
 				}
 				
 				//welcome message (we set the server NICK data here since it's clearly working for us)
@@ -3538,13 +3579,13 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	timeout(1);
 	wtimeout(user_input,5);
 	
-	wclear(server_list);
-	wclear(channel_list);
-	wclear(channel_topic);
-	wclear(top_border);
-	wclear(channel_text);
-	wclear(bottom_border);
-	wclear(user_input);
+	wblank(server_list,width,1);
+	wblank(channel_list,width,1);
+	wblank(channel_topic,width,1);
+	wblank(top_border,width,1);
+	wblank(channel_text,width,height-RESERVED_LINES);
+	wblank(bottom_border,width,1);
+	wblank(user_input,width,1);
 	
 	//always bold the borders
 	wattron(top_border,A_BOLD);
@@ -3872,7 +3913,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 				}
 #ifdef DEBUG
 				if(current_server<0){
-					wclear(channel_text);
+					wblank(channel_text,width,height-RESERVED_LINES);
 					wmove(channel_text,0,0);
 					wprintw(channel_text,"Handling an escape, c=%i",c);
 					wrefresh(channel_text);
@@ -4060,7 +4101,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 				
 #ifdef DEBUG
 				if(current_server<0){
-					wclear(channel_text);
+					wblank(channel_text,width,height-RESERVED_LINES);
 					wmove(channel_text,0,0);
 					wprintw(channel_text,"%i",c);
 					wrefresh(channel_text);

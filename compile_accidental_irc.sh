@@ -12,7 +12,7 @@ fi
 
 echo "Compiling using ${CC}..."
 
-$CC -g -o accirc accidental_irc.c -Wall -lncurses $*
+$CC -o accirc accidental_irc.c -Wall -lncurses $*
 
 if [ 0 -eq "$?" ]
 then
