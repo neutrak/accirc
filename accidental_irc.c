@@ -765,6 +765,8 @@ void refresh_server_list(){
 	
 	//update the display of the server list
 	wblank(server_list,width,1);
+	wclear(server_list); //this shouldn't be needed and causes flicker!
+	
 	wmove(server_list,0,0);
 	int n;
 	for(n=0;n<MAX_SERVERS;n++){
@@ -3334,6 +3336,8 @@ void parse_server(int server_index){
 						}
 						
 						//NOTE: there should be a trailing newline so this actually shouldn't need to be here
+						//(we build this data structure internally so this rule won't be violated by the user)
+						
 						//parse everything up to the end
 //						substr(tmp_command_buffer,servers[server_index]->post_commands,start_index,strlen(servers[server_index]->post_commands)-start_index);
 //						parse_input(tmp_command_buffer,FALSE);
@@ -3346,7 +3350,7 @@ void parse_server(int server_index){
 					current_server=old_server;
 					
 					//refresh the channel text display since we just switched servers and switched back
-//					refresh_channel_text();
+					refresh_channel_text();
 				}
 				
 				//welcome message (we set the server NICK data here since it's clearly working for us)
