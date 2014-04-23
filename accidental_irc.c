@@ -43,7 +43,7 @@
 #define MIN_HEIGHT 7
 #define MIN_WIDTH 12
 
-#define VERSION "0.5"
+#define VERSION "0.7"
 
 //these are for ncurses' benefit
 #define KEY_ESCAPE 27
@@ -842,6 +842,7 @@ void refresh_channel_list(){
 	
 	//update the display of the channel list
 	wblank(channel_list,width,1);
+	wclear(channel_list); //this shouldn't be needed and causes flicker!
 	wmove(channel_list,0,0);
 	int n;
 	for(n=0;n<MAX_CHANNELS;n++){
@@ -1978,6 +1979,12 @@ void sl_command(){
 			index=MAX_SERVERS;
 		}
 	}
+	
+	//if after moving we're on a valid server, clear the output area before the next refresh
+	//this conditional guarantees we don't leave it blank for a full refresh/frame (where the user would notice)
+	if(current_server>=0){
+		wclear(channel_text);
+	}
 }
 
 //the "sr" client command (moves a server to the right)
@@ -2004,6 +2011,12 @@ void sr_command(){
 			//note this is -1 because it gets incremented before the next loop iteration
 			index=-1;
 		}
+	}
+	
+	//if after moving we're on a valid server, clear the output area before the next refresh
+	//this conditional guarantees we don't leave it blank for a full refresh/frame (where the user would notice)
+	if(current_server>=0){
+		wclear(channel_text);
 	}
 }
 
@@ -2034,6 +2047,12 @@ void cl_command(){
 	}
 	
 	servers[current_server]->current_channel=current_channel;
+	
+	//if after moving we're on a valid channel, clear the output area before the next refresh
+	//this conditional guarantees we don't leave it blank for a full refresh/frame (where the user would notice)
+	if(current_channel>=0){
+		wclear(channel_text);
+	}
 }
 
 //the "cr" client command (moves a channel to the right)
@@ -2063,6 +2082,12 @@ void cr_command(){
 	}
 	
 	servers[current_server]->current_channel=current_channel;
+	
+	//if after moving we're on a valid channel, clear the output area before the next refresh
+	//this conditional guarantees we don't leave it blank for a full refresh/frame (where the user would notice)
+	if(current_channel>=0){
+		wclear(channel_text);
+	}
 }
 
 //the "log" client command (enables logging where possible)
