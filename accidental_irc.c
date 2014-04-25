@@ -396,6 +396,25 @@ char verify_or_make_dir(char *path){
 	return TRUE;
 }
 
+//log a "ping" to a seperate file
+//line starts with given ping_time (usually PING or PM), and is server-local, but not channel-local
+void ping_log(int server_index, const char *ping_type, const char *nick, const char *text){
+	//if we were keeping logs then (try to) store this PM in the ping.txt file
+	if((can_log) && (servers[server_index]->keep_logs)){
+		char ping_file_buffer[BUFFER_SIZE];
+		sprintf(ping_file_buffer,"%s/.local/share/accirc/%s/pings.txt",getenv("HOME"),LOGGING_DIRECTORY);
+		
+		//try to make a ping log file, if that's impossible just give up
+		FILE *ping_file=fopen(ping_file_buffer,"a");
+		if(ping_file==NULL){
+			fprintf(error_file,"Err: Could not find or create ping log file\n");
+		}else{
+			fprintf(ping_file,"(%s) %s: %ju <%s> %s\n",servers[server_index]->server_name,ping_type,(uintmax_t)(time(NULL)),nick,text);
+			fclose(ping_file);
+		}
+	}
+}
+
 //load the configuration file at path, returns TRUE on success, FALSE on failure
 char load_rc(char *rc_file){
 	FILE *rc=fopen(rc_file,"r");
@@ -765,7 +784,7 @@ void refresh_server_list(){
 	
 	//update the display of the server list
 	wblank(server_list,width,1);
-	wclear(server_list); //this shouldn't be needed and causes flicker!
+//	wclear(server_list); //this shouldn't be needed and causes flicker!
 	
 	wmove(server_list,0,0);
 	int n;
@@ -842,7 +861,7 @@ void refresh_channel_list(){
 	
 	//update the display of the channel list
 	wblank(channel_list,width,1);
-	wclear(channel_list); //this shouldn't be needed and causes flicker!
+//	wclear(channel_list); //this shouldn't be needed and causes flicker!
 	wmove(channel_list,0,0);
 	int n;
 	for(n=0;n<MAX_CHANNELS;n++){
@@ -2857,14 +2876,9 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 		if(find_output_channel(server_index,lower_nick)>0){
 			*output_channel=find_output_channel(server_index,lower_nick);
 		}else{
-#ifdef DEBUG
-			char sys_call_buffer[BUFFER_SIZE];
-			sprintf(sys_call_buffer,"echo \"%ju <%s> %s\" | mail -s \"PM\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
-			system(sys_call_buffer);
+			//if we're configured to log, log PMs too, and in a more obvious way (separate file)
+			ping_log(server_index,"PM",nick,text);
 			
-			sprintf(sys_call_buffer,"notify-send \"PM: <%s>\" \"%s\"",nick,text);
-			system(sys_call_buffer);
-#endif
 			//set this to the last PM-ing user, so we can later reply if we so choose
 			strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
 			
@@ -2972,15 +2986,9 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	//handle for a ping (when someone says our own nick)
 	//there is a was_pingged flag per channel, so we can display it as newline AND bold in the channel list output
 	}else if(name_index>=0){
-#ifdef DEBUG
-		//take any desired additional steps upon ping here (could add notify-send or something, if desired)
-		char sys_call_buffer[BUFFER_SIZE];
-		sprintf(sys_call_buffer,"echo \"%ju ***<%s> %s\" | mail -s \"PING\" \"%s\"",(uintmax_t)(time(NULL)),nick,text,servers[server_index]->nick);
-		system(sys_call_buffer);
+		//if we're configured to log, log PMs too, and in a more obvious way (separate file)
+		ping_log(server_index,"PING",nick,text);
 		
-		sprintf(sys_call_buffer,"notify-send \"PING: <%s>\" \"%s\"",nick,text);
-		system(sys_call_buffer);
-#endif
 		//audio output
 		beep();
 		//format the output to show that we were pingged
@@ -4222,6 +4230,7 @@ int main(int argc, char *argv[]){
 	setvbuf(error_file,NULL,_IONBF,0);
 	
 	//by default you can log stuff
+	//NOTE: this is re-used for logging pings also, which are considered just a special case of logging
 	can_log=TRUE;
 	
 	//store logs in ~/.local/share/accirc/logs/
