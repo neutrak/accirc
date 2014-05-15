@@ -1,8 +1,8 @@
-.TH ACCIRC 1 "23 Apr 2014"
+.TH ACCIRC 1 "15 May 2014"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
-\fBaccirc\fP [ --help | --version ]
+\fBaccirc\fP [ --help | --version | --ignorerc ]
 .SH DESCRIPTION
 \fBaccirc\fP starts ncurses; functionality is available from there; config is read from ~/.config/accirc/config.rc ; logs are stored in ~/.local/share/accirc/logs/
 .SS Options
@@ -12,6 +12,9 @@ tells you to read this man page
 .TP
 \fB--version\fP
 outputs the version of this software, in the form <major int>.<minor int>; major counts redesigns, minor counts updates; for both, even numbers are stable, odd numbers are unstable/testing; also tells the compile date and time
+.TP
+\fB--ignorerc\fP
+runs the program without running the startup (rc) file located in ~/.config
 .SS Commands
 .TP
 \fB\\\fP

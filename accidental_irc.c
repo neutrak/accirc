@@ -197,6 +197,9 @@ struct alias {
 
 //global variables
 
+//whether or not to ignore the rc file in ~/.config
+char ignore_rc;
+
 //the file pointer to log non-fatal errors to
 FILE *error_file;
 
@@ -2926,6 +2929,8 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 		//be case-insensitive
 		strtolower(ctcp,BUFFER_SIZE);
 		
+		//NOTE: timestamps are added to all output by the scrollback_output function
+		
 		//handle CTCP ACTION
 		if(!strcmp(ctcp,"action")){
 			int offset=strlen("action");
@@ -2940,8 +2945,22 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 				tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
 			}
 			
-			//note: timestamps are added at the end
-			sprintf(output_buffer,"*%s %s",nick,tmp_buffer);
+			//if this was also a ping, handle that too
+			if(name_index>=0){
+				//if we're configured to log, log this as a ping in the pings file
+				ping_log(server_index,"PING",nick,text);
+				
+				//audio output
+				beep();
+				//format the output to show that we were pingged
+				sprintf(output_buffer,"*** *%s %s",nick,tmp_buffer);
+				
+				//set the was_pingged flag so the user can see that information at a glance
+				servers[server_index]->was_pingged[*output_channel]=TRUE;
+			//if this wasn't a ping but was a normal CTCP ACTION output for that
+			}else{
+				sprintf(output_buffer,"*%s %s",nick,tmp_buffer);
+			}
 		//handle CTCP VERSION
 		}else if(!strcmp(ctcp,"version")){
 			int offset=strlen("version");
@@ -2986,7 +3005,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	//handle for a ping (when someone says our own nick)
 	//there is a was_pingged flag per channel, so we can display it as newline AND bold in the channel list output
 	}else if(name_index>=0){
-		//if we're configured to log, log PMs too, and in a more obvious way (separate file)
+		//if we're configured to log, log PINGs too, in a separate file
 		ping_log(server_index,"PING",nick,text);
 		
 		//audio output
@@ -4191,6 +4210,8 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 
 //runtime
 int main(int argc, char *argv[]){
+	ignore_rc=FALSE;
+	
 	//handle special argument cases like --version, --help, etc.
 	if(argc>1){
 		if(!strcmp(argv[1],"--version")){
@@ -4199,6 +4220,8 @@ int main(int argc, char *argv[]){
 		}else if(!strcmp(argv[1],"--help")){
 			printf("accidental_irc, the irc client that accidentally got written; see man page for docs\n");
 			exit(0);
+		}else if(!strcmp(argv[1],"--ignorerc")){
+			ignore_rc=TRUE;
 		}
 	}
 	
@@ -4320,8 +4343,12 @@ int main(int argc, char *argv[]){
 	
 	//until we're connected to a server we can't listen for post commands
 	post_listen=FALSE;
-	//if this fails no rc will be used
-	load_rc(rc_file);
+	
+	//unless we've been explicitly asked not to, try to load the rc file
+	if(!ignore_rc){
+		//if this fails no rc will be used
+		load_rc(rc_file);
+	}
 	
 	//start the clock
 	time_t old_time=time(NULL);
