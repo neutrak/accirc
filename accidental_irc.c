@@ -225,6 +225,8 @@ int prev_scrollback_end;
 alias *alias_array[MAX_ALIASES];
 //format to output time in (used for scrollback_output and the clock)
 char time_format[BUFFER_SIZE];
+//a custom string for CTCP VERSION responses (leave blank for default, we'll just check strlen is 0)
+char custom_version[BUFFER_SIZE];
 //whether or not we're currently listening for post commands
 char post_listen;
 
@@ -2540,6 +2542,19 @@ void parse_input(char *input_buffer, char keep_history){
 				sprintf(notify_buffer,"accirc: updated time format to \"%s\"",parameters);
 				scrollback_output(current_server,0,notify_buffer,TRUE);
 			}
+		//change the version response to a custom one, if given
+		}else if(!strcmp(command,"set_version")){
+			if(strlen(parameters)>0){
+				strncpy(custom_version,parameters,BUFFER_SIZE);
+			}else{
+				sprintf(custom_version,"accidental_irc v%s compiled %s %s",VERSION,__DATE__,__TIME__);
+			}
+			
+			if(current_server>=0){
+				char notify_buffer[BUFFER_SIZE];
+				sprintf(notify_buffer,"accirc: updated custom version string to \"%s\"",custom_version);
+				scrollback_output(current_server,0,notify_buffer,TRUE);
+			}
 		//this set of command depends on being connected to a server, so first check that we are
 		}else if(current_server>=0){
 			//move a server to the left
@@ -2961,6 +2976,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			}else{
 				sprintf(output_buffer,"*%s %s",nick,tmp_buffer);
 			}
+		//NOTE: VERSION string is a configuration option, so users can set it to something interesting if they want
 		//handle CTCP VERSION
 		}else if(!strcmp(ctcp,"version")){
 			int offset=strlen("version");
@@ -2969,12 +2985,11 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			//and another +1 and -1 because we don't want to include the space the delimits the CTCP command from the rest of the message
 			substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
 			
-			//some clients prefer privmsg responses, others prefer notice response
+			//some clients prefer privmsg responses, others prefer notice response; we do notices
 			int old_server=current_server;
 			current_server=server_index;
-//			sprintf(ctcp,":privmsg %s :%cVERSION accidental_irc v%s%c",nick,0x01,VERSION,0x01);
-//			parse_input(ctcp,FALSE);
-			sprintf(ctcp,"%cnotice %s :%cVERSION accidental_irc v%s compiled %s %s%c",server_escape,nick,0x01,VERSION,__DATE__,__TIME__,0x01);
+//			sprintf(ctcp,"%cprivmsg %s :%cVERSION %s%c",server_escape,nick,0x01,custom_version,0x01);
+			sprintf(ctcp,"%cnotice %s :%cVERSION %s%c",server_escape,nick,0x01,custom_version,0x01);
 			parse_input(ctcp,FALSE);
 			current_server=old_server;
 			
@@ -3778,6 +3793,7 @@ void read_server_data(){
 	}
 }
 
+//TODO: make this complete as much as possible until we hit a unique portion (i.e. if there is "ben" and "benjamin" b<tab> should complete to "ben" and maybe give a warning)
 //tab completion of names in current channel
 //returns the count of unsuccessful tab completions
 //note cursor_pos will be re-set after a successful completion
@@ -4294,6 +4310,8 @@ int main(int argc, char *argv[]){
 	
 	//by default the time format is unix time, this can be changed with the "time_format" client command
 	sprintf(time_format,"%%s");
+	//by default the software CTCP version string is the real version of the software
+	sprintf(custom_version,"accidental_irc v%s compiled %s %s",VERSION,__DATE__,__TIME__);
 	
 	//location in input history, starting at "not looking at history" state
 	input_line=-1;

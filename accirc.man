@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "15 May 2014"
+.TH ACCIRC 1 "11 July 2014"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -46,6 +46,9 @@ registers an alias; when the client escape is used with the trigger the trigger 
 .TP
 \fB/time_format\fP \fInew_format\fP
 sets the time format for viewing (the clock and timestamps on messages in ncurses); note that logs always use unix timestamps, and ignore this formatting; for time formatting variables, see man 3 strftime
+.TP
+\fB/set_version\fP \fInew_version_string\fP
+sets the new_version_string as the response to any CTCP VERSION messages received (leave blank to re-set to default value)
 .TP
 \fB/reconnect\fP
 reconnect to the currently selected server if connection is lost for any reason
