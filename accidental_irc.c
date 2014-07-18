@@ -3793,7 +3793,7 @@ void read_server_data(){
 	}
 }
 
-//TODO: make this complete as much as possible until we hit a unique portion (i.e. if there is "ben" and "benjamin" b<tab> should complete to "ben" and maybe give a warning)
+//this completes as much as possible until we hit a unique portion (i.e. if there is "ben" and "benjamin" b<tab> should complete to "ben" and give a bell)
 //tab completion of names in current channel
 //returns the count of unsuccessful tab completions
 //note cursor_pos will be re-set after a successful completion
@@ -3825,6 +3825,18 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 		//lower case for case-insensitive matching
 		strtolower(partial_nick,BUFFER_SIZE);
 		
+		//count the number of nicks in the current channel
+		int nick_count=0;
+		for(n=0;n<MAX_NAMES;n++){
+			if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+				nick_count++;
+			}
+		}
+		
+		//create a structure to hold ALL matching nicks, so we can to aggregate operations
+		char *all_matching_nicks[nick_count];
+		int matching_nicks_index=0;
+		
 		//this counts the number of matches we got, we only want to complete on UNIQUE matches
 		int matching_nicks=0;
 		char last_matching_nick[BUFFER_SIZE];
@@ -3837,10 +3849,22 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 				
 				//if this nick started with the partial_nick
 				if(strfind(partial_nick,nick_to_match)==0){
+					//store in last matching nick
 					matching_nicks++;
 					strncpy(last_matching_nick,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+					
+					//store in aggregate along with other matching nicks
+					all_matching_nicks[matching_nicks_index]=malloc(sizeof(char)*BUFFER_SIZE);
+					strncpy(all_matching_nicks[matching_nicks_index],last_matching_nick,BUFFER_SIZE);
+					matching_nicks_index++;
 				}
 			}
+		}
+		
+		//null out any spaces we didn't use in the matching nicks array
+		while(matching_nicks_index<nick_count){
+			all_matching_nicks[matching_nicks_index]=NULL;
+			matching_nicks_index++;
 		}
 		
 		//if this was a unique match
@@ -3863,37 +3887,102 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 			
 			//reset the unsuccessful attempt counter
 			tab_completions=0;
+		//if this wasn't a unique match but we're not out of completion attempts then complete as far as we know how to
+		}else if((tab_completions<COMPLETION_ATTEMPTS) && (matching_nicks>1)){
+			//the character other possible nicks want to complete next
+			char next_char='\0';
+			//whether or not we've set that completion char or not
+			char next_char_set=FALSE;
+			//whether or not all possible completions have the SAME next character
+			char agreement=FALSE;
+			//how many characters we've added since the point the user tried to complete from
+			int chars_inserted=0;
+			
+			//loop until there is disagreeement on how to complete
+			do{
+				agreement=FALSE;
+				//look through all the possible matches to see what they want to complete to
+				int n;
+				for(n=0;n<nick_count;n++){
+					if(all_matching_nicks[n]!=NULL){
+						//if this nick is longer than what the user typed so far
+						int nick_idx=(strlen(partial_nick)+chars_inserted);
+						if(strlen(all_matching_nicks[n])>nick_idx){
+							//if this is the first nick we checked then it gets to say what the next char should be
+							if(!next_char_set){
+								next_char=all_matching_nicks[n][nick_idx];
+								next_char_set=TRUE;
+								agreement=TRUE;
+							//if this isn't the first nick and we found a different (competing) completion then disagreement!!!
+							}else if(next_char!=all_matching_nicks[n][nick_idx]){
+								agreement=FALSE;
+								//break out of the loop
+								n=nick_count;
+							}
+						//if this nick is NOT longer than what the user already has completed then stop. right. now.
+						}else{
+							//if there was agreement and the partial completion was as long as the nick two users would have the same name!
+							agreement=FALSE;
+							//break out of the loop
+							n=nick_count;
+						}
+					}
+				}
+				//if everybody agreed then go ahead and type the next character out
+				if(agreement){
+					if(strinsert(input_buffer,next_char,(*cursor_pos),BUFFER_SIZE)){
+						chars_inserted++;
+						(*cursor_pos)++;
+						//if we would go off the end
+						if(((*cursor_pos)-input_display_start)>width){
+							//make the end one char further down
+							input_display_start++;
+						}
+					}
+				}
+				
+				next_char_set=FALSE;
+				next_char='\0';
+			}while(agreement);
+			
+			//this is still an unsuccesful tab-complete attempt, since the completion wasn't unique
+			tab_completions++;
+			beep();
 		//how many attempts we give the user to complete a name before we just give up and output the possibilities
-		}else if(tab_completions>COMPLETION_ATTEMPTS){
+		}else if(tab_completions>=COMPLETION_ATTEMPTS){
 			//the entire line we'll output, we're gonna append to this a lot
 			char output_text[BUFFER_SIZE];
 			sprintf(output_text,"accirc: Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->channel_name[servers[current_server]->current_channel]);
 			
-			//iterate through all tne nicks in this channel, if we find a possible completion, output that
+			//output the array we just made of nicks that are acceptable (but non-unique) completions
 			int output_nicks=0;
-			for(n=0;n<MAX_NAMES;n++){
-				if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
-					char nick_to_match[BUFFER_SIZE];
-					strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
-					strtolower(nick_to_match,BUFFER_SIZE);
-					
-					//if this nick started with the partial_nick
-					if(strfind(partial_nick,nick_to_match)==0){
-						if(output_nicks<MAX_OUTPUT_NICKS){
-							sprintf(output_text,"%s%s ",output_text,nick_to_match);
-						}else if(output_nicks==MAX_OUTPUT_NICKS){
-							sprintf(output_text,"%s%s",output_text,LINE_OVERFLOW_ERROR);
-						}
-						output_nicks++;
+			int n;
+			for(n=0;n<nick_count;n++){
+				if(all_matching_nicks[n]!=NULL){
+					if(output_nicks<MAX_OUTPUT_NICKS){
+						sprintf(output_text,"%s%s ",output_text,all_matching_nicks[n]);
+					}else if(output_nicks==MAX_OUTPUT_NICKS){
+						sprintf(output_text,"%s%s",output_text,LINE_OVERFLOW_ERROR);
 					}
+					output_nicks++;
 				}
 			}
 			scrollback_output(current_server,servers[current_server]->current_channel,output_text,TRUE);
-		//this was either not a match or not a unique match
+			
+			//re-set our completions in case the user was hitting tab like crazy before viewing the output (like I do)
+			tab_completions=0;
+		//this was not a match
 		}else{
 			//this was an unsuccessful tab-complete attempt
 			tab_completions++;
 			beep();
+		}
+		
+		//free the matching nicks array, we're done with it now
+		for(n=0;n<nick_count;n++){
+			if(all_matching_nicks[n]!=NULL){
+				free(all_matching_nicks[n]);
+			}
 		}
 	}
 	
