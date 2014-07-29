@@ -1125,6 +1125,8 @@ void refresh_channel_text(){
 			}else{
 				int n;
 #endif
+				//whether or not we are displaying in bold
+				char bold_on=FALSE;
 				//instead of a line overflow error, WRAP! (this is a straight-up character wrap)
 				int wrapped_line=0;
 				for(n=0;n<strlen(output_text);n++){
@@ -1133,17 +1135,40 @@ void refresh_channel_text(){
 					if(output_text[n]==0x03){
 						wattron(channel_text,A_BOLD);
 						wprintw(channel_text,"^");
-						wattroff(channel_text,A_BOLD);
+						if(!bold_on){
+							wattroff(channel_text,A_BOLD);
+						}
 					//the CTCP escape is also output specially, as a bold "\\"
 					}else if(output_text[n]==0x01){
 						wattron(channel_text,A_BOLD);
 						wprintw(channel_text,"\\");
-						wattroff(channel_text,A_BOLD);
+						if(!bold_on){
+							wattroff(channel_text,A_BOLD);
+						}
 					//a literal tab is output specially, as a bold "_", so that one character == one cursor position
 					}else if(output_text[n]=='\t'){
 						wattron(channel_text,A_BOLD);
 						wprintw(channel_text,"_");
-						wattroff(channel_text,A_BOLD);
+						if(!bold_on){
+							wattroff(channel_text,A_BOLD);
+						}
+					//a bold "?" is output for non-ascii characters
+					//to avoid unicode issues where the default output may be >1 char long
+					}else if((output_text[n] & 128) > 0){
+						wattron(channel_text,A_BOLD);
+						wprintw(channel_text,"?");
+						if(!bold_on){
+							wattroff(channel_text,A_BOLD);
+						}
+					//don't output a ^B, instead use it to toggle bold or not bold
+					}else if(output_text[n]==0x02){
+						if(bold_on){
+							wattroff(channel_text,A_BOLD);
+							bold_on=FALSE;
+						}else{
+							wattron(channel_text,A_BOLD);
+							bold_on=TRUE;
+						}
 					//if this is not a special escape output it normally
 					}else{
 						wprintw(channel_text,"%c",output_text[n]);
@@ -1153,6 +1178,10 @@ void refresh_channel_text(){
 						wrapped_line++;
 						wmove(channel_text,(y_start+wrapped_line),0);
 					}
+				}
+				//if we still had bold on at the end of output then turn it off now
+				if(bold_on){
+					wattroff(channel_text,A_BOLD);
 				}
 #ifdef MIRC_COLOR
 			}
