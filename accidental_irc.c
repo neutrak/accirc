@@ -1283,7 +1283,7 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 		
 		//only refresh the display if what the user sees changed
 		//(if it's not displaying in seconds and only the seconds updated, don't refresh)
-		if(strcmp(old_time_buffer,time_buffer)!=0){
+		if(strncmp(old_time_buffer,time_buffer,BUFFER_SIZE)!=0){
 			wblank(bottom_border,width,1);
 			
 			wmove(bottom_border,0,0);
@@ -1388,7 +1388,7 @@ void leave_channel(int server_index, char *ch){
 			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
 			strtolower(lower_case_channel,BUFFER_SIZE);
 			
-			if(!strcmp(channel,lower_case_channel)){
+			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
 				//free any associated RAM, and NULL those pointers
 				free(servers[server_index]->channel_name[channel_index]);
 				servers[server_index]->channel_name[channel_index]=NULL;
@@ -1442,7 +1442,7 @@ void add_name(int server_index, int channel_index, char *name){
 			strtolower(matching_name,BUFFER_SIZE);
 			
 			//found this nick
-			if(!strcmp(this_lower_case_name,matching_name)){
+			if(!strncmp(this_lower_case_name,matching_name,BUFFER_SIZE)){
 				matches++;
 				//if it was a duplicate remove this copy
 				if(matches>1){
@@ -1485,7 +1485,7 @@ void del_name(int server_index, int channel_index, char *name){
 				char this_name[BUFFER_SIZE];
 				strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
 				strtolower(this_name,BUFFER_SIZE);
-				if(!strcmp(this_name,nick)){
+				if(!strncmp(this_name,nick,BUFFER_SIZE)){
 					//remove this user from that channel's names array
 					free(servers[server_index]->user_names[channel_index][name_index]);
 					servers[server_index]->user_names[channel_index][name_index]=NULL;
@@ -1664,7 +1664,7 @@ int find_output_channel(int server_index, char *channel){
 			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
 			strtolower(lower_case_channel,BUFFER_SIZE);
 			
-			if(!strcmp(channel,lower_case_channel)){
+			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
 				output_channel=channel_index;
 				channel_index=MAX_CHANNELS;
 			}
@@ -2780,10 +2780,10 @@ void server_332_command(int server_index, char *tmp_buffer, int first_space, cha
 			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
 			strtolower(lower_case_channel,BUFFER_SIZE);
 			
-			if(!strcmp(channel,lower_case_channel)){
+			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
 				*output_channel=channel_index;
 				
-				sprintf(output_buffer,"TOPIC for %s :%s",channel,topic);
+				sprintf(output_buffer,"TOPIC for %s :%s",servers[server_index]->channel_name[channel_index],topic);
 				
 				//store the topic in the general data structure
 				strncpy(servers[server_index]->channel_topic[channel_index],topic,BUFFER_SIZE);
@@ -2836,7 +2836,7 @@ void server_333_command(int server_index, char *tmp_buffer, int first_space, cha
 			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
 			strtolower(lower_case_channel,BUFFER_SIZE);
 			
-			if(!strcmp(channel,lower_case_channel)){
+			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
 				*output_channel=channel_index;
 				
 				sprintf(output_buffer,"Topic set by %s at %s",setting_user,ctime(&timestamp));
@@ -2928,7 +2928,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	strncpy(tmp_nick,servers[server_index]->nick,BUFFER_SIZE);
 	strtolower(tmp_nick,BUFFER_SIZE);
 	
-	if(!strcmp(tmp_nick,channel)){
+	if(!strncmp(tmp_nick,channel,BUFFER_SIZE)){
 		//if there is a faux PM channel for this user, send the output there, rather than treating it specially
 		char lower_nick[BUFFER_SIZE];
 		strncpy(lower_nick,nick,BUFFER_SIZE);
@@ -3092,7 +3092,7 @@ void server_join_command(int server_index, char *tmp_buffer, int first_space, ch
 	}
 	
 	//if it was us doing the join-ing
-	if(!strcmp(servers[server_index]->nick,nick)){
+	if(!strncmp(servers[server_index]->nick,nick,BUFFER_SIZE)){
 		join_new_channel(server_index,channel,output_buffer,output_channel,FALSE);
 	//else it wasn't us doing the join so just output the join message to that channel (which presumably we're in)
 	}else{
@@ -3106,7 +3106,7 @@ void server_join_command(int server_index, char *tmp_buffer, int first_space, ch
 				strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
 				strtolower(lower_case_channel,BUFFER_SIZE);
 				
-				if(!strcmp(lower_case_channel,channel)){
+				if(!strncmp(lower_case_channel,channel,BUFFER_SIZE)){
 					//add this user to that channel's names array
 					int n;
 					for(n=0;(servers[server_index]->user_names[channel_index][n]!=NULL)&&(n<MAX_NAMES);n++);
@@ -3135,7 +3135,7 @@ void server_part_command(int server_index, char *tmp_buffer, int first_space, ch
 	}
 	
 	//if it was us doing the part
-	if(!strcmp(servers[server_index]->nick,nick)){
+	if(!strncmp(servers[server_index]->nick,nick,BUFFER_SIZE)){
 		leave_channel(server_index,channel);
 		output_channel=0;
 	//else it wasn't us doing the part so just output the part message to that channel (which presumably we're in)
@@ -3163,7 +3163,7 @@ void server_kick_command(int server_index, char *tmp_buffer, int first_space, ch
 	}
 	
 	//if we were the one who got kicked
-	if(!strcmp(kicked_user,servers[server_index]->nick)){
+	if(!strncmp(kicked_user,servers[server_index]->nick,BUFFER_SIZE)){
 		leave_channel(server_index,channel);
 		output_channel=0;
 		
@@ -3191,7 +3191,7 @@ void server_kick_command(int server_index, char *tmp_buffer, int first_space, ch
 				strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
 				strtolower(lower_case_channel,BUFFER_SIZE);
 				
-				if(!strcmp(lower_case_channel,channel)){
+				if(!strncmp(lower_case_channel,channel,BUFFER_SIZE)){
 					*output_channel=channel_index;
 					channel_index=MAX_CHANNELS;
 				}
@@ -3205,7 +3205,7 @@ void server_kick_command(int server_index, char *tmp_buffer, int first_space, ch
 //handle the "nick" command from the server
 void server_nick_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
 	//if we changed our nick
-	if(!strcmp(nick,servers[server_index]->nick)){
+	if(!strncmp(nick,servers[server_index]->nick,BUFFER_SIZE)){
 		//change it in relevant data structures
 		//leaving out the leading ":", if there is one
 		if(text[0]==':'){
@@ -3229,7 +3229,7 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 	strtolower(lower_last_pm_user,BUFFER_SIZE);
 	
 	//if this is the last user we PM-d, update that
-	if(!strcmp(nick,lower_last_pm_user)){
+	if(!strncmp(nick,lower_last_pm_user,BUFFER_SIZE)){
 		//we can't update directly here because we haven't parsed out the new nick yet, so set a flag and we'll do so when we get there
 		update_pm_user=TRUE;
 	}
@@ -3245,7 +3245,7 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 					strtolower(this_name,BUFFER_SIZE);
 					
 					//found it!
-					if(!strcmp(this_name,nick)){
+					if(!strncmp(this_name,nick,BUFFER_SIZE)){
 						//output to the appropriate channel
 						scrollback_output(server_index,channel_index,output_buffer,TRUE);
 						
@@ -3321,7 +3321,7 @@ void server_quit_command(int server_index, char *tmp_buffer, int first_space, ch
 					strtolower(this_name,BUFFER_SIZE);
 					
 					//found it!
-					if(!strcmp(this_name,nick)){
+					if(!strncmp(this_name,nick,BUFFER_SIZE)){
 						//output to the appropriate channel
 						scrollback_output(server_index,channel_index,output_buffer,TRUE);
 						
@@ -3405,7 +3405,7 @@ void parse_server(int server_index){
 			//NOTE: checking for the literal server name was giving me issues because sometimes a server will re-direct to another one, so this just checks in general "is it any valid server name?"
 			
 //			//if this message started with the server's name
-//			if(!strcmp(command,servers[server_index]->server_name)){
+//			if(!strncmp(command,servers[server_index]->server_name,BUFFER_SIZE)){
 			
 			//check that it is NOT a user (meaning it must not have the delimiter chars for a username)
 			if(strfind("@",command)==-1){
@@ -3419,7 +3419,7 @@ void parse_server(int server_index){
 				
 				//firstly, if this is something we were waiting on, then start sending the text we were waiting to send
 				//(as it is now "hammertime")
-				if(!strcmp(command,servers[server_index]->post_type)){
+				if(!strncmp(command,servers[server_index]->post_type,BUFFER_SIZE)){
 					//remember what server the user was on, because we need to hop over to the one that just sent us a message
 					int old_server=current_server;
 					current_server=server_index;
@@ -4339,7 +4339,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	wmove(user_input,0,cursor_pos);
 	
 	//if the user typed something
-	if(strcmp(input_buffer,old_input_buffer)!=0){
+	if(strncmp(input_buffer,old_input_buffer,BUFFER_SIZE)!=0){
 		//if the string is not as wide as the display allows re-set the input display starting point to show the whole string always
 		if(strlen(input_buffer)<width){
 			input_display_start=0;
