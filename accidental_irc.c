@@ -1677,13 +1677,27 @@ int find_output_channel(int server_index, char *channel){
 //join a new channel (used when join is received from the server, and for the hi command)
 //the pm_flag dictates whether this will be a PM or normal channel
 void join_new_channel(int server_index, char *channel, char *output_buffer, int *output_channel, char pm_flag){
-	//NOTE: there is no need to make sure we're not already in this channel
-	//because if we're already in the channel the server will never send us the corresponding JOIN when we tell it to join again
-	//(if we get the join we're not in it, at least as far as the server knows)
+	//due to bouncer cases it's worth checking to verify we're not already in this channel
+	
+	//make a lower-case copy of the channel name to check against
+	char lower_case_channel[BUFFER_SIZE];
+	strncpy(lower_case_channel,channel,BUFFER_SIZE);
+	strtolower(lower_case_channel,BUFFER_SIZE);
 	
 	//add this channel to the list of channels on this server, make associated scrollback, etc.
 	int channel_index;
-	for(channel_index=0;(channel_index<MAX_CHANNELS)&&(servers[server_index]->channel_name[channel_index]!=NULL);channel_index++);
+	for(channel_index=0;(channel_index<MAX_CHANNELS)&&(servers[server_index]->channel_name[channel_index]!=NULL);channel_index++){
+		char lower_case_tmp_channel[BUFFER_SIZE];
+		strncpy(lower_case_tmp_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+		strtolower(lower_case_tmp_channel,BUFFER_SIZE);
+		
+		//if we were already in this channel, then just return and display an error
+		if(!strncmp(lower_case_channel,lower_case_tmp_channel,BUFFER_SIZE)){
+			scrollback_output(server_index,channel_index,"accirc: Warn: server sent an extra JOIN; ignoring...",TRUE);
+			return;
+		}
+	}
+	
 	if(channel_index<MAX_CHANNELS){
 		servers[server_index]->channel_name[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 		//initialize the channel name to be what was joined
