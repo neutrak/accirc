@@ -1593,6 +1593,10 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 		servers[server_index]->user_names[0][n]=NULL;
 	}
 	
+	//channel content for server is empty, as is ping state
+	servers[server_index]->new_channel_content[0]=FALSE;
+	servers[server_index]->was_pingged[0]=FALSE;
+	
 	//NULL out all other channels
 	//note this starts from 1 since 0 is the SERVER channel
 	for(n=1;n<MAX_CHANNELS;n++){
@@ -4497,7 +4501,12 @@ int main(int argc, char *argv[]){
 	//unless we've been explicitly asked not to, try to load the rc file
 	if(!ignore_rc){
 		//if this fails no rc will be used
-		load_rc(rc_file);
+		char rc_success=load_rc(rc_file);
+#ifdef DEBUG
+		if(!rc_success){
+			fprintf(error_file,"Err: Could not load rc file\n");
+		}
+#endif
 	}
 	
 	//start the clock
