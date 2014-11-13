@@ -644,6 +644,13 @@ void properly_close(int server_index){
 #endif
 	}
 	
+#ifdef _OPENSSL
+	if(servers[server_index]->use_ssl){
+		SSL_free(servers[server_index]->ssl_handle);
+		SSL_CTX_free(servers[server_index]->ssl_context);
+	}
+#endif
+	
 	//clean up the server
 	close(servers[server_index]->socket_fd);
 	
@@ -4502,11 +4509,11 @@ int main(int argc, char *argv[]){
 	if(!ignore_rc){
 		//if this fails no rc will be used
 		char rc_success=load_rc(rc_file);
-#ifdef DEBUG
 		if(!rc_success){
+#ifdef DEBUG
 			fprintf(error_file,"Err: Could not load rc file\n");
-		}
 #endif
+		}
 	}
 	
 	//start the clock
