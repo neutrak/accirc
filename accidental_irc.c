@@ -69,7 +69,7 @@
 #define BACKGROUND 1
 
 //some defaults in case the user forgets to give a nickname
-#define DEFAULT_NICK "accidental_irc_user"
+#define DEFAULT_NICK "accirc_user"
 
 //and in case the user doesn't give a proper quit message
 #define DEFAULT_QUIT_MESSAGE "accidental_irc exited"
@@ -110,6 +110,50 @@
 //one for lower delimter and time
 //one for input area
 #define RESERVED_LINES 6
+
+//a list of commands for interactive help; the man page is of course the real source for all help, this is just a summary
+char *command_list[]={
+	": -> send raw data (server commands)",
+	"/help -> displays short help (READ THE MAN PAGE FOR REAL DOCS!!!); this is not always kept up to date, and it is just a summary",
+	"/connect <host> <port> -> connects to a server",
+#ifdef _OPENSSL
+	"/sconnect <host> <port> -> connects to a server with SSL",
+#endif
+	"/exit -> closes all connections and closes program",
+	"/cli_escape <new> -> changes client command escape character, used for these commands (default \'/\')",
+	"/ser_escape <new> -> changes server escape (default \':\')",
+	"/alias <trigger> <sub> -> does text substitution on /trigger to act like the given substitution",
+	"/time_format <timestring> -> changes clock display as requested",
+	"/set_version <version string> -> sets a custom string for CTCP VERSION",
+	"/easy_mode -> turns easy_mode on, which auto-sends user and nick info to new servers",
+	"/no_easy_mode -> turns easy_mode off",
+	"/reconnect -> reconnect to the current server if dropped",
+	"/no_reconnect -> don't reconnect to the current server if dropped",
+	"/manual_reconnect -> force a reconnect even if a drop was not detected",
+	"/log -> keep logs for current server",
+	"/no_log -> don't keep logs for current server",
+	"/rsearch -> text search up in the buffer",
+	"/up -> scrolls up one line",
+	"/down -> scrolls down one line",
+	"/head -> scrolls to first line in buffer",
+	"/tail -> scrolls to last line in buffer",
+	"/hi <nick> -> opens a faux channel for PM-ing with the user named <nick>",
+	"/bye -> closes the actively selected faux-pm channel",
+	"/sl -> server left",
+	"/sr -> server right",
+	"/cl -> channel left",
+	"/cr -> channel right",
+	"/me -> sends CTCP ACTION message",
+	"/r -> replies by pm to last user who PM'd you (or empty string if no PMs recieved)",
+	"/usleep <microseconds> -> pauses program for given microsecond count",
+	"/comment -> ignores this line (for rc files)",
+	"/fallback_nick <nick> -> sets nick if other nick taken",
+	"/post <server command> -> causes commands after this to be delayed until after server command received (for rc files)",
+	"/no_post -> stops listening for commands to delay",
+	"/rejoin_on_kick -> automatically rejoins channels on current server if kicked",
+	"/no_rejoin_on_kick -> doesn't automatical rejoin channels on current server if kicked (default)",
+	"<Tab> -> automatically completes nicks in current channel"
+};
 
 enum {
 	MIRC_WHITE,
@@ -199,6 +243,10 @@ struct alias {
 
 //whether or not to ignore the rc file in ~/.config
 char ignore_rc;
+
+//easy mode; set by default, turned off with the --proper cli switch
+//when enabled, sets default aliases for nick, quit, and msg; also sets time format and auto-sends user quartet
+char easy_mode;
 
 //the file pointer to log non-fatal errors to
 FILE *error_file;
@@ -646,8 +694,12 @@ void properly_close(int server_index){
 	
 #ifdef _OPENSSL
 	if(servers[server_index]->use_ssl){
-		SSL_free(servers[server_index]->ssl_handle);
-		SSL_CTX_free(servers[server_index]->ssl_context);
+		if(servers[server_index]->ssl_handle!=NULL){
+			SSL_free(servers[server_index]->ssl_handle);
+		}
+		if(servers[server_index]->ssl_context!=NULL){
+			SSL_CTX_free(servers[server_index]->ssl_context);
+		}
 	}
 #endif
 	
@@ -1513,6 +1565,9 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	}
 	
 	servers[server_index]=(irc_connection*)(malloc(sizeof(irc_connection)));
+	
+	//zero out the server structure to ensure no uninitialized data
+	memset(servers[server_index],0,sizeof(irc_connection));
 
 #ifdef _OPENSSL
 	//by default don't use ssl; this will be set by sconnect as needed
@@ -1634,6 +1689,18 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	
 	//set the current server to be the one we just connected to
 	current_server=server_index;
+	
+	//if we're in "easy mode" then auto-send the user quartet so the user doesn't have to
+	if(easy_mode){
+		char easy_mode_buf[BUFFER_SIZE];
+		
+		sprintf(easy_mode_buf,":user %s",DEFAULT_USER);
+		parse_input(easy_mode_buf,FALSE);
+		
+		//default the nick to accirc_user too, just to get connected (the user can always change this later)
+		sprintf(easy_mode_buf,":nick %s",DEFAULT_NICK);
+		parse_input(easy_mode_buf,FALSE);
+	}
 }
 
 //a function to add a line to the user's input history, to later (possibly) be scrolled back to
@@ -2012,7 +2079,12 @@ void alias_command(char *input_buffer, char *command, char *parameters){
 	
 	//if we already had an alias for this, just change that one
 	if(found_alias){
-		strncpy(alias_array[n]->substitution,substitution,BUFFER_SIZE);
+		if(!strcmp(substitution,"")){
+			free(alias_array[n]);
+			alias_array[n]=NULL;
+		}else{
+			strncpy(alias_array[n]->substitution,substitution,BUFFER_SIZE);
+		}
 	//if it's a new alias look for the first NULL entry in the alias_array and slide it on in
 	}else{
 		int n;
@@ -2027,7 +2099,11 @@ void alias_command(char *input_buffer, char *command, char *parameters){
 	//if possible, tell the user what's going on (if not possible, still do it, just be silent)
 	if(current_server>=0){
 		char output_buffer[BUFFER_SIZE];
-		sprintf(output_buffer,"accirc: setting alias \"%s\" to complete to \"%s\"",trigger,substitution);
+		if(!strcmp(substitution,"")){
+			sprintf(output_buffer,"accirc: deleted alias for \"%s\"",trigger);
+		}else{
+			sprintf(output_buffer,"accirc: setting alias \"%s\" to complete to \"%s\"",trigger,substitution);
+		}
 		scrollback_output(current_server,0,output_buffer,TRUE);
 	}
 }
@@ -2549,21 +2625,50 @@ void parse_input(char *input_buffer, char keep_history){
 		if(!strcmp("help",command)){
 			if(current_server>=0){
 				char notify_buffer[BUFFER_SIZE];
-				strncpy(notify_buffer,"accirc: For help please read the manual page",BUFFER_SIZE);
+				strncpy(notify_buffer,"accirc: For detailed help please read the manual page",BUFFER_SIZE);
 				scrollback_output(current_server,0,notify_buffer,TRUE);
+				
+				int n;
+				for(n=0;n<(sizeof(command_list)/sizeof(command_list[0]));n++){
+					sprintf(notify_buffer,"accirc: command: %s",command_list[n]);
+					scrollback_output(current_server,0,notify_buffer,TRUE);
+				}
 			}else{
 				wblank(channel_text,width,height-RESERVED_LINES);
 				wmove(channel_text,0,0);
-				wprintw(channel_text,"accirc: For help please read the manual page, the /connect command is probably what you're looking for if you're reading this");
+				wprintw(channel_text,"accirc: For detailed help please read the manual page, the /connect command is probably what you're looking for if you're reading this");
+				
+				char notify_buffer[BUFFER_SIZE];
+				int n;
+				for(n=0;n<(sizeof(command_list)/sizeof(command_list[0]));n++){
+					if((n+2)<(height-RESERVED_LINES)){
+						sprintf(notify_buffer,"accirc: command: %s",command_list[n]);
+						wmove(channel_text,(n+1),0);
+						wprintw(channel_text,notify_buffer,TRUE);
+					}else if((n+1)<(height-RESERVED_LINES)){
+						wmove(channel_text,(n+1),0);
+						wprintw(channel_text,"accirc: Warn: help cut off because your terminal is too small!",TRUE);
+					}
+				}
+				
 				wrefresh(channel_text);
 			}
 		//connect to a server
 		}else if(!strcmp("connect",command)){
 			connect_command(input_buffer,command,parameters,FALSE);
-#ifdef _OPENSSL
 		//connect to a server with encryption
 		}else if(!strcmp("sconnect",command)){
+#ifdef _OPENSSL
 			connect_command(input_buffer,command,parameters,TRUE);
+#else
+			if(current_server>=0){
+				scrollback_output(current_server,0,"accirc: sconnect can't work, this was compiled without SSL support!",TRUE);
+			}else{
+				wblank(channel_text,width,height-RESERVED_LINES);
+				wmove(channel_text,0,0);
+				wprintw(channel_text,"accirc: sconnect can't work, this was compiled without SSL support!");
+				wrefresh(channel_text);
+			}
 #endif
 		}else if(!strcmp(command,"exit")){
 			exit_command(input_buffer,command,parameters);
@@ -2608,6 +2713,48 @@ void parse_input(char *input_buffer, char keep_history){
 				char notify_buffer[BUFFER_SIZE];
 				sprintf(notify_buffer,"accirc: updated custom version string to \"%s\"",custom_version);
 				scrollback_output(current_server,0,notify_buffer,TRUE);
+			}
+		//toggle easy mode on
+		}else if(!strcmp(command,"easy_mode")){
+			easy_mode=TRUE;
+			
+			char easy_mode_buf[BUFFER_SIZE];
+			
+			sprintf(easy_mode_buf,"%calias nick %cnick",client_escape,server_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			sprintf(easy_mode_buf,"%calias quit %cexit",client_escape,client_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			sprintf(easy_mode_buf,"%calias msg %cprivmsg",client_escape,server_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			sprintf(easy_mode_buf,"%ctime_format %%Y-%%m-%%d %%R:%%S",client_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			if(current_server>=0){
+				scrollback_output(current_server,0,"accirc: easy_mode turned ON",TRUE);
+			}
+		//toggle easy mode off
+		}else if(!strcmp(command,"no_easy_mode")){
+			easy_mode=FALSE;
+
+			char easy_mode_buf[BUFFER_SIZE];
+			
+			sprintf(easy_mode_buf,"%calias nick ",client_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			sprintf(easy_mode_buf,"%calias quit ",client_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			sprintf(easy_mode_buf,"%calias msg ",client_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			sprintf(easy_mode_buf,"%ctime_format %%s",client_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			if(current_server>=0){
+				scrollback_output(current_server,0,"accirc: easy_mode turned OFF",TRUE);
 			}
 		//this set of command depends on being connected to a server, so first check that we are
 		}else if(current_server>=0){
@@ -4370,6 +4517,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 //runtime
 int main(int argc, char *argv[]){
 	ignore_rc=FALSE;
+	easy_mode=TRUE;
 	
 	//handle special argument cases like --version, --help, etc.
 	if(argc>1){
@@ -4378,9 +4526,22 @@ int main(int argc, char *argv[]){
 			exit(0);
 		}else if(!strcmp(argv[1],"--help")){
 			printf("accidental_irc, the irc client that accidentally got written; see man page for docs\n");
+			printf("a short summary of commands is as follows, but detailed docs are in the man page\n");
+			int n;
+			for(n=0;n<(sizeof(command_list)/sizeof(command_list[0]));n++){
+				printf("accirc: command: %s\n",command_list[n]);
+			}
 			exit(0);
-		}else if(!strcmp(argv[1],"--ignorerc")){
-			ignore_rc=TRUE;
+		}
+		
+		//handle runtime arguments that will persist during execution
+		int n;
+		for(n=1;n<argc;n++){
+			if(!strcmp(argv[n],"--ignorerc")){
+				ignore_rc=TRUE;
+			}else if(!strcmp(argv[n],"--proper")){
+				easy_mode=FALSE;
+			}
 		}
 	}
 	
@@ -4504,6 +4665,25 @@ int main(int argc, char *argv[]){
 	
 	//until we're connected to a server we can't listen for post commands
 	post_listen=FALSE;
+	
+	//if we're not being proper, then register some default aliases and set more friendly settings
+	//this is to make it easier for non-experts to use this client (mostly for the kindle port)
+	//this is done before the rc loading so the aliases are available to crappy rc files
+	if(easy_mode){
+		char easy_mode_buf[BUFFER_SIZE];
+		
+		sprintf(easy_mode_buf,"%calias nick %cnick",client_escape,server_escape);
+		parse_input(easy_mode_buf,FALSE);
+		
+		sprintf(easy_mode_buf,"%calias quit %cexit",client_escape,client_escape);
+		parse_input(easy_mode_buf,FALSE);
+		
+		sprintf(easy_mode_buf,"%calias msg %cprivmsg",client_escape,server_escape);
+		parse_input(easy_mode_buf,FALSE);
+		
+		sprintf(easy_mode_buf,"%ctime_format %%Y-%%m-%%d %%R:%%S",client_escape);
+		parse_input(easy_mode_buf,FALSE);
+	}
 	
 	//unless we've been explicitly asked not to, try to load the rc file
 	if(!ignore_rc){

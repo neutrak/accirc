@@ -1,8 +1,10 @@
-.TH ACCIRC 1 "11 July 2014"
+.TH ACCIRC 1 "13 November 2014"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
-\fBaccirc\fP [ --help | --version | --ignorerc ]
+\fBaccirc\fP [ --help | --version ]
+.TP
+\fBaccirc\fP [ --ignorerc ] [ --proper ]
 .SH DESCRIPTION
 \fBaccirc\fP starts ncurses; functionality is available from there; config is read from ~/.config/accirc/config.rc ; logs are stored in ~/.local/share/accirc/logs/
 .SS Options
@@ -12,9 +14,13 @@ tells you to read this man page
 .TP
 \fB--version\fP
 outputs the version of this software, in the form <major int>.<minor int>; major counts redesigns, minor counts updates; for both, even numbers are stable, odd numbers are unstable/testing; also tells the compile date and time
+afterwards immediately closes the program
 .TP
 \fB--ignorerc\fP
 runs the program without running the startup (rc) file located in ~/.config
+.TP
+\fB--proper\fP
+disables "easy mode"; "easy mode" is on by default and adds aliases for /nick, /msg, and /quit, as well as auto-sends user and nick information on a connect command
 .SS Commands
 .TP
 \fB\\\fP
@@ -42,13 +48,19 @@ changes the client command escape character to <new>, if possible
 changes the server raw data escape character to <new>, if possible
 .TP
 \fB/alias\fP \fItrigger\fP \fIsubstitution\fP
-registers an alias; when the client escape is used with the trigger the trigger will be substituted for whatever substitution is specified; for example "/alias part :part" would allow you to use /part in place of :part ; note this is a direct text substitution and does no additional handling
+registers an alias; when the client escape is used with the trigger the trigger will be substituted for whatever substitution is specified; for example "/alias part :part" would allow you to use /part in place of :part ; note this is a direct text substitution and does no additional handling ; an empty substitution deletes an alias
 .TP
 \fB/time_format\fP \fInew_format\fP
 sets the time format for viewing (the clock and timestamps on messages in ncurses); note that logs always use unix timestamps, and ignore this formatting; for time formatting variables, see man 3 strftime
 .TP
 \fB/set_version\fP \fInew_version_string\fP
 sets the new_version_string as the response to any CTCP VERSION messages received (leave blank to re-set to default value)
+.TP
+\fB/easy_mode\fP
+turns easy_mode on (this is the default unless the --proper switch is provided); easy mode automatically sends user and nick information on new connections, and provides noob aliases
+.TP
+\fB/no_easy_mode\fP
+turns easy_mode off
 .TP
 \fB/reconnect\fP
 reconnect to the currently selected server if connection is lost for any reason
@@ -214,4 +226,6 @@ ncurses(3) strftime(3) openssl(3)
 MIRC colors don't work under screen. auto-reconnecting on drop is unreliable. On the faux-channel PM handling, the PM conversation will behave weirdly if user's nick changes (it's a TODO in the code).  faux-PM channels are CASE-SENSITIVE, this shouldn't be noticable, but you never know
 .SH WWW
 http://neutrak.kaycare.co.uk/index.php?p=code
+.TP
+https://github.com/neutrak/accirc
 
