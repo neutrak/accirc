@@ -4035,7 +4035,7 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 			}
 		}
 		
-		//create a structure to hold ALL matching nicks, so we can to aggregate operations
+		//create a structure to hold ALL matching nicks, so we can do aggregate operations
 		char *all_matching_nicks[nick_count];
 		int matching_nicks_index=0;
 		
