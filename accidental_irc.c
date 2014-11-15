@@ -1689,18 +1689,6 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	
 	//set the current server to be the one we just connected to
 	current_server=server_index;
-	
-	//if we're in "easy mode" then auto-send the user quartet so the user doesn't have to
-	if(easy_mode){
-		char easy_mode_buf[BUFFER_SIZE];
-		
-		sprintf(easy_mode_buf,":user %s",DEFAULT_USER);
-		parse_input(easy_mode_buf,FALSE);
-		
-		//default the nick to accirc_user too, just to get connected (the user can always change this later)
-		sprintf(easy_mode_buf,":nick %s",DEFAULT_NICK);
-		parse_input(easy_mode_buf,FALSE);
-	}
 }
 
 //a function to add a line to the user's input history, to later (possibly) be scrolled back to
@@ -1934,6 +1922,19 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 		int flags=fcntl(new_socket_fd,F_GETFL,0);
 		flags=(flags==-1)?0:flags;
 		fcntl(new_socket_fd,F_SETFL,flags|O_NONBLOCK);
+		
+		//if we're in "easy mode" then auto-send the user quartet so the user doesn't have to
+		//THIS MUST BE DONE AFTER THE SSL HANDSHAKE or it won't work for secure connections
+		if(easy_mode){
+			char easy_mode_buf[BUFFER_SIZE];
+			
+			sprintf(easy_mode_buf,":user %s",DEFAULT_USER);
+			parse_input(easy_mode_buf,FALSE);
+			
+			//default the nick to accirc_user too, just to get connected (the user can always change this later)
+			sprintf(easy_mode_buf,":nick %s",DEFAULT_NICK);
+			parse_input(easy_mode_buf,FALSE);
+		}
 		
 		//output the server information (note we set current_server to the new index in add_server())
 		refresh_server_list();
