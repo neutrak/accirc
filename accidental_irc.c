@@ -4036,7 +4036,7 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 		}
 		
 		//create a structure to hold ALL matching nicks, so we can do aggregate operations
-		char *all_matching_nicks[nick_count];
+		char *all_matching_nicks[MAX_NAMES];
 		int matching_nicks_index=0;
 		
 		//this counts the number of matches we got, we only want to complete on UNIQUE matches
