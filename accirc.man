@@ -210,7 +210,7 @@ A log of any errors that couldn't be output through ncurses
 
 /rejoin_on_kick
 
-/comment the post client command replaces the old autoident and autojoin commands in versions including and prior to 0.4
+/comment the post client command replaces the old autoident and autojoin commands (which were in versions including and prior to 0.4)
 
 /comment this breaks backwards compatability but is much more general and flexible
 
