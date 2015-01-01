@@ -1211,6 +1211,7 @@ void refresh_channel_text(){
 						if(!bold_on){
 							wattroff(channel_text,A_BOLD);
 						}
+/*
 					//a bold "?" is output for non-ascii characters
 					//to avoid unicode issues where the default output may be >1 char long
 					}else if((output_text[n] & 128) > 0){
@@ -1219,6 +1220,7 @@ void refresh_channel_text(){
 						if(!bold_on){
 							wattroff(channel_text,A_BOLD);
 						}
+*/
 					//don't output a ^B, instead use it to toggle bold or not bold
 					}else if(output_text[n]==0x02){
 						if(bold_on){
@@ -4398,11 +4400,15 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 			case '\t':
 				tab_completions=name_complete(input_buffer,&cursor_pos,input_display_start,tab_completions);
 				break;
+			//1 is C-a, added for emacs-style line editing
+			case 1:
 			case KEY_HOME:
 				cursor_pos=0;
 				input_display_start=0;
 				refresh_user_input(input_buffer,cursor_pos,input_display_start);
 				break;
+			//5 is C-e, added for emacs-style line editing
+			case 5:
 			case KEY_END:
 				cursor_pos=strlen(input_buffer);
 				if(strlen(input_buffer)>width){
@@ -4432,6 +4438,11 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 					strremove(input_buffer,cursor_pos);
 					//note cursor position doesn't change here
 				}
+				break;
+			//11 is C-k, added for emacs-style line editing
+			case 11:
+				input_buffer[0]='\0';
+				cursor_pos=0;
 				break;
 			//NOTE: this is alt+tab also, f5 left here only for backwards compatibility
 			//f5 sends a literal tab
