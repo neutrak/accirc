@@ -4193,6 +4193,25 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 	return tab_completions;
 }
 
+//C-w bash-style line edit to delete a word from current position to start
+void kill_word(char *input_buffer, int *persistent_cursor_pos, int *persistent_input_display_start){
+	int cursor_pos=(*persistent_cursor_pos);
+	int input_display_start=(*persistent_input_display_start);
+	
+	while((cursor_pos>0) && (input_buffer[cursor_pos-1]!=' ') && (input_buffer[cursor_pos-1]!='\t')){
+		if(strremove(input_buffer,cursor_pos-1)){
+			//and update the cursor position upon success
+			cursor_pos--;
+			if(cursor_pos<input_display_start){
+				input_display_start--;
+			}
+		}
+	}
+	
+	(*persistent_cursor_pos)=cursor_pos;
+	(*persistent_input_display_start)=input_display_start;
+}
+
 //listen for the next relevant thing to happen and handle it accordingly
 //this may be a user input or network read from any connected network
 //this is the body of the "main" loop, called from main
@@ -4443,6 +4462,10 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 			case 11:
 				input_buffer[0]='\0';
 				cursor_pos=0;
+				break;
+			//23 is C-w, added for bash and emacs-style line editing
+			case 23:
+				kill_word(input_buffer,&cursor_pos,&input_display_start);
 				break;
 			//NOTE: this is alt+tab also, f5 left here only for backwards compatibility
 			//f5 sends a literal tab
