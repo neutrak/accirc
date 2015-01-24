@@ -34,6 +34,8 @@
 //time
 #include <sys/time.h>
 #include <time.h>
+//utf-8
+#include <locale.h>
 
 //preprocessor defines
 #define TRUE 1
@@ -991,6 +993,10 @@ void refresh_channel_topic(){
 		int n;
 		for(n=0;n<width;n++){
 			topic[n]=servers[current_server]->channel_topic[servers[current_server]->current_channel][n];
+			//unicode and bold are ignored in the topic, and just displayed as ?
+			if(topic[n]==0x02 || ((topic[n] & 128)>0)){
+				topic[n]='?';
+			}
 		}
 		char line_overflow_error[BUFFER_SIZE];
 		strncpy(line_overflow_error,LINE_OVERFLOW_ERROR,BUFFER_SIZE);
@@ -1211,16 +1217,33 @@ void refresh_channel_text(){
 						if(!bold_on){
 							wattroff(channel_text,A_BOLD);
 						}
-/*
-					//a bold "?" is output for non-ascii characters
-					//to avoid unicode issues where the default output may be >1 char long
-					}else if((output_text[n] & 128) > 0){
-						wattron(channel_text,A_BOLD);
-						wprintw(channel_text,"?");
-						if(!bold_on){
-							wattroff(channel_text,A_BOLD);
+					//unicode support (requires -lncursesw)
+					}else if((output_text[n] & 128)>0){
+						//realistically a unicode character will only be like 4 or 5 bytes max
+						//but modern systems have enough memory we can take a whole buffer
+						//for just a second
+						char utf8_char[BUFFER_SIZE];
+						int utf_start=n;
+						while((output_text[n] & 128)>0){
+							utf8_char[(n-utf_start)]=output_text[n];
+							n++;
 						}
-*/
+						//null-terminate
+						utf8_char[n-utf_start]='\0';
+						
+						//display the unicode
+						wprintw(channel_text,utf8_char);
+						
+						//pad the input area so cursor movement works nicely
+						utf_start++;
+						while(utf_start<n){
+							wprintw(channel_text," ");
+							utf_start++;
+						}
+						
+						//because n++ occurs during the loop
+						//decrement here to output correctly
+						n--;
 					//don't output a ^B, instead use it to toggle bold or not bold
 					}else if(output_text[n]==0x02){
 						if(bold_on){
@@ -1293,11 +1316,44 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 				wattron(user_input,A_BOLD);
 				wprintw(user_input,"\\");
 				wattroff(user_input,A_BOLD);
+			//a ^B is used for bolding in some cases
+			//output it as a bold !
+			}else if(input_buffer[n]==0x02){
+				wattron(user_input,A_BOLD);
+				wprintw(user_input,"!");
+				wattroff(user_input,A_BOLD);
 			//a literal tab is output specially, as a bold "_", so that one character == one cursor position
 			}else if(input_buffer[n]=='\t'){
 				wattron(user_input,A_BOLD);
 				wprintw(user_input,"_");
 				wattroff(user_input,A_BOLD);
+			//unicode support (requires -lncursesw)
+			}else if((input_buffer[n] & 128)>0){
+				//realistically a unicode character will only be like 4 or 5 bytes max
+				//but modern systems have enough memory we can take a whole buffer
+				//for just a second
+				char utf8_char[BUFFER_SIZE];
+				int utf_start=n;
+				while((input_buffer[n] & 128)>0){
+					utf8_char[(n-utf_start)]=input_buffer[n];
+					n++;
+				}
+				//null-terminate
+				utf8_char[n-utf_start]='\0';
+				
+				//display the unicode
+				wprintw(user_input,utf8_char);
+				
+				//pad the input area so cursor movement works nicely
+				utf_start++;
+				while(utf_start<n){
+					wprintw(user_input," ");
+					utf_start++;
+				}
+				
+				//because n++ occurs during the loop
+				//decrement here to output correctly
+				n--;
 			//if this is not a special escape output it normally
 			}else{
 				wprintw(user_input,"%c",input_buffer[n]);
@@ -4553,6 +4609,10 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 int main(int argc, char *argv[]){
 	ignore_rc=FALSE;
 	easy_mode=TRUE;
+	
+	//support utf-8
+//	setlocale(LC_CTYPE,"C-UTF-8");
+	setlocale(LC_ALL, "");
 	
 	//handle special argument cases like --version, --help, etc.
 	if(argc>1){
