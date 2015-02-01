@@ -1968,9 +1968,9 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			}
 			
 			//set certificate checking settings prior to handshake
-			SSL_set_verify(servers[current_server]->ssl_handle,SSL_VERIFY_PEER,NULL);
+//			SSL_set_verify(servers[current_server]->ssl_handle,SSL_VERIFY_PEER,NULL);
 			SSL_set_verify(servers[current_server]->ssl_handle,SSL_VERIFY_NONE,NULL);
-//			SSL_set_verify_depth(servers[current_server]->ssl_handle,4);
+			SSL_set_verify_depth(servers[current_server]->ssl_handle,4);
 			
 			//do the SSL handshake
 			if(SSL_connect(servers[current_server]->ssl_handle)!=1){
