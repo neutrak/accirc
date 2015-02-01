@@ -1974,7 +1974,7 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			
 			//do the SSL handshake
 			if(SSL_connect(servers[current_server]->ssl_handle)!=1){
-				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (hanshake error)\n",host,port);
+				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (handshake error)\n",host,port);
 				properly_close(current_server);
 				return;
 			}
