@@ -1967,11 +1967,21 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 				return;
 			}
 			
+			//set certificate checking settings prior to handshake
+			SSL_set_verify(servers[current_server]->ssl_handle,SSL_VERIFY_PEER,NULL);
+			SSL_set_verify(servers[current_server]->ssl_handle,SSL_VERIFY_NONE,NULL);
+//			SSL_set_verify_depth(servers[current_server]->ssl_handle,4);
+			
 			//do the SSL handshake
 			if(SSL_connect(servers[current_server]->ssl_handle)!=1){
 				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (hanshake error)\n",host,port);
 				properly_close(current_server);
 				return;
+			}
+			
+			if(SSL_get_verify_result(servers[current_server]->ssl_handle)!=X509_V_OK){
+				fprintf(error_file,"Warn: SSL cert check failed for host %s on port %i\n",host,port);
+				scrollback_output(current_server,0,"Warn: SSL cert check failed for this host!!!",TRUE);
 			}
 		}
 #endif
