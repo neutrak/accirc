@@ -179,6 +179,34 @@ enum {
 };
 
 //structures
+
+//this holds information for a single channel on a server
+typedef struct channel_info channel_info;
+struct channel_info {
+	//whether or not this channel is used (aka joined)
+	char actv;
+	
+	//logging information
+	FILE *log_file;
+	
+	//name of this channel
+	char name[BUFFER_SIZE];
+	
+	//text in this channel
+	char *content[MAX_SCROLLBACK];
+	
+	//users in this channel
+	char *user_names[MAX_NAMES];
+	
+	//topic for this channel
+	char topic[BUFFER_SIZE];
+	
+	//client-defined state of this channel
+	char was_pingged;
+	char new_content;
+	char is_pm;
+};
+
 //this holds an entire server's worth of information
 typedef struct irc_connection irc_connection;
 struct irc_connection {
@@ -194,7 +222,6 @@ struct irc_connection {
 	int port;
 	//logging information
 	char keep_logs;
-	FILE *log_file[MAX_CHANNELS];
 	//what message to wait for before sending subsequent commands
 	char post_type[BUFFER_SIZE];
 	//everything to parse after a given server message is received
@@ -217,16 +244,10 @@ struct irc_connection {
 	//this data is what the user sees (but is also used for other things)
 	char server_name[BUFFER_SIZE];
 	char nick[BUFFER_SIZE];
-	char *channel_name[MAX_CHANNELS];
-	char **channel_content[MAX_CHANNELS];
-	char **user_names[MAX_NAMES];
-	char *channel_topic[MAX_CHANNELS];
-	//flags for if the user was pingged in a given channel on this server
-	char was_pingged[MAX_CHANNELS];
-	//this is a flag to tell if there's new content in a channel
-	char new_channel_content[MAX_CHANNELS];
-	//a flag to tell if the current channel is a special "PM" channel
-	char is_pm[MAX_CHANNELS];
+	
+	//channel info for each channel we're on
+	channel_info ch[MAX_CHANNELS];
+	
 	int current_channel;
 	//the last user to PM us (so we know who to send a reply to)
 	char last_pm_user[BUFFER_SIZE];
@@ -711,28 +732,25 @@ void properly_close(int server_index){
 	//free RAM null this sucker out
 	int n;
 	for(n=0;n<MAX_CHANNELS;n++){
-		if(servers[server_index]->channel_name[n]!=NULL){
-			free(servers[server_index]->channel_name[n]);
-			free(servers[server_index]->channel_topic[n]);
-			
+		if(servers[server_index]->ch[n].actv){
 			int n1;
 			for(n1=0;n1<MAX_SCROLLBACK;n1++){
-				if(servers[server_index]->channel_content[n][n1]!=NULL){
-					free(servers[server_index]->channel_content[n][n1]);
+				if(servers[server_index]->ch[n].content[n1]!=NULL){
+					free(servers[server_index]->ch[n].content[n1]);
 				}
 			}
-			free(servers[server_index]->channel_content[n]);
 			
-			if(servers[server_index]->log_file[n]!=NULL){
-				fclose(servers[server_index]->log_file[n]);
+			if(servers[server_index]->ch[n].log_file!=NULL){
+				fclose(servers[server_index]->ch[n].log_file);
 			}
 			
 			for(n1=0;n1<MAX_NAMES;n1++){
-				if(servers[server_index]->user_names[n][n1]!=NULL){
-					free(servers[server_index]->user_names[n][n1]);
+				if(servers[server_index]->ch[n].user_names[n1]!=NULL){
+					free(servers[server_index]->ch[n].user_names[n1]);
 				}
 			}
-			free(servers[server_index]->user_names[n]);
+			
+			servers[server_index]->ch[n].actv=FALSE;
 		}
 	}
 	
@@ -864,9 +882,9 @@ void refresh_server_list(){
 			//set the new server content to be the OR of all channels on that server
 			int n1;
 			for(n1=0;n1<MAX_CHANNELS;n1++){
-				if(servers[n]->channel_name[n1]!=NULL){
-					new_server_content=((new_server_content)||(servers[n]->new_channel_content[n1]));
-					was_pingged=((was_pingged)||(servers[n]->was_pingged[n1]));
+				if(servers[n]->ch[n1].actv){
+					new_server_content=((new_server_content)||(servers[n]->ch[n1].new_content));
+					was_pingged=((was_pingged)||(servers[n]->ch[n1].was_pingged));
 				}
 			}
 			
@@ -931,36 +949,36 @@ void refresh_channel_list(){
 	wmove(channel_list,0,0);
 	int n;
 	for(n=0;n<MAX_CHANNELS;n++){
-		//if the server is connected
-		if(servers[current_server]->channel_name[n]!=NULL){
+		//if the server is using this channel
+		if(servers[current_server]->ch[n].actv){
 			//if it's the active server bold it
 			if(servers[current_server]->current_channel==n){
 				wattron(channel_list,A_BOLD);
-				wprintw(channel_list,servers[current_server]->channel_name[n]);
+				wprintw(channel_list,servers[current_server]->ch[n].name);
 				wattroff(channel_list,A_BOLD);
 				
 				//if we're viewing this channel any content that would be considered "new" is no longer there
-				servers[current_server]->new_channel_content[n]=FALSE;
+				servers[current_server]->ch[n].new_content=FALSE;
 				
 				//likewise a ping is now obsolete
-				servers[current_server]->was_pingged[n]=FALSE;
+				servers[current_server]->ch[n].was_pingged=FALSE;
 			//else if there is new data, display differently to show that to the user
-			}else if(servers[current_server]->new_channel_content[n]==TRUE){
+			}else if(servers[current_server]->ch[n].new_content==TRUE){
 				//if there was also a ping, show bold AND underline
-				if(servers[current_server]->was_pingged[n]==TRUE){
+				if(servers[current_server]->ch[n].was_pingged==TRUE){
 					wattron(channel_list,A_BOLD);
 				}
 				
 				wattron(channel_list,A_UNDERLINE);
-				wprintw(channel_list,servers[current_server]->channel_name[n]);
+				wprintw(channel_list,servers[current_server]->ch[n].name);
 				wattroff(channel_list,A_UNDERLINE);
 				
-				if(servers[current_server]->was_pingged[n]==TRUE){
+				if(servers[current_server]->ch[n].was_pingged==TRUE){
 					wattroff(channel_list,A_BOLD);
 				}
 			//otherwise just display it regularly
 			}else{
-				wprintw(channel_list,servers[current_server]->channel_name[n]);
+				wprintw(channel_list,servers[current_server]->ch[n].name);
 			}
 			
 			//add a delimiter for formatting purposes
@@ -984,7 +1002,7 @@ void refresh_channel_topic(){
 	//start at the start of the line
 	wmove(channel_topic,0,0);
 	char topic[BUFFER_SIZE];
-	strncpy(topic,servers[current_server]->channel_topic[servers[current_server]->current_channel],BUFFER_SIZE);
+	strncpy(topic,servers[current_server]->ch[servers[current_server]->current_channel].topic,BUFFER_SIZE);
 	if(strlen(topic)<width){
 		wprintw(channel_topic,topic);
 	}else{
@@ -992,7 +1010,7 @@ void refresh_channel_topic(){
 		//and WILL be in the server information should the user resize the window
 		int n;
 		for(n=0;n<width;n++){
-			topic[n]=servers[current_server]->channel_topic[servers[current_server]->current_channel][n];
+			topic[n]=servers[current_server]->ch[servers[current_server]->current_channel].topic[n];
 			//unicode and bold are ignored in the topic, and just displayed as ?
 			if(topic[n]==0x02 || ((topic[n] & 128)>0)){
 				topic[n]='?';
@@ -1020,7 +1038,7 @@ void refresh_channel_text(){
 	
 	//number of messages in scrollback available
 	int message_count;
-	char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+	char **scrollback=servers[current_server]->ch[servers[current_server]->current_channel].content;
 	for(message_count=0;(message_count<MAX_SCROLLBACK)&&(scrollback[message_count]!=NULL);message_count++);
 	
 	int w_height,w_width;
@@ -1444,7 +1462,7 @@ void scrollback_output(int server_index, int output_channel, char *to_output, ch
 	strncpy(output_buffer,time_buffer,BUFFER_SIZE);
 	
 	//add the message to the relevant channel scrollback structure
-	char **scrollback=servers[server_index]->channel_content[output_channel];
+	char **scrollback=servers[server_index]->ch[output_channel].content;
 	
 	//find the next blank line
 	int scrollback_line;
@@ -1474,15 +1492,15 @@ void scrollback_output(int server_index, int output_channel, char *to_output, ch
 	
 	//indicate that there is new text if the user is not currently in this channel
 	//through the channel_list and server_list
-	servers[server_index]->new_channel_content[output_channel]=TRUE;
+	servers[server_index]->ch[output_channel].new_content=TRUE;
 	if(refresh){
 		refresh_channel_list();
 		refresh_server_list();
 	}
 	
 	//if we're keeping logs write to them
-	if((servers[server_index]->keep_logs)&&(servers[server_index]->log_file[output_channel]!=NULL)){
-		fprintf(servers[server_index]->log_file[output_channel],"%s\n",log_buffer);
+	if((servers[server_index]->keep_logs)&&(servers[server_index]->ch[output_channel].log_file!=NULL)){
+		fprintf(servers[server_index]->ch[output_channel].log_file,"%s\n",log_buffer);
 	}
 	
 	//if this was currently in view update it there
@@ -1500,30 +1518,30 @@ void leave_channel(int server_index, char *ch){
 	//note that we start at 1, 0 is always the reserved server channel
 	int channel_index;
 	for(channel_index=1;channel_index<MAX_CHANNELS;channel_index++){
-		if(servers[server_index]->channel_name[channel_index]!=NULL){
+		if(servers[server_index]->ch[channel_index].actv){
 			char lower_case_channel[BUFFER_SIZE];
-			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+			strncpy(lower_case_channel,servers[server_index]->ch[channel_index].name,BUFFER_SIZE);
 			strtolower(lower_case_channel,BUFFER_SIZE);
 			
+			//if we found the channel to leave
 			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
-				//free any associated RAM, and NULL those pointers
-				free(servers[server_index]->channel_name[channel_index]);
-				servers[server_index]->channel_name[channel_index]=NULL;
-				free(servers[server_index]->channel_topic[channel_index]);
-				servers[server_index]->channel_topic[channel_index]=NULL;
+				//free any memory and clear structures
+				strncpy(servers[server_index]->ch[channel_index].name,"",BUFFER_SIZE);
+				strncpy(servers[server_index]->ch[channel_index].topic,"",BUFFER_SIZE);
+				servers[server_index]->ch[channel_index].actv=FALSE;
 				
 				int n;
 				for(n=0;n<MAX_SCROLLBACK;n++){
-					if(servers[server_index]->channel_content[channel_index][n]!=NULL){
-						free(servers[server_index]->channel_content[channel_index][n]);
-						servers[server_index]->channel_content[channel_index][n]=NULL;
+					if(servers[server_index]->ch[channel_index].content[n]!=NULL){
+						free(servers[server_index]->ch[channel_index].content[n]);
+						servers[server_index]->ch[channel_index].content[n]=NULL;
 					}
 				}
 				
 				//if we were keeping logs close them
-				if((servers[server_index]->keep_logs)&&(servers[server_index]->log_file[channel_index]!=NULL)){
-					fclose(servers[server_index]->log_file[channel_index]);
-					servers[server_index]->log_file[channel_index]=NULL;
+				if((servers[server_index]->keep_logs)&&(servers[server_index]->ch[channel_index].log_file!=NULL)){
+					fclose(servers[server_index]->ch[channel_index].log_file);
+					servers[server_index]->ch[channel_index].log_file=NULL;
 				}
 				
 				//if we were in this channel kick back to the reserved SERVER channel
@@ -1553,9 +1571,9 @@ void add_name(int server_index, int channel_index, char *name){
 	
 	int n;
 	for(n=0;n<MAX_NAMES;n++){
-		if(servers[server_index]->user_names[channel_index][n]!=NULL){
+		if(servers[server_index]->ch[channel_index].user_names[n]!=NULL){
 			char matching_name[BUFFER_SIZE];
-			strncpy(matching_name,servers[server_index]->user_names[channel_index][n],BUFFER_SIZE);
+			strncpy(matching_name,servers[server_index]->ch[channel_index].user_names[n],BUFFER_SIZE);
 			strtolower(matching_name,BUFFER_SIZE);
 			
 			//found this nick
@@ -1563,8 +1581,8 @@ void add_name(int server_index, int channel_index, char *name){
 				matches++;
 				//if it was a duplicate remove this copy
 				if(matches>1){
-					free(servers[server_index]->user_names[channel_index][n]);
-					servers[server_index]->user_names[channel_index][n]=NULL;
+					free(servers[server_index]->ch[channel_index].user_names[n]);
+					servers[server_index]->ch[channel_index].user_names[n]=NULL;
 					matches--;
 				}
 			}
@@ -1574,10 +1592,10 @@ void add_name(int server_index, int channel_index, char *name){
 	//if the user wasn't already there
 	if(matches==0){
 		//find a spot for a new user
-		for(n=0;((servers[server_index]->user_names[channel_index][n]!=NULL)&&(n<MAX_NAMES));n++);
+		for(n=0;((servers[server_index]->ch[channel_index].user_names[n]!=NULL)&&(n<MAX_NAMES));n++);
 		if(n<MAX_NAMES){
-			servers[server_index]->user_names[channel_index][n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-			strncpy(servers[server_index]->user_names[channel_index][n],name,BUFFER_SIZE);
+			servers[server_index]->ch[channel_index].user_names[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+			strncpy(servers[server_index]->ch[channel_index].user_names[n],name,BUFFER_SIZE);
 		}
 	}
 }
@@ -1595,17 +1613,17 @@ void del_name(int server_index, int channel_index, char *name){
 	strtolower(nick,BUFFER_SIZE);
 	
 	//remove this user from the names array of the channel she/he parted
-	if(servers[server_index]->channel_name[channel_index]!=NULL){
+	if(servers[server_index]->ch[channel_index].actv){
 		int name_index;
 		for(name_index=0;name_index<MAX_NAMES;name_index++){
-			if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
+			if(servers[server_index]->ch[channel_index].user_names[name_index]!=NULL){
 				char this_name[BUFFER_SIZE];
-				strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
+				strncpy(this_name,servers[server_index]->ch[channel_index].user_names[name_index],BUFFER_SIZE);
 				strtolower(this_name,BUFFER_SIZE);
 				if(!strncmp(this_name,nick,BUFFER_SIZE)){
 					//remove this user from that channel's names array
-					free(servers[server_index]->user_names[channel_index][name_index]);
-					servers[server_index]->user_names[channel_index][name_index]=NULL;
+					free(servers[server_index]->ch[channel_index].user_names[name_index]);
+					servers[server_index]->ch[channel_index].user_names[name_index]=NULL;
 				}
 			}
 		}
@@ -1657,18 +1675,14 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	servers[server_index]->current_channel=0;
 	
 	//set the default channel for various messages from the server that are not channel-specific
-	//NOTE: this scheme should be able to be overloaded to treat PM conversations as channels
-	servers[server_index]->channel_name[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-	strncpy(servers[server_index]->channel_name[0],"SERVER",BUFFER_SIZE);
-	
-	servers[server_index]->channel_topic[0]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-	strncpy(servers[server_index]->channel_topic[0],"(no topic for the server)",BUFFER_SIZE);
+	servers[server_index]->ch[0].actv=TRUE;
+	strncpy(servers[server_index]->ch[0].name,"SERVER",BUFFER_SIZE);
+	strncpy(servers[server_index]->ch[0].topic,"(no topic for the server)",BUFFER_SIZE);
 	
 	//set the main chat window with scrollback
 	//as we get lines worth storing we'll add them to this content, but for the moment it's blank
-	servers[server_index]->channel_content[0]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
 	for(n=0;n<MAX_SCROLLBACK;n++){
-		servers[server_index]->channel_content[0][n]=NULL;
+		servers[server_index]->ch[0].content[n]=NULL;
 	}
 	
 	//by default don't reconnect if connnection is lost
@@ -1687,10 +1701,10 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 		char file_location[BUFFER_SIZE];
 		sprintf(file_location,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name);
 		if(verify_or_make_dir(file_location)){
-			sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[0]);
+			sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->ch[0].name);
 			//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
-			servers[server_index]->log_file[0]=fopen(file_location,"a");
-			if(servers[server_index]->log_file[0]==NULL){
+			servers[server_index]->ch[0].log_file=fopen(file_location,"a");
+			if(servers[server_index]->ch[0].log_file==NULL){
 				scrollback_output(server_index,0,"accirc: Err: could not make log file",TRUE);
 			}
 		//this fails in a non-silent way, the user should know there was a problem
@@ -1708,26 +1722,32 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	strncpy(servers[server_index]->fallback_nick,"",BUFFER_SIZE);
 	
 	//there are no users in the SERVER channel
-	servers[server_index]->user_names[0]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
 	for(n=0;n<MAX_NAMES;n++){
-		servers[server_index]->user_names[0][n]=NULL;
+		servers[server_index]->ch[0].user_names[n]=NULL;
 	}
 	
 	//channel content for server is empty, as is ping state
-	servers[server_index]->new_channel_content[0]=FALSE;
-	servers[server_index]->was_pingged[0]=FALSE;
+	servers[server_index]->ch[0].new_content=FALSE;
+	servers[server_index]->ch[0].was_pingged=FALSE;
 	
 	//NULL out all other channels
 	//note this starts from 1 since 0 is the SERVER channel
 	for(n=1;n<MAX_CHANNELS;n++){
-		servers[server_index]->channel_name[n]=NULL;
-		servers[server_index]->channel_content[n]=NULL;
-		servers[server_index]->channel_topic[n]=NULL;
-		servers[server_index]->new_channel_content[n]=FALSE;
-		servers[server_index]->was_pingged[n]=FALSE;
-		servers[server_index]->is_pm[n]=FALSE;
-		servers[server_index]->log_file[n]=NULL;
-		servers[server_index]->user_names[n]=NULL;
+		servers[server_index]->ch[n].actv=FALSE;
+		strncpy(servers[server_index]->ch[n].name,"",BUFFER_SIZE);
+		strncpy(servers[server_index]->ch[n].topic,"",BUFFER_SIZE);
+		servers[server_index]->ch[n].new_content=FALSE;
+		servers[server_index]->ch[n].was_pingged=FALSE;
+		servers[server_index]->ch[n].is_pm=FALSE;
+		
+		int n1;
+		for(n1=0;n1<MAX_SCROLLBACK;n1++){
+			servers[server_index]->ch[n].content[n1]=NULL;
+		}
+		for(n1=0;n1<MAX_NAMES;n1++){
+			servers[server_index]->ch[n].user_names[n1]=NULL;
+		}
+		servers[server_index]->ch[n].log_file=NULL;
 	}
 	
 	//clear out the post information
@@ -1783,9 +1803,9 @@ int find_output_channel(int server_index, char *channel){
 	
 	int channel_index;
 	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-		if(servers[server_index]->channel_name[channel_index]!=NULL){
+		if(servers[server_index]->ch[channel_index].actv){
 			char lower_case_channel[BUFFER_SIZE];
-			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+			strncpy(lower_case_channel,servers[server_index]->ch[channel_index].name,BUFFER_SIZE);
 			strtolower(lower_case_channel,BUFFER_SIZE);
 			
 			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
@@ -1810,9 +1830,9 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 	
 	//add this channel to the list of channels on this server, make associated scrollback, etc.
 	int channel_index;
-	for(channel_index=0;(channel_index<MAX_CHANNELS)&&(servers[server_index]->channel_name[channel_index]!=NULL);channel_index++){
+	for(channel_index=0;(channel_index<MAX_CHANNELS)&&(servers[server_index]->ch[channel_index].actv);channel_index++){
 		char lower_case_tmp_channel[BUFFER_SIZE];
-		strncpy(lower_case_tmp_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+		strncpy(lower_case_tmp_channel,servers[server_index]->ch[channel_index].name,BUFFER_SIZE);
 		strtolower(lower_case_tmp_channel,BUFFER_SIZE);
 		
 		//if we were already in this channel, then just return and display an error
@@ -1823,41 +1843,40 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 	}
 	
 	if(channel_index<MAX_CHANNELS){
-		servers[server_index]->channel_name[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+		//set this channel as active (in-use)
+		servers[server_index]->ch[channel_index].actv=TRUE;
+		
 		//initialize the channel name to be what was joined
-		strncpy(servers[server_index]->channel_name[channel_index],channel,BUFFER_SIZE);
+		strncpy(servers[server_index]->ch[channel_index].name,channel,BUFFER_SIZE);
 		
 		//default to a null topic
-		servers[server_index]->channel_topic[channel_index]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-		strncpy(servers[server_index]->channel_topic[channel_index],"",BUFFER_SIZE);
+		strncpy(servers[server_index]->ch[channel_index].topic,"",BUFFER_SIZE);
 		
-		servers[server_index]->channel_content[channel_index]=(char**)(malloc(MAX_SCROLLBACK*sizeof(char*)));
 		//null out the content to start with
 		int n;
 		for(n=0;n<MAX_SCROLLBACK;n++){
-			servers[server_index]->channel_content[channel_index][n]=NULL;
+			servers[server_index]->ch[channel_index].content[n]=NULL;
 		}
 		
-		servers[server_index]->user_names[channel_index]=(char**)(malloc(MAX_NAMES*sizeof(char*)));
 		for(n=0;n<MAX_NAMES;n++){
-			servers[server_index]->user_names[channel_index][n]=NULL;
+			servers[server_index]->ch[channel_index].user_names[n]=NULL;
 		}
 		
 		//if we should be keeping logs make sure we are
 		if(servers[server_index]->keep_logs){
 			char file_location[BUFFER_SIZE];
-			sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->channel_name[channel_index]);
+			sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->ch[channel_index].name);
 			//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
-			servers[server_index]->log_file[channel_index]=fopen(file_location,"a");
+			servers[server_index]->ch[channel_index].log_file=fopen(file_location,"a");
 			
 			
-			if(servers[server_index]->log_file[channel_index]!=NULL){
+			if(servers[server_index]->ch[channel_index].log_file!=NULL){
 				//turn off buffering since I need may this output immediately and buffers annoy me for that
-				setvbuf(servers[server_index]->log_file[channel_index],NULL,_IONBF,0);
+				setvbuf(servers[server_index]->ch[channel_index].log_file,NULL,_IONBF,0);
 			}
 		}
 		
-		servers[server_index]->is_pm[channel_index]=pm_flag;
+		servers[server_index]->ch[channel_index].is_pm=pm_flag;
 		
 		//set this to be the current channel, we must want to be here if we joined
 		servers[server_index]->current_channel=channel_index;
@@ -2259,7 +2278,7 @@ void cl_command(){
 	
 	int index;
 	for(index=current_channel;index>=0;index--){
-		if(servers[current_server]->channel_name[index]!=NULL){
+		if(servers[current_server]->ch[index].actv){
 			current_channel=index;
 			index=-1;
 		}else if(index==0){
@@ -2294,7 +2313,7 @@ void cr_command(){
 	
 	int index;
 	for(index=current_channel;index<MAX_CHANNELS;index++){
-		if(servers[current_server]->channel_name[index]!=NULL){
+		if(servers[current_server]->ch[index].actv){
 			current_channel=index;
 			index=MAX_CHANNELS;
 		}else if(index==(MAX_CHANNELS-1)){
@@ -2325,18 +2344,18 @@ void log_command(){
 			//look through the channels
 			int channel_index;
 			for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-				if(servers[current_server]->channel_name[channel_index]!=NULL){
+				if(servers[current_server]->ch[channel_index].actv){
 					//try to open a file for every channel
 					
 					char file_location[BUFFER_SIZE];
-					sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->channel_name[channel_index]);
+					sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->ch[channel_index].name);
 					//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
-					servers[current_server]->log_file[channel_index]=fopen(file_location,"a");
+					servers[current_server]->ch[channel_index].log_file=fopen(file_location,"a");
 					
 					
-					if(servers[current_server]->log_file[channel_index]!=NULL){
+					if(servers[current_server]->ch[channel_index].log_file!=NULL){
 						//turn off buffering since I need may this output immediately and buffers annoy me for that
-						setvbuf(servers[current_server]->log_file[channel_index],NULL,_IONBF,0);
+						setvbuf(servers[current_server]->ch[channel_index].log_file,NULL,_IONBF,0);
 					}
 				}
 			}
@@ -2357,11 +2376,11 @@ void no_log_command(){
 		//close any open logs we were writing to
 		int n;
 		for(n=0;n<MAX_CHANNELS;n++){
-			if(servers[current_server]->log_file[n]!=NULL){
-				fclose(servers[current_server]->log_file[n]);
+			if(servers[current_server]->ch[n].log_file!=NULL){
+				fclose(servers[current_server]->ch[n].log_file);
 				
 				//reset the structure to hold NULL
-				servers[current_server]->log_file[n]=NULL;
+				servers[current_server]->ch[n].log_file=NULL;
 			}
 		}
 	}else{
@@ -2385,7 +2404,7 @@ void rsearch_command(char *input_buffer, char *command, char *parameters, int ol
 		scrollback_output(current_server,servers[current_server]->current_channel,error_buffer,TRUE);
 	}else{
 		//the entire scrollback for the current channel
-		char **channel_scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+		char **channel_scrollback=servers[current_server]->ch[servers[current_server]->current_channel].content;
 		
 		//the line to start the reverse search at
 		int search_line=0;
@@ -2435,7 +2454,7 @@ void up_command(char *input_buffer, char *command, char *parameters, int old_scr
 	//if we are connected to a server
 	if(current_server>=0){
 		int line_count;
-		char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+		char **scrollback=servers[current_server]->ch[servers[current_server]->current_channel].content;
 		for(line_count=0;(line_count<MAX_SCROLLBACK)&&(scrollback[line_count]!=NULL);line_count++);
 		
 		//if there is more text than area to display allow it scrollback (else don't)
@@ -2468,7 +2487,7 @@ void down_command(char *input_buffer, char *command, char *parameters, int old_s
 	
 	//if we are connected to a server
 	if(current_server>=0){
-		char **scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+		char **scrollback=servers[current_server]->ch[servers[current_server]->current_channel].content;
 		//if we're already scrolled back and there is valid scrollback below this
 		if((scrollback_end>=0)&&(scrollback_end<(MAX_SCROLLBACK-1))&&(scrollback[scrollback_end+1]!=NULL)){
 			scrollback_end++;
@@ -2482,7 +2501,7 @@ void down_command(char *input_buffer, char *command, char *parameters, int old_s
 
 //the "head" client command (scrolls to top of scrollback area)
 void head_command(){
-	char **channel_scrollback=servers[current_server]->channel_content[servers[current_server]->current_channel];
+	char **channel_scrollback=servers[current_server]->ch[servers[current_server]->current_channel].content;
 	int line_count=0;
 	int n;
 	for(n=0;n<MAX_SCROLLBACK;n++){
@@ -2528,10 +2547,10 @@ void bye_command(char *input_buffer, char *command, char *parameters){
 	char output_buffer[BUFFER_SIZE];
 	
 	//ensure this is a PM channel and not a real channel, don't want to /bye those, you gotta part like a good person
-	if(servers[current_server]->is_pm[channel_index]){
-		sprintf(output_buffer,"accirc: Parting (faux) PM channel \"%s\"",servers[current_server]->channel_name[channel_index]);
+	if(servers[current_server]->ch[channel_index].is_pm){
+		sprintf(output_buffer,"accirc: Parting (faux) PM channel \"%s\"",servers[current_server]->ch[channel_index].name);
 		
-		leave_channel(current_server,servers[current_server]->channel_name[channel_index]);
+		leave_channel(current_server,servers[current_server]->ch[channel_index].name);
 	}else{
 		strncpy(output_buffer,"accirc: Err: channel you tried to \"bye\" is not a PM!",BUFFER_SIZE);
 	}
@@ -2550,7 +2569,7 @@ void privmsg_command(char *input_buffer){
 		}else{
 			//format the text for the server's benefit
 			char output_buffer[BUFFER_SIZE];
-			sprintf(output_buffer,"PRIVMSG %s :%s\n",servers[current_server]->channel_name[servers[current_server]->current_channel],input_buffer);
+			sprintf(output_buffer,"PRIVMSG %s :%s\n",servers[current_server]->ch[servers[current_server]->current_channel].name,input_buffer);
 			server_write(current_server,output_buffer);
 			
 			//then format the text for my viewing benefit (this is also what will go in logs, with a newline)
@@ -3002,18 +3021,18 @@ void server_332_command(int server_index, char *tmp_buffer, int first_space, cha
 	//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
 	int channel_index;
 	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-		if(servers[server_index]->channel_name[channel_index]!=NULL){
+		if(servers[server_index]->ch[channel_index].actv){
 			char lower_case_channel[BUFFER_SIZE];
-			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+			strncpy(lower_case_channel,servers[server_index]->ch[channel_index].name,BUFFER_SIZE);
 			strtolower(lower_case_channel,BUFFER_SIZE);
 			
 			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
 				*output_channel=channel_index;
 				
-				sprintf(output_buffer,"TOPIC for %s :%s",servers[server_index]->channel_name[channel_index],topic);
+				sprintf(output_buffer,"TOPIC for %s :%s",servers[server_index]->ch[channel_index].name,topic);
 				
 				//store the topic in the general data structure
-				strncpy(servers[server_index]->channel_topic[channel_index],topic,BUFFER_SIZE);
+				strncpy(servers[server_index]->ch[channel_index].topic,topic,BUFFER_SIZE);
 				
 				//and output
 				refresh_channel_topic();
@@ -3058,9 +3077,9 @@ void server_333_command(int server_index, char *tmp_buffer, int first_space, cha
 	//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
 	int channel_index;
 	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-		if(servers[server_index]->channel_name[channel_index]!=NULL){
+		if(servers[server_index]->ch[channel_index].actv){
 			char lower_case_channel[BUFFER_SIZE];
-			strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+			strncpy(lower_case_channel,servers[server_index]->ch[channel_index].name,BUFFER_SIZE);
 			strtolower(lower_case_channel,BUFFER_SIZE);
 			
 			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
@@ -3171,7 +3190,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
 			
 			//set the was_pingged flag for the server in the case of a PM
-			servers[server_index]->was_pingged[0]=TRUE;
+			servers[server_index]->ch[0].was_pingged=TRUE;
 		}
 	}
 	
@@ -3241,7 +3260,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 				sprintf(output_buffer,"*** *%s %s",nick,tmp_buffer);
 				
 				//set the was_pingged flag so the user can see that information at a glance
-				servers[server_index]->was_pingged[*output_channel]=TRUE;
+				servers[server_index]->ch[*output_channel].was_pingged=TRUE;
 			//if this wasn't a ping but was a normal CTCP ACTION output for that
 			}else{
 				sprintf(output_buffer,"*%s %s",nick,tmp_buffer);
@@ -3299,7 +3318,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 		sprintf(output_buffer,"***<%s> %s",nick,text);
 		
 		//set the was_pingged flag so the user can see that information at a glance
-		servers[server_index]->was_pingged[*output_channel]=TRUE;
+		servers[server_index]->ch[*output_channel].was_pingged=TRUE;
 	}else{
 		//format the output of a PM in a very pretty way
 		sprintf(output_buffer,"<%s> %s",nick,text);
@@ -3328,18 +3347,18 @@ void server_join_command(int server_index, char *tmp_buffer, int first_space, ch
 		
 		int channel_index;
 		for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-			if(servers[server_index]->channel_name[channel_index]!=NULL){
+			if(servers[server_index]->ch[channel_index].actv){
 				char lower_case_channel[BUFFER_SIZE];
-				strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+				strncpy(lower_case_channel,servers[server_index]->ch[channel_index].name,BUFFER_SIZE);
 				strtolower(lower_case_channel,BUFFER_SIZE);
 				
 				if(!strncmp(lower_case_channel,channel,BUFFER_SIZE)){
 					//add this user to that channel's names array
 					int n;
-					for(n=0;(servers[server_index]->user_names[channel_index][n]!=NULL)&&(n<MAX_NAMES);n++);
+					for(n=0;(servers[server_index]->ch[channel_index].user_names[n]!=NULL)&&(n<MAX_NAMES);n++);
 					if(n<MAX_NAMES){
-						servers[server_index]->user_names[channel_index][n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-						strncpy(servers[server_index]->user_names[channel_index][n],nick,BUFFER_SIZE);
+						servers[server_index]->ch[channel_index].user_names[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+						strncpy(servers[server_index]->ch[channel_index].user_names[n],nick,BUFFER_SIZE);
 					}
 					
 					*output_channel=channel_index;
@@ -3413,9 +3432,9 @@ void server_kick_command(int server_index, char *tmp_buffer, int first_space, ch
 		
 		int channel_index;
 		for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-			if(servers[server_index]->channel_name[channel_index]!=NULL){
+			if(servers[server_index]->ch[channel_index].actv){
 				char lower_case_channel[BUFFER_SIZE];
-				strncpy(lower_case_channel,servers[server_index]->channel_name[channel_index],BUFFER_SIZE);
+				strncpy(lower_case_channel,servers[server_index]->ch[channel_index].name,BUFFER_SIZE);
 				strtolower(lower_case_channel,BUFFER_SIZE);
 				
 				if(!strncmp(lower_case_channel,channel,BUFFER_SIZE)){
@@ -3463,12 +3482,12 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 	
 	int channel_index;
 	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-		if(servers[server_index]->channel_name[channel_index]!=NULL){
+		if(servers[server_index]->ch[channel_index].actv){
 			int name_index;
 			for(name_index=0;name_index<MAX_NAMES;name_index++){
-				if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
+				if(servers[server_index]->ch[channel_index].user_names[name_index]!=NULL){
 					char this_name[BUFFER_SIZE];
-					strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
+					strncpy(this_name,servers[server_index]->ch[channel_index].user_names[name_index],BUFFER_SIZE);
 					strtolower(this_name,BUFFER_SIZE);
 					
 					//found it!
@@ -3492,7 +3511,7 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 						//(because there are files open for logs and things this isn't done now, it's a major pain)
 						
 						//update this user's entry in that channel's names array
-						strncpy(servers[server_index]->user_names[channel_index][name_index],new_nick,BUFFER_SIZE);
+						strncpy(servers[server_index]->ch[channel_index].user_names[name_index],new_nick,BUFFER_SIZE);
 						
 						//we found a channel with this nick, so we've already done special output
 						//no need to output again to server area
@@ -3522,11 +3541,8 @@ void server_topic_command(int server_index, char *tmp_buffer, int first_space, c
 	
 	//update the topic for this channel on this server
 	//leaving out the leading ":", if there is one
-	if(text[0]==':'){
-		substr(servers[server_index]->channel_topic[*output_channel],text,1,strlen(text)-1);
-	}else{
-		substr(servers[server_index]->channel_topic[*output_channel],text,0,strlen(text));
-	}
+	unsigned int offset=(text[0]==':')?1:0;
+	substr(servers[server_index]->ch[*output_channel].topic,text,offset,strlen(text)-offset);
 	
 	//update the display
 	refresh_channel_topic();
@@ -3539,12 +3555,12 @@ void server_quit_command(int server_index, char *tmp_buffer, int first_space, ch
 	
 	int channel_index;
 	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
-		if(servers[server_index]->channel_name[channel_index]!=NULL){
+		if(servers[server_index]->ch[channel_index].actv){
 			int name_index;
 			for(name_index=0;name_index<MAX_NAMES;name_index++){
-				if(servers[server_index]->user_names[channel_index][name_index]!=NULL){
+				if(servers[server_index]->ch[channel_index].user_names[name_index]!=NULL){
 					char this_name[BUFFER_SIZE];
-					strncpy(this_name,servers[server_index]->user_names[channel_index][name_index],BUFFER_SIZE);
+					strncpy(this_name,servers[server_index]->ch[channel_index].user_names[name_index],BUFFER_SIZE);
 					strtolower(this_name,BUFFER_SIZE);
 					
 					//found it!
@@ -3553,8 +3569,8 @@ void server_quit_command(int server_index, char *tmp_buffer, int first_space, ch
 						scrollback_output(server_index,channel_index,output_buffer,TRUE);
 						
 						//remove this user from that channel's names array
-						free(servers[server_index]->user_names[channel_index][name_index]);
-						servers[server_index]->user_names[channel_index][name_index]=NULL;
+						free(servers[server_index]->ch[channel_index].user_names[name_index]);
+						servers[server_index]->ch[channel_index].user_names[name_index]=NULL;
 						
 						//for handling later; just let us know we found a channel to output to
 						*special_output=TRUE;
@@ -3599,7 +3615,7 @@ void parse_server(int server_index){
 		properly_close(server_index);
 	}else{
 		//set this to show as having new data, it must since we're getting something on it
-		//(this is done automatically as a result of new_channel_content being set true in scrollback_output)
+		//(this is done automatically as a result of new_content being set true in scrollback_output)
 		refresh_server_list();
 		
 		//take out the trailing newline (accounting for the possibility of windows newlines
@@ -4098,7 +4114,7 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 		//count the number of nicks in the current channel
 		int nick_count=0;
 		for(n=0;n<MAX_NAMES;n++){
-			if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+			if(servers[current_server]->ch[servers[current_server]->current_channel].user_names[n]!=NULL){
 				nick_count++;
 			}
 		}
@@ -4112,16 +4128,16 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 		char last_matching_nick[BUFFER_SIZE];
 		//iterate through all tne nicks in this channel, if we find a unique match, complete it
 		for(n=0;n<MAX_NAMES;n++){
-			if(servers[current_server]->user_names[servers[current_server]->current_channel][n]!=NULL){
+			if(servers[current_server]->ch[servers[current_server]->current_channel].user_names[n]!=NULL){
 				char nick_to_match[BUFFER_SIZE];
-				strncpy(nick_to_match,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+				strncpy(nick_to_match,servers[current_server]->ch[servers[current_server]->current_channel].user_names[n],BUFFER_SIZE);
 				strtolower(nick_to_match,BUFFER_SIZE);
 				
 				//if this nick started with the partial_nick
 				if(strfind(partial_nick,nick_to_match)==0){
 					//store in last matching nick
 					matching_nicks++;
-					strncpy(last_matching_nick,servers[current_server]->user_names[servers[current_server]->current_channel][n],BUFFER_SIZE);
+					strncpy(last_matching_nick,servers[current_server]->ch[servers[current_server]->current_channel].user_names[n],BUFFER_SIZE);
 					
 					//store in aggregate along with other matching nicks
 					all_matching_nicks[matching_nicks_index]=malloc(sizeof(char)*BUFFER_SIZE);
@@ -4222,7 +4238,7 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 		}else if(tab_completions>=COMPLETION_ATTEMPTS){
 			//the entire line we'll output, we're gonna append to this a lot
 			char output_text[BUFFER_SIZE];
-			sprintf(output_text,"accirc: Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->channel_name[servers[current_server]->current_channel]);
+			sprintf(output_text,"accirc: Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->ch[servers[current_server]->current_channel].name);
 			
 			//output the array we just made of nicks that are acceptable (but non-unique) completions
 			int output_nicks=0;
