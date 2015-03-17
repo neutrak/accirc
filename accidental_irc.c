@@ -197,6 +197,8 @@ struct channel_info {
 	
 	//users in this channel
 	char *user_names[MAX_NAMES];
+	//mode strings for each user
+	char *mode_str[MAX_NAMES];
 	
 	//topic for this channel
 	char topic[BUFFER_SIZE];
@@ -470,6 +472,33 @@ char verify_or_make_dir(char *path){
 	}
 	//if we got here and didn't return we succeeded
 	return TRUE;
+}
+
+//find the index of a given nick on the given channel
+//returns -1 if the nick is not found
+int nick_idx(channel_info *ch, const char *nick, int start_idx){
+	//can't search in NULL
+	if((ch==NULL) || (nick==NULL)){
+		return -1;
+	}
+	
+	char lower_nick[BUFFER_SIZE];
+	strncpy(lower_nick,nick,BUFFER_SIZE);
+	strtolower(lower_nick,BUFFER_SIZE);
+	
+	int idx=start_idx;
+	for(;idx<MAX_NAMES;idx++){
+		if(ch->user_names[idx]!=NULL){
+			char matching_name[BUFFER_SIZE];
+			strncpy(matching_name,ch->user_names[idx],BUFFER_SIZE);
+			strtolower(matching_name,BUFFER_SIZE);
+			
+			if(strncmp(matching_name,lower_nick,BUFFER_SIZE)==0){
+				return idx;
+			}
+		}
+	}
+	return -1;
 }
 
 //log a "ping" to a seperate file
@@ -747,6 +776,9 @@ void properly_close(int server_index){
 			for(n1=0;n1<MAX_NAMES;n1++){
 				if(servers[server_index]->ch[n].user_names[n1]!=NULL){
 					free(servers[server_index]->ch[n].user_names[n1]);
+				}
+				if(servers[server_index]->ch[n].mode_str[n1]!=NULL){
+					free(servers[server_index]->ch[n].mode_str[n1]);
 				}
 			}
 			
@@ -1557,7 +1589,7 @@ void leave_channel(int server_index, char *ch){
 }
 
 //add a name to the names list for a channel
-void add_name(int server_index, int channel_index, char *name){
+void add_name(int server_index, int channel_index, char *name, const char *mode_str){
 	if(server_index<0){
 		return;
 	}
@@ -1565,37 +1597,40 @@ void add_name(int server_index, int channel_index, char *name){
 	//check if this user is already in the list for this channel
 	int matches=0;
 	
-	char this_lower_case_name[BUFFER_SIZE];
-	strncpy(this_lower_case_name,name,BUFFER_SIZE);
-	strtolower(this_lower_case_name,BUFFER_SIZE);
-	
-	int n;
-	for(n=0;n<MAX_NAMES;n++){
-		if(servers[server_index]->ch[channel_index].user_names[n]!=NULL){
-			char matching_name[BUFFER_SIZE];
-			strncpy(matching_name,servers[server_index]->ch[channel_index].user_names[n],BUFFER_SIZE);
-			strtolower(matching_name,BUFFER_SIZE);
-			
-			//found this nick
-			if(!strncmp(this_lower_case_name,matching_name,BUFFER_SIZE)){
-				matches++;
-				//if it was a duplicate remove this copy
-				if(matches>1){
-					free(servers[server_index]->ch[channel_index].user_names[n]);
-					servers[server_index]->ch[channel_index].user_names[n]=NULL;
-					matches--;
-				}
+	int idx=0;
+	while(idx>=0){
+		idx=nick_idx(&(servers[server_index]->ch[channel_index]),name,idx);
+		
+		//found this nick
+		if(idx>=0){
+			matches++;
+			//if it was a duplicate remove this copy
+			if(matches>1){
+				free(servers[server_index]->ch[channel_index].user_names[idx]);
+				servers[server_index]->ch[channel_index].user_names[idx]=NULL;
+				
+				free(servers[server_index]->ch[channel_index].mode_str[idx]);
+				servers[server_index]->ch[channel_index].mode_str[idx]=NULL;
+				
+				matches--;
 			}
+			
+			//start the next search after this match
+			idx++;
 		}
-	}
+	}		
 	
 	//if the user wasn't already there
 	if(matches==0){
 		//find a spot for a new user
+		int n;
 		for(n=0;((servers[server_index]->ch[channel_index].user_names[n]!=NULL)&&(n<MAX_NAMES));n++);
 		if(n<MAX_NAMES){
 			servers[server_index]->ch[channel_index].user_names[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 			strncpy(servers[server_index]->ch[channel_index].user_names[n],name,BUFFER_SIZE);
+			
+			servers[server_index]->ch[channel_index].mode_str[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+			strncpy(servers[server_index]->ch[channel_index].mode_str[n],mode_str,BUFFER_SIZE);
 		}
 	}
 }
@@ -1606,25 +1641,23 @@ void del_name(int server_index, int channel_index, char *name){
 		return;
 	}
 	
-	char nick[BUFFER_SIZE];
-	strncpy(nick,name,BUFFER_SIZE);
-	
-	//set the user's nick to be lower-case for case-insensitive string matching
-	strtolower(nick,BUFFER_SIZE);
-	
 	//remove this user from the names array of the channel she/he parted
 	if(servers[server_index]->ch[channel_index].actv){
-		int name_index;
-		for(name_index=0;name_index<MAX_NAMES;name_index++){
-			if(servers[server_index]->ch[channel_index].user_names[name_index]!=NULL){
-				char this_name[BUFFER_SIZE];
-				strncpy(this_name,servers[server_index]->ch[channel_index].user_names[name_index],BUFFER_SIZE);
-				strtolower(this_name,BUFFER_SIZE);
-				if(!strncmp(this_name,nick,BUFFER_SIZE)){
-					//remove this user from that channel's names array
-					free(servers[server_index]->ch[channel_index].user_names[name_index]);
-					servers[server_index]->ch[channel_index].user_names[name_index]=NULL;
-				}
+		int idx=0;
+		while(idx>=0){
+			idx=nick_idx(&(servers[server_index]->ch[channel_index]),name,idx);
+			
+			//found this nick
+			if(idx>=0){
+				//remove this user from that channel's names array
+				free(servers[server_index]->ch[channel_index].user_names[idx]);
+				servers[server_index]->ch[channel_index].user_names[idx]=NULL;
+				
+				//and the mode string too
+				free(servers[server_index]->ch[channel_index].mode_str[idx]);
+				servers[server_index]->ch[channel_index].mode_str[idx]=NULL;
+				
+				idx++;
 			}
 		}
 	}
@@ -1724,6 +1757,7 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	//there are no users in the SERVER channel
 	for(n=0;n<MAX_NAMES;n++){
 		servers[server_index]->ch[0].user_names[n]=NULL;
+		servers[server_index]->ch[0].mode_str[n]=NULL;
 	}
 	
 	//channel content for server is empty, as is ping state
@@ -1746,6 +1780,7 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 		}
 		for(n1=0;n1<MAX_NAMES;n1++){
 			servers[server_index]->ch[n].user_names[n1]=NULL;
+			servers[server_index]->ch[n].mode_str[n1]=NULL;
 		}
 		servers[server_index]->ch[n].log_file=NULL;
 	}
@@ -1860,6 +1895,7 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 		
 		for(n=0;n<MAX_NAMES;n++){
 			servers[server_index]->ch[channel_index].user_names[n]=NULL;
+			servers[server_index]->ch[channel_index].mode_str[n]=NULL;
 		}
 		
 		//if we should be keeping logs make sure we are
@@ -2581,7 +2617,16 @@ void privmsg_command(char *input_buffer){
 				substr(tmp_buffer,input_buffer,strlen(ctcp),strlen(input_buffer)-strlen(ctcp)-1);
 				sprintf(output_buffer,">> *%s %s",servers[current_server]->nick,tmp_buffer);
 			}else{
-				sprintf(output_buffer,">> <%s> %s",servers[current_server]->nick,input_buffer);
+				char nick_mode_str[BUFFER_SIZE];
+				strncpy(nick_mode_str,"",BUFFER_SIZE);
+				
+				//display channel modes with the nick if possible
+				int nick_ch_idx=nick_idx(&(servers[current_server]->ch[servers[current_server]->current_channel]),servers[current_server]->nick,0);
+				if(nick_ch_idx>=0){
+					strncpy(nick_mode_str,servers[current_server]->ch[servers[current_server]->current_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
+				}
+				
+				sprintf(output_buffer,">> <%s%s> %s",nick_mode_str,servers[current_server]->nick,input_buffer);
 			}
 			
 			//place my own text in the scrollback for this server and channel
@@ -3129,11 +3174,14 @@ void server_353_command(int server_index, char *tmp_buffer, int first_space, cha
 			substr(names,names,space_index+1,strlen(names)-space_index-1);
 			
 			//trim this user's name
+			char mode_str[BUFFER_SIZE];
+			strncpy(mode_str,"",BUFFER_SIZE);
 			if((strfind("@",this_name)==0)||(strfind("~",this_name)==0)||(strfind("%",this_name)==0)||(strfind("&",this_name)==0)||(strfind("+",this_name)==0)){
+				snprintf(mode_str,BUFFER_SIZE,"%c",this_name[0]);
 				substr(this_name,this_name,1,strlen(this_name)-1);
 			}
 			
-			add_name(server_index,*output_channel,this_name);
+			add_name(server_index,*output_channel,this_name,mode_str);
 		}
 	}
 }
@@ -3192,6 +3240,15 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			//set the was_pingged flag for the server in the case of a PM
 			servers[server_index]->ch[0].was_pingged=TRUE;
 		}
+	}
+	
+	char nick_mode_str[BUFFER_SIZE];
+	strncpy(nick_mode_str,"",BUFFER_SIZE);
+	
+	//display channel modes with the nick if possible
+	int nick_ch_idx=nick_idx(&(servers[server_index]->ch[*output_channel]),nick,0);
+	if(nick_ch_idx>=0){
+		strncpy(nick_mode_str,servers[server_index]->ch[*output_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
 	}
 	
 	//this is so pings can be case-insensitive
@@ -3315,13 +3372,13 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 		//audio output
 		beep();
 		//format the output to show that we were pingged
-		sprintf(output_buffer,"***<%s> %s",nick,text);
+		sprintf(output_buffer,"***<%s%s> %s",nick_mode_str,nick,text);
 		
 		//set the was_pingged flag so the user can see that information at a glance
 		servers[server_index]->ch[*output_channel].was_pingged=TRUE;
 	}else{
 		//format the output of a PM in a very pretty way
-		sprintf(output_buffer,"<%s> %s",nick,text);
+		sprintf(output_buffer,"<%s%s> %s",nick_mode_str,nick,text);
 	}
 }
 
@@ -3359,6 +3416,9 @@ void server_join_command(int server_index, char *tmp_buffer, int first_space, ch
 					if(n<MAX_NAMES){
 						servers[server_index]->ch[channel_index].user_names[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 						strncpy(servers[server_index]->ch[channel_index].user_names[n],nick,BUFFER_SIZE);
+						
+						servers[server_index]->ch[channel_index].mode_str[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+						strncpy(servers[server_index]->ch[channel_index].mode_str[n],"",BUFFER_SIZE);
 					}
 					
 					*output_channel=channel_index;
@@ -3483,41 +3543,35 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 	int channel_index;
 	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
 		if(servers[server_index]->ch[channel_index].actv){
-			int name_index;
-			for(name_index=0;name_index<MAX_NAMES;name_index++){
-				if(servers[server_index]->ch[channel_index].user_names[name_index]!=NULL){
-					char this_name[BUFFER_SIZE];
-					strncpy(this_name,servers[server_index]->ch[channel_index].user_names[name_index],BUFFER_SIZE);
-					strtolower(this_name,BUFFER_SIZE);
-					
-					//found it!
-					if(!strncmp(this_name,nick,BUFFER_SIZE)){
-						//output to the appropriate channel
-						scrollback_output(server_index,channel_index,output_buffer,TRUE);
-						
-						char new_nick[BUFFER_SIZE];
-						if(text[0]==':'){
-							substr(new_nick,text,1,strlen(text)-1);
-						}else{
-							substr(new_nick,text,0,strlen(text));
-						}
-						
-						//if we were pm-ing with this user, update that reference
-						if(update_pm_user){
-							strncpy(servers[server_index]->last_pm_user,new_nick,BUFFER_SIZE);
-						}
-						
-						//TODO: if there was a is_pm channel named after this user it should be changed
-						//(because there are files open for logs and things this isn't done now, it's a major pain)
-						
-						//update this user's entry in that channel's names array
-						strncpy(servers[server_index]->ch[channel_index].user_names[name_index],new_nick,BUFFER_SIZE);
-						
-						//we found a channel with this nick, so we've already done special output
-						//no need to output again to server area
-						*special_output=TRUE;
-					}
+			int name_index=nick_idx(&(servers[server_index]->ch[channel_index]),nick,0);
+			//found it!
+			if(name_index>=0){
+				//output to the appropriate channel
+				scrollback_output(server_index,channel_index,output_buffer,TRUE);
+				
+				char new_nick[BUFFER_SIZE];
+				if(text[0]==':'){
+					substr(new_nick,text,1,strlen(text)-1);
+				}else{
+					substr(new_nick,text,0,strlen(text));
 				}
+				
+				//if we were pm-ing with this user, update that reference
+				if(update_pm_user){
+					strncpy(servers[server_index]->last_pm_user,new_nick,BUFFER_SIZE);
+				}
+				
+				//TODO: if there was a is_pm channel named after this user it should be changed
+				//(because there are files open for logs and things this isn't done now, it's a major pain)
+				
+				//update this user's entry in that channel's names array
+				strncpy(servers[server_index]->ch[channel_index].user_names[name_index],new_nick,BUFFER_SIZE);
+				
+				//note modes do not change in the case of a nick change
+				
+				//we found a channel with this nick, so we've already done special output
+				//no need to output again to server area
+				*special_output=TRUE;
 			}
 		}
 	}
@@ -3548,6 +3602,75 @@ void server_topic_command(int server_index, char *tmp_buffer, int first_space, c
 	refresh_channel_topic();
 }
 
+//handle the "mode" command from the server
+void server_mode_command(int server_index, char *text, int *output_channel){
+	char channel[BUFFER_SIZE];
+	substr(channel,text,0,strfind(" ",text));
+	
+	//output to the correct place
+	*output_channel=find_output_channel(server_index,channel);
+	
+	//update user modes as needed
+	
+	char tmp_text[BUFFER_SIZE];
+	int space_idx=strfind(" ",text);
+	substr(tmp_text,text,space_idx+1,strlen(text)-1-space_idx);
+	
+	//get the +o -o +v -v +ooo +h etc. string
+	char mode_ctrl_str[BUFFER_SIZE];
+	space_idx=strfind(" ",tmp_text);
+	substr(mode_ctrl_str,tmp_text,0,space_idx);
+	
+	//get the string of nicks to apply the mode_ctrl_str to
+	char nicks[BUFFER_SIZE];
+	substr(nicks,tmp_text,space_idx+1,strlen(tmp_text)-1-space_idx);
+	
+	char new_mode_str[BUFFER_SIZE];
+	strncpy(new_mode_str,"",BUFFER_SIZE);
+	if(mode_ctrl_str[0]=='+'){
+		switch(mode_ctrl_str[1]){
+			case 'o':
+				strncpy(new_mode_str,"@",BUFFER_SIZE);
+				break;
+			case 'v':
+				strncpy(new_mode_str,"+",BUFFER_SIZE);
+				break;
+/*
+			case 'v': //TODO: find correct mode for ~
+				strncpy(new_mode_str,"~",BUFFER_SIZE);
+				break;
+			case 'v': //TODO: find correct mode for %
+				strncpy(new_mode_str,"%",BUFFER_SIZE);
+				break;
+			case 'v': //TODO: find correct mode for &
+				strncpy(new_mode_str,"&",BUFFER_SIZE);
+				break;
+*/
+		}
+	}
+	
+	//for each nick, set mode_str in *output_channel to new_mode_str
+	while(strncmp(nicks,"",BUFFER_SIZE)!=0){
+		char nick[BUFFER_SIZE];
+		space_idx=strfind(" ",nick);
+		if(space_idx<0){
+			strncpy(nick,nicks,BUFFER_SIZE);
+			strncpy(nicks,"",BUFFER_SIZE);
+		}else{
+			substr(nick,nicks,0,space_idx);
+			substr(nicks,nicks,space_idx+1,strlen(nicks)-1);
+		}
+		
+		int name_index=nick_idx(&(servers[server_index]->ch[*output_channel]),nick,0);
+		if(name_index>=0){
+			strncpy(servers[server_index]->ch[*output_channel].mode_str[name_index],new_mode_str,BUFFER_SIZE);
+		}
+	}
+	
+//	fprintf(error_file,"dbg: Got MODE command \"%s\"; mode_ctrl_str=\"%s\"; tmp_text=\"%s\", new_mode_str=\"%s\"\n",
+//		text,mode_ctrl_str,tmp_text,new_mode_str);
+}
+
 //handle the "quit" command from the server
 void server_quit_command(int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
 	//set the user's nick to be lower-case for case-insensitive string matching
@@ -3556,26 +3679,22 @@ void server_quit_command(int server_index, char *tmp_buffer, int first_space, ch
 	int channel_index;
 	for(channel_index=0;channel_index<MAX_CHANNELS;channel_index++){
 		if(servers[server_index]->ch[channel_index].actv){
-			int name_index;
-			for(name_index=0;name_index<MAX_NAMES;name_index++){
-				if(servers[server_index]->ch[channel_index].user_names[name_index]!=NULL){
-					char this_name[BUFFER_SIZE];
-					strncpy(this_name,servers[server_index]->ch[channel_index].user_names[name_index],BUFFER_SIZE);
-					strtolower(this_name,BUFFER_SIZE);
-					
-					//found it!
-					if(!strncmp(this_name,nick,BUFFER_SIZE)){
-						//output to the appropriate channel
-						scrollback_output(server_index,channel_index,output_buffer,TRUE);
-						
-						//remove this user from that channel's names array
-						free(servers[server_index]->ch[channel_index].user_names[name_index]);
-						servers[server_index]->ch[channel_index].user_names[name_index]=NULL;
-						
-						//for handling later; just let us know we found a channel to output to
-						*special_output=TRUE;
-					}
-				}
+			int name_index=nick_idx(&(servers[server_index]->ch[channel_index]),nick,0);
+			//found it!
+			if(name_index>=0){
+				//output to the appropriate channel
+				scrollback_output(server_index,channel_index,output_buffer,TRUE);
+				
+				//remove this user from that channel's names array
+				free(servers[server_index]->ch[channel_index].user_names[name_index]);
+				servers[server_index]->ch[channel_index].user_names[name_index]=NULL;
+				
+				//and the mode string
+				free(servers[server_index]->ch[channel_index].mode_str[name_index]);
+				servers[server_index]->ch[channel_index].mode_str[name_index]=NULL;
+				
+				//for handling later; just let us know we found a channel to output to
+				*special_output=TRUE;
 			}
 		}
 	}
@@ -3803,11 +3922,7 @@ void parse_server(int server_index){
 					server_topic_command(server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
 				//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
 				}else if(!strcmp(command,"MODE")){
-					char channel[BUFFER_SIZE];
-					substr(channel,text,0,strfind(" ",text));
-					
-					//output to the correct place
-					output_channel=find_output_channel(server_index,channel);
+					server_mode_command(server_index,text,&output_channel);
 				//proper NOTICE handling is to output to the correct channel if it's a channel-wide notice, and like a PM otherwise
 				}else if(!strcmp(command,"NOTICE")){
 					//parse out the channel
