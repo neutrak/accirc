@@ -2623,7 +2623,7 @@ void privmsg_command(char *input_buffer){
 				//display channel modes with the nick if possible
 				int nick_ch_idx=nick_idx(&(servers[current_server]->ch[servers[current_server]->current_channel]),servers[current_server]->nick,0);
 				if(nick_ch_idx>=0){
-					strncpy(nick_mode_str,servers[current_server]->ch[servers[current_server]->current_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
+//					strncpy(nick_mode_str,servers[current_server]->ch[servers[current_server]->current_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
 				}
 				
 				sprintf(output_buffer,">> <%s%s> %s",nick_mode_str,servers[current_server]->nick,input_buffer);
@@ -3248,7 +3248,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	//display channel modes with the nick if possible
 	int nick_ch_idx=nick_idx(&(servers[server_index]->ch[*output_channel]),nick,0);
 	if(nick_ch_idx>=0){
-		strncpy(nick_mode_str,servers[server_index]->ch[*output_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
+//		strncpy(nick_mode_str,servers[server_index]->ch[*output_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
 	}
 	
 	//this is so pings can be case-insensitive
