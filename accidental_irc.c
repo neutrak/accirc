@@ -3635,10 +3635,10 @@ void server_mode_command(int server_index, char *text, int *output_channel){
 			case 'v':
 				strncpy(new_mode_str,"+",BUFFER_SIZE);
 				break;
-/*
-			case 'v': //TODO: find correct mode for ~
+			case 'q':
 				strncpy(new_mode_str,"~",BUFFER_SIZE);
 				break;
+/*
 			case 'v': //TODO: find correct mode for %
 				strncpy(new_mode_str,"%",BUFFER_SIZE);
 				break;
