@@ -2991,8 +2991,10 @@ void parse_input(char *input_buffer, char keep_history){
 				bye_command(input_buffer,command,parameters);
 			}else if(!strcmp(command,"mode_str")){
 				servers[current_server]->use_mode_str=TRUE;
+				scrollback_output(current_server,0,"accirc: use_mode_str set to TRUE",TRUE);
 			}else if(!strcmp(command,"no_mode_str")){
 				servers[current_server]->use_mode_str=FALSE;
+				scrollback_output(current_server,0,"accirc: use_mode_str set to FALSE",TRUE);
 			//unknown command error
 			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
 			}else if(!handle_aliased_command(command,parameters)){
