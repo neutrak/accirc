@@ -154,6 +154,8 @@ char *command_list[]={
 	"/no_post -> stops listening for commands to delay",
 	"/rejoin_on_kick -> automatically rejoins channels on current server if kicked",
 	"/no_rejoin_on_kick -> doesn't automatical rejoin channels on current server if kicked (default)",
+	"/mode_str -> displays modes associated with each user on PRIVMSG including channel messages on current server",
+	"/no_mode_str -> doesn't display modes associated with each user on PRIVMSG including channel messages on current server (default)",
 	"<Tab> -> automatically completes nicks in current channel"
 };
 
@@ -253,6 +255,9 @@ struct irc_connection {
 	int current_channel;
 	//the last user to PM us (so we know who to send a reply to)
 	char last_pm_user[BUFFER_SIZE];
+	
+	//whether or not to display mode strings on PMs
+	char use_mode_str;
 };
 
 //this holds an "alias"
@@ -1800,6 +1805,9 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	//screw it, I'll document it in the man, it'll be considered intended behavior
 	strncpy(servers[server_index]->last_pm_user,"",BUFFER_SIZE);
 	
+	//by default don't show user mode strings
+	servers[server_index]->use_mode_str=FALSE;
+	
 	//set the current server to be the one we just connected to
 	current_server=server_index;
 }
@@ -2622,8 +2630,8 @@ void privmsg_command(char *input_buffer){
 				
 				//display channel modes with the nick if possible
 				int nick_ch_idx=nick_idx(&(servers[current_server]->ch[servers[current_server]->current_channel]),servers[current_server]->nick,0);
-				if(nick_ch_idx>=0){
-//					strncpy(nick_mode_str,servers[current_server]->ch[servers[current_server]->current_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
+				if((nick_ch_idx>=0) && (servers[current_server]->use_mode_str)){
+					strncpy(nick_mode_str,servers[current_server]->ch[servers[current_server]->current_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
 				}
 				
 				sprintf(output_buffer,">> <%s%s> %s",nick_mode_str,servers[current_server]->nick,input_buffer);
@@ -2981,6 +2989,10 @@ void parse_input(char *input_buffer, char keep_history){
 				hi_command(input_buffer,command,parameters);
 			}else if(!strcmp(command,"bye")){
 				bye_command(input_buffer,command,parameters);
+			}else if(!strcmp(command,"mode_str")){
+				servers[current_server]->use_mode_str=TRUE;
+			}else if(!strcmp(command,"no_mode_str")){
+				servers[current_server]->use_mode_str=FALSE;
 			//unknown command error
 			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
 			}else if(!handle_aliased_command(command,parameters)){
@@ -3247,8 +3259,8 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	
 	//display channel modes with the nick if possible
 	int nick_ch_idx=nick_idx(&(servers[server_index]->ch[*output_channel]),nick,0);
-	if(nick_ch_idx>=0){
-//		strncpy(nick_mode_str,servers[server_index]->ch[*output_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
+	if((nick_ch_idx>=0) && (servers[server_index]->use_mode_str)){
+		strncpy(nick_mode_str,servers[server_index]->ch[*output_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
 	}
 	
 	//this is so pings can be case-insensitive

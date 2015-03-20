@@ -136,6 +136,12 @@ for channels on current server, rejoin when kicked
 .TP
 \fB/no_rejoin_on_kick\fP
 for channels on current server, don't rejoin when kicked
+.TP
+\fB/mode_str\fP
+for channels on the current server, display mode strings with nicks
+.TP
+\fB/no_mode_str\fP
+for channels on the current server, don't display mode strings with nicks (default)
 .SS "Key Bindings"
 .TP
 \fBf1 or alt+left\fP
