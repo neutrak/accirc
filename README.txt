@@ -1,4 +1,6 @@
 accirc (aka accidental_irc) README.txt
+accidental irc is an ncurses-based irc client; it is written in gnu89-compliant C, and should compile and run on any system with gcc and ncurses
+see the manual page for usage; these are compiler and installation instructions
 
 Compiling and installation instructions:
 	For the most basic compilation, just use the existing Make script

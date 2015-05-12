@@ -2675,6 +2675,58 @@ char handle_aliased_command(char *command, char *parameters){
 	return FALSE;
 }
 
+//swap channel with a nearby channel
+//the delta determines the direction to move in
+void swap_channel(int server_idx, int delta){
+	int cur_idx=servers[server_idx]->current_channel;
+	
+	//go in the desired direction until we find a channel to swap with
+	int idx;
+	for(idx=cur_idx+delta;(idx>=0)&&(idx<MAX_CHANNELS);idx+=delta){
+		//don't consider the server channel
+		if((idx!=0) && (servers[server_idx]->ch[idx].actv)){
+			break;
+		}
+	}
+	
+	//uh-oh; we went negative and now need to wrap around
+	if(idx<0){
+		//swap with the rightmost channel in this case
+		for(idx=(MAX_CHANNELS-1);(idx>=0)&&(servers[server_idx]->ch[idx].actv==FALSE);idx--);
+	//we went past the end of the array,
+	//so start from 1 to find something to wrap to
+	//since 0 is the reserved raw server channel
+	}else if(idx>=MAX_CHANNELS){
+		for(idx=1;(idx<MAX_CHANNELS)&&(servers[server_idx]->ch[idx].actv==FALSE);idx++);
+	}
+	
+	//(if the swap index is 0 it is for the server)
+	//if the swap index is nonzero but out of range, also do nothing
+	//also do nothing if the source and destination are the same index
+	if((idx<=0) || (idx>=MAX_CHANNELS) || (idx==cur_idx)){
+		scrollback_output(current_server,0,"accirc: Warn: Ignoring swap_channel call because a valid index to swap with wasn't found...",TRUE);
+		return;
+	}
+	
+	//do the actual swap, now that we have the index
+	channel_info tmp;
+	memcpy(&(tmp),&(servers[server_idx]->ch[idx]),sizeof(tmp));
+	memcpy(&(servers[server_idx]->ch[idx]),&(servers[server_idx]->ch[cur_idx]),sizeof(servers[server_idx]->ch[idx]));
+	memcpy(&(servers[server_idx]->ch[cur_idx]),&(tmp),sizeof(servers[server_idx]->ch[cur_idx]));
+	
+	//let the user know we swapped channels
+	char notify_buffer[BUFFER_SIZE];
+	sprintf(notify_buffer,"accirc: Swapped channel %s and channel %s in channel list",servers[server_idx]->ch[cur_idx].name,servers[server_idx]->ch[idx].name);
+	scrollback_output(current_server,0,notify_buffer,TRUE);
+	
+	//set the swap point to be the current channel
+	//since at the time of command issue it was the current channel
+	servers[server_idx]->current_channel=idx;
+	
+	//and lastly update the channel list
+	refresh_channel_list();
+}
+
 //END parse_input HELPER FUNCTIONS
 
 //parse user's input (note this is conextual based on current server and channel)
@@ -2984,6 +3036,12 @@ void parse_input(char *input_buffer, char keep_history){
 				head_command();
 			}else if(!strcmp(command,"tail")){
 				tail_command();
+			//swap channel with the channel one index left
+			}else if(!strcmp(command,"scl")){
+				swap_channel(current_server,-1);
+			//swap channel with the channel one index right
+			}else if(!strcmp(command,"scr")){
+				swap_channel(current_server,1);
 			//the "hi" and "bye" commands handle PMs as a channel
 			}else if(!strcmp(command,"hi")){
 				hi_command(input_buffer,command,parameters);
