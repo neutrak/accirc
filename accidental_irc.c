@@ -2916,6 +2916,12 @@ void parse_input(char *input_buffer, char keep_history){
 			sprintf(easy_mode_buf,"%calias nick %cnick",client_escape,server_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
+			sprintf(easy_mode_buf,"%calias join %cjoin",client_escape,server_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			sprintf(easy_mode_buf,"%calias part %cpart",client_escape,server_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
 			sprintf(easy_mode_buf,"%calias quit %cexit",client_escape,client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
@@ -2935,6 +2941,12 @@ void parse_input(char *input_buffer, char keep_history){
 			char easy_mode_buf[BUFFER_SIZE];
 			
 			sprintf(easy_mode_buf,"%calias nick ",client_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			sprintf(easy_mode_buf,"%calias join ",client_escape);
+			parse_input(easy_mode_buf,FALSE);
+			
+			sprintf(easy_mode_buf,"%calias part ",client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
 			sprintf(easy_mode_buf,"%calias quit ",client_escape);
@@ -4981,6 +4993,12 @@ int main(int argc, char *argv[]){
 		char easy_mode_buf[BUFFER_SIZE];
 		
 		sprintf(easy_mode_buf,"%calias nick %cnick",client_escape,server_escape);
+		parse_input(easy_mode_buf,FALSE);
+		
+		sprintf(easy_mode_buf,"%calias join %cjoin",client_escape,server_escape);
+		parse_input(easy_mode_buf,FALSE);
+		
+		sprintf(easy_mode_buf,"%calias part %cpart",client_escape,server_escape);
 		parse_input(easy_mode_buf,FALSE);
 		
 		sprintf(easy_mode_buf,"%calias quit %cexit",client_escape,client_escape);
