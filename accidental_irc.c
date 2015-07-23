@@ -127,6 +127,7 @@ char *command_list[]={
 	"/alias <trigger> <sub> -> does text substitution on /trigger to act like the given substitution",
 	"/time_format <timestring> -> changes clock display as requested",
 	"/set_version <version string> -> sets a custom string for CTCP VERSION",
+	"/set_quit_msg <quit message> -> sets a custom quit message for the current server",
 	"/easy_mode -> turns easy_mode on, which auto-sends user and nick info to new servers",
 	"/no_easy_mode -> turns easy_mode off",
 	"/reconnect -> reconnect to the current server if dropped",
@@ -258,6 +259,9 @@ struct irc_connection {
 	
 	//whether or not to display mode strings on PMs
 	char use_mode_str;
+	
+	//quit message to use when no argument is given
+	char quit_msg[BUFFER_SIZE];
 };
 
 //this holds an "alias"
@@ -1805,6 +1809,9 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	//screw it, I'll document it in the man, it'll be considered intended behavior
 	strncpy(servers[server_index]->last_pm_user,"",BUFFER_SIZE);
 	
+	//by default the quit message for this server is the generic quit string constant
+	strncpy(servers[server_index]->quit_msg,DEFAULT_QUIT_MESSAGE,BUFFER_SIZE);
+	
 	//by default don't show user mode strings
 	servers[server_index]->use_mode_str=FALSE;
 	
@@ -2078,15 +2085,17 @@ void exit_command(char *input_buffer, char *command, char *parameters){
 	
 	char quit_message[BUFFER_SIZE];
 	
-	if(!strcmp(parameters,"")){
-		sprintf(quit_message,"QUIT :%s\n",DEFAULT_QUIT_MESSAGE);
-	}else{
-		sprintf(quit_message,"QUIT :%s\n",parameters);
-	}
-	
 	int n;
 	for(n=0;n<MAX_SERVERS;n++){
 		if(servers[n]!=NULL){
+			if(!strcmp(parameters,"")){
+				//TODO: handle overflow case if quit_msg is longer than can fit
+				//^ I think set command string length solves this implicitly?
+				sprintf(quit_message,"QUIT :%s\n",servers[n]->quit_msg);
+			}else{
+				sprintf(quit_message,"QUIT :%s\n",parameters);
+			}
+			
 			server_write(n,quit_message);
 		}
 	}
@@ -3065,6 +3074,17 @@ void parse_input(char *input_buffer, char keep_history){
 			}else if(!strcmp(command,"no_mode_str")){
 				servers[current_server]->use_mode_str=FALSE;
 				scrollback_output(current_server,0,"accirc: use_mode_str set to FALSE",TRUE);
+			}else if(!strcmp(command,"set_quit_msg")){
+				if(!strcmp(parameters,"")){
+					//re-set to default when no parameters are given
+					strncpy(servers[current_server]->quit_msg,DEFAULT_QUIT_MESSAGE,BUFFER_SIZE);
+				}else{
+					strncpy(servers[current_server]->quit_msg,parameters,BUFFER_SIZE);
+				}
+				
+				char notify_buffer[BUFFER_SIZE];
+				sprintf(notify_buffer,"accirc: quit message for this erver set to \"%s\"",servers[current_server]->quit_msg);
+				scrollback_output(current_server,0,notify_buffer,TRUE);
 			//unknown command error
 			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
 			}else if(!handle_aliased_command(command,parameters)){

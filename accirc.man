@@ -56,6 +56,9 @@ sets the time format for viewing (the clock and timestamps on messages in ncurse
 \fB/set_version\fP \fInew_version_string\fP
 sets the new_version_string as the response to any CTCP VERSION messages received (leave blank to re-set to default value)
 .TP
+\fB/set_quit_msg\fP \fInew_quit_message\fP
+sets the new_quit_message as the quit (and by extension exit) message for current server when no parameters are given (leave blank to re-set to default value)
+.TP
 \fB/easy_mode\fP
 turns easy_mode on (this is the default unless the --proper switch is provided); easy mode automatically sends user and nick information on new connections, and provides noob aliases
 .TP
