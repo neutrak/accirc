@@ -113,6 +113,8 @@
 //one for input area
 #define RESERVED_LINES 6
 
+//TODO: user-configurable highlight/ping keyword list
+
 //a list of commands for interactive help; the man page is of course the real source for all help, this is just a summary
 char *command_list[]={
 	": -> send raw data (server commands)",
