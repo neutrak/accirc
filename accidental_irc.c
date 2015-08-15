@@ -309,7 +309,7 @@ int prev_scrollback_end;
 //any aliases the user has registered (initialized to all NULL)
 alias *alias_array[MAX_ALIASES];
 //ping phrases
-char ping_phrases[MAX_PING_PHRASES][BUFFER_SIZE];
+char *ping_phrases[MAX_PING_PHRASES];
 //format to output time in (used for scrollback_output and the clock)
 char time_format[BUFFER_SIZE];
 //a custom string for CTCP VERSION responses (leave blank for default, we'll just check strlen is 0)
@@ -1686,8 +1686,8 @@ int ping_phrase_check(char *lwr_nick, char *ping_phrase_ar[MAX_PING_PHRASES], ch
 	
 	int n;
 	for(n=0;n<MAX_PING_PHRASES;n++){
-		//skip null strings in ping phrases; they're ignored
-		if(strncmp(ping_phrase_ar[n],"",BUFFER_SIZE)==0){
+		//skip nulls in ping phrases; they're ignored
+		if(ping_phrase_ar[n]==NULL){
 			continue;
 		}
 		
@@ -2302,8 +2302,9 @@ char ping_toggle_command(char *parameters){
 	for(n=0;n<MAX_PING_PHRASES;n++){
 		//this phrase already existed in the ping list
 		//remove it and return as such
-		if(strncmp(ping_phrases[n],parameters,BUFFER_SIZE)==0){
-			strncpy(ping_phrases[n],"",BUFFER_SIZE);
+		if((ping_phrases[n]!=NULL) && (strncmp(ping_phrases[n],parameters,BUFFER_SIZE)==0)){
+			free(ping_phrases[n]);
+			ping_phrases[n]=NULL;
 			return FALSE;
 		}
 	}
@@ -2311,7 +2312,8 @@ char ping_toggle_command(char *parameters){
 	//if we got here and didn't return, then the phrase was new
 	//add it, and return TRUE
 	for(n=0;n<MAX_PING_PHRASES;n++){
-		if(strncmp(ping_phrases[n],"",BUFFER_SIZE)==0){
+		if(ping_phrases[n]==NULL){
+			ping_phrases[n]=(char*)malloc(sizeof(char)*BUFFER_SIZE);
 			strncpy(ping_phrases[n],lower_case_parameters,BUFFER_SIZE);
 			return TRUE;
 		}
@@ -3443,8 +3445,8 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	strtolower(lower_case_text,BUFFER_SIZE);
 	
 	//for pings
-//	int ping_index=ping_phrase_check(tmp_nick,(char**)ping_phrases,lower_case_text);
-	int ping_index=strfind(tmp_nick,lower_case_text);
+	int ping_index=ping_phrase_check(tmp_nick,ping_phrases,lower_case_text);
+//	int ping_index=strfind(tmp_nick,lower_case_text);
 	
 	//for any CTCP message (which takes highest precedence)
 	char ctcp[BUFFER_SIZE];
@@ -5041,7 +5043,7 @@ int main(int argc, char *argv[]){
 	sprintf(custom_version,"accidental_irc v%s compiled %s %s",VERSION,__DATE__,__TIME__);
 	//clear out ping phrase list (the in-use nickname is always considered a ping though)
 	for(n=0;n<MAX_PING_PHRASES;n++){
-		strncpy(ping_phrases[n],"",BUFFER_SIZE);
+		ping_phrases[n]=NULL;
 	}
 	
 	//location in input history, starting at "not looking at history" state
@@ -5170,6 +5172,13 @@ int main(int argc, char *argv[]){
 		//if this is a valid server connection
 		if(servers[server_index]!=NULL){
 			properly_close(server_index);
+		}
+	}
+	//free the ping phrase list
+	for(n=0;n<MAX_PING_PHRASES;n++){
+		if(ping_phrases[n]!=NULL){
+			free(ping_phrases[n]);
+			ping_phrases[n]=NULL;
 		}
 	}
 	
