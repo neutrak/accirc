@@ -63,6 +63,8 @@
 #define MAX_NAMES 8000
 //maximum number of aliases that can be registered
 #define MAX_ALIASES 128
+//maximum number of phrases which a user can be pingged on
+#define MAX_PING_PHRASES 32
 //maximum number of lines allowed to be delayed by a post command
 #define MAX_POST_LINES 32
 
@@ -113,8 +115,6 @@
 //one for input area
 #define RESERVED_LINES 6
 
-//TODO: user-configurable highlight/ping keyword list
-
 //a list of commands for interactive help; the man page is of course the real source for all help, this is just a summary
 char *command_list[]={
 	": -> send raw data (server commands)",
@@ -159,6 +159,7 @@ char *command_list[]={
 	"/no_rejoin_on_kick -> doesn't automatical rejoin channels on current server if kicked (default)",
 	"/mode_str -> displays modes associated with each user on PRIVMSG including channel messages on current server",
 	"/no_mode_str -> doesn't display modes associated with each user on PRIVMSG including channel messages on current server (default)",
+	"/ping_toggle <phrase> -> toggles whether or not a PING is done on a given phrase",
 	"<Tab> -> automatically completes nicks in current channel"
 };
 
@@ -307,6 +308,8 @@ int scrollback_end;
 int prev_scrollback_end;
 //any aliases the user has registered (initialized to all NULL)
 alias *alias_array[MAX_ALIASES];
+//ping phrases
+char ping_phrases[MAX_PING_PHRASES][BUFFER_SIZE];
 //format to output time in (used for scrollback_output and the clock)
 char time_format[BUFFER_SIZE];
 //a custom string for CTCP VERSION responses (leave blank for default, we'll just check strlen is 0)
@@ -1674,6 +1677,37 @@ void del_name(int server_index, int channel_index, char *name){
 	}
 }
 
+//check if the user was pingged in the given text
+//returns earliest index >=0 of ping phrase found; -1 if no ping occurred
+int ping_phrase_check(char *lwr_nick, char *ping_phrase_ar[MAX_PING_PHRASES], char *chk_text){
+	//first check for the user's nick; this is always a ping, no matter what
+	int ping_idx=strfind(lwr_nick,chk_text);
+	int min_ping_idx=ping_idx;
+	
+	int n;
+	for(n=0;n<MAX_PING_PHRASES;n++){
+		//skip null strings in ping phrases; they're ignored
+		if(strncmp(ping_phrase_ar[n],"",BUFFER_SIZE)==0){
+			continue;
+		}
+		
+		//look for the ping phrase in the text string
+		ping_idx=strfind(ping_phrase_ar[n],chk_text);
+		
+		//if the ping phrase was found
+		if(ping_idx>=0){
+			//if no other phrase had been found so far, or this phrase was earlier
+			//then this is the min so start using that
+			if((min_ping_idx<0) || (ping_idx<min_ping_idx)){
+				min_ping_idx=ping_idx;
+			}
+		}
+	}
+	
+	//return first index of a ping phrase
+	return min_ping_idx;
+}
+
 
 //BEGIN parse_input HELPER FUNCTIONS
 
@@ -2249,6 +2283,44 @@ void alias_command(char *input_buffer, char *command, char *parameters){
 		}
 		scrollback_output(current_server,0,output_buffer,TRUE);
 	}
+}
+
+//the "ping_toggle" command (alternates whether a phrase pings you)
+char ping_toggle_command(char *parameters){
+	//never ping on empty string
+	if(strncmp(parameters,"",BUFFER_SIZE)==0){
+		return FALSE;
+	}
+	
+	//phrases are case-insensitive
+	char lower_case_parameters[BUFFER_SIZE];
+	strncpy(lower_case_parameters,parameters,BUFFER_SIZE);
+	strtolower(lower_case_parameters,BUFFER_SIZE);
+	
+	//look through the ping list to see if this phrase was already there
+	int n;
+	for(n=0;n<MAX_PING_PHRASES;n++){
+		//this phrase already existed in the ping list
+		//remove it and return as such
+		if(strncmp(ping_phrases[n],parameters,BUFFER_SIZE)==0){
+			strncpy(ping_phrases[n],"",BUFFER_SIZE);
+			return FALSE;
+		}
+	}
+	
+	//if we got here and didn't return, then the phrase was new
+	//add it, and return TRUE
+	for(n=0;n<MAX_PING_PHRASES;n++){
+		if(strncmp(ping_phrases[n],"",BUFFER_SIZE)==0){
+			strncpy(ping_phrases[n],lower_case_parameters,BUFFER_SIZE);
+			return TRUE;
+		}
+	}
+	
+	//in this case we've hit the maximum for ping phrases so we couldn't add another one
+	//so let the user know we failed, at least
+	// :(
+	return FALSE;
 }
 
 //the "sl" client command (moves a server to the left)
@@ -2972,6 +3044,14 @@ void parse_input(char *input_buffer, char keep_history){
 			if(current_server>=0){
 				scrollback_output(current_server,0,"accirc: easy_mode turned OFF",TRUE);
 			}
+		//toggle a phrase in the ping phrases list
+		}else if(!strcmp(command,"ping_toggle")){
+			char ping_state=ping_toggle_command(parameters);
+			if(current_server>=0){
+				char output_buffer[BUFFER_SIZE];
+				sprintf(output_buffer,"accirc: will now %s on phrase %s",(ping_state==TRUE)?"PING":"NOT PING",parameters);
+				scrollback_output(current_server,0,output_buffer,TRUE);
+			}
 		//this set of command depends on being connected to a server, so first check that we are
 		}else if(current_server>=0){
 			//move a server to the left
@@ -3363,7 +3443,8 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	strtolower(lower_case_text,BUFFER_SIZE);
 	
 	//for pings
-	int name_index=strfind(tmp_nick,lower_case_text);
+//	int ping_index=ping_phrase_check(tmp_nick,(char**)ping_phrases,lower_case_text);
+	int ping_index=strfind(tmp_nick,lower_case_text);
 	
 	//for any CTCP message (which takes highest precedence)
 	char ctcp[BUFFER_SIZE];
@@ -3413,7 +3494,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			}
 			
 			//if this was also a ping, handle that too
-			if(name_index>=0){
+			if(ping_index>=0){
 				//if we're configured to log, log this as a ping in the pings file
 				ping_log(server_index,"PING",nick,text);
 				
@@ -3471,7 +3552,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 		}
 	//handle for a ping (when someone says our own nick)
 	//there is a was_pingged flag per channel, so we can display it as newline AND bold in the channel list output
-	}else if(name_index>=0){
+	}else if(ping_index>=0){
 		//if we're configured to log, log PINGs too, in a separate file
 		ping_log(server_index,"PING",nick,text);
 		
@@ -4958,6 +5039,10 @@ int main(int argc, char *argv[]){
 	sprintf(time_format,"%%s");
 	//by default the software CTCP version string is the real version of the software
 	sprintf(custom_version,"accidental_irc v%s compiled %s %s",VERSION,__DATE__,__TIME__);
+	//clear out ping phrase list (the in-use nickname is always considered a ping though)
+	for(n=0;n<MAX_PING_PHRASES;n++){
+		strncpy(ping_phrases[n],"",BUFFER_SIZE);
+	}
 	
 	//location in input history, starting at "not looking at history" state
 	input_line=-1;

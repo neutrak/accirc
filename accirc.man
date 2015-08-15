@@ -151,6 +151,9 @@ for channels on the current server, display mode strings with nicks
 .TP
 \fB/no_mode_str\fP
 for channels on the current server, don't display mode strings with nicks (default)
+.TP
+\fB/ping_toggle \fIphrase\fP
+toggles whether or not the given phrase is considered a PING condition (note this is case-insensitive!)
 .SS "Key Bindings"
 .TP
 \fBf1 or alt+left\fP
