@@ -2037,6 +2037,11 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			}
 		}
 		
+		if(!added){
+			fprintf(error_file,"Err: could not create server structure to host %s on port %i; too many connections already open?\n",host,port);
+			return;
+		}
+		
 		//NOTE: if ssl support is not compiled in the ssl parameter of this function is just totally ignored
 		//(this is intentional behavior)
 #ifdef _OPENSSL
