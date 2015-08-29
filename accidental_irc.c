@@ -1976,6 +1976,9 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 		//output the join at the top of this channel, why not
 		*output_channel=channel_index;
 		
+		//add the channel name to the nick list (channels and nicks are mutually exclusive so this is fine)
+		add_name(server_index,channel_index,channel,"");
+		
 		//and refresh the channel list
 		refresh_channel_list();
 		
