@@ -3882,13 +3882,17 @@ void server_quit_command(int server_index, char *tmp_buffer, int first_space, ch
 				//output to the appropriate channel
 				scrollback_output(server_index,channel_index,output_buffer,TRUE);
 				
-				//remove this user from that channel's names array
-				free(servers[server_index]->ch[channel_index].user_names[name_index]);
-				servers[server_index]->ch[channel_index].user_names[name_index]=NULL;
-				
-				//and the mode string
-				free(servers[server_index]->ch[channel_index].mode_str[name_index]);
-				servers[server_index]->ch[channel_index].mode_str[name_index]=NULL;
+				//don't actually remove the name from the list if it's a PM
+				//since PMs aren't channels and you can't part from them
+				if(servers[server_index]->ch[channel_index].is_pm==FALSE){
+					//remove this user from that channel's names array
+					free(servers[server_index]->ch[channel_index].user_names[name_index]);
+					servers[server_index]->ch[channel_index].user_names[name_index]=NULL;
+					
+					//and the mode string
+					free(servers[server_index]->ch[channel_index].mode_str[name_index]);
+					servers[server_index]->ch[channel_index].mode_str[name_index]=NULL;
+				}
 				
 				//for handling later; just let us know we found a channel to output to
 				*special_output=TRUE;
