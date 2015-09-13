@@ -3761,8 +3761,13 @@ void server_nick_command(int server_index, char *tmp_buffer, int first_space, ch
 				//TODO: if there was a is_pm channel named after this user it should be changed
 				//(because there are files open for logs and things this isn't done now, it's a major pain)
 				
-				//update this user's entry in that channel's names array
-				strncpy(servers[server_index]->ch[channel_index].user_names[name_index],new_nick,BUFFER_SIZE);
+				//don't actually change the name in the list if it's a PM
+				//since PMs aren't channels and the nick is the defining characteristic of a PM channel
+				//and so shouldn't be changed
+				if(servers[server_index]->ch[channel_index].is_pm==FALSE){
+					//update this user's entry in that channel's names array
+					strncpy(servers[server_index]->ch[channel_index].user_names[name_index],new_nick,BUFFER_SIZE);
+				}
 				
 				//note modes do not change in the case of a nick change
 				
