@@ -1,4 +1,4 @@
-//accidental irc, the accidental mutlti-server ncurses irc client
+//accidental irc, the accidental multi-server ncurses irc client
 //in C at the moment (a rewrite will be done if I ever finish writing the interpreter for neulang...)
 
 //this takes a fractal design as follows
