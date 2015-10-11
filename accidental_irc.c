@@ -22,7 +22,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 //ssl support via openssl, enable with -D OPENSSL
-//(left as a confguration option for platform support on devices that don't have those libs)
+//(left as a configuration option for platform support on devices that don't have those libs)
 #ifdef _OPENSSL
 	#include <openssl/rand.h>
 	#include <openssl/ssl.h>
