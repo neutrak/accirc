@@ -516,8 +516,8 @@ int nick_idx(channel_info *ch, const char *nick, int start_idx){
 }
 
 //log a "ping" to a seperate file
-//line starts with given ping_time (usually PING or PM), and is server-local, but not channel-local
-void ping_log(int server_index, const char *ping_type, const char *nick, const char *text){
+//line starts with given ping_time (usually PING or PM), and is server-local, but not channel-local (although channel is logged)
+void ping_log(int server_index, const char *ping_type, const char *nick, const char *channel, const char *text){
 	//if we were keeping logs then (try to) store this PM in the ping.txt file
 	if((can_log) && (servers[server_index]->keep_logs)){
 		char ping_file_buffer[BUFFER_SIZE];
@@ -528,7 +528,7 @@ void ping_log(int server_index, const char *ping_type, const char *nick, const c
 		if(ping_file==NULL){
 			fprintf(error_file,"Err: Could not find or create ping log file\n");
 		}else{
-			fprintf(ping_file,"(%s) %s: %ju <%s> %s\n",servers[server_index]->server_name,ping_type,(uintmax_t)(time(NULL)),nick,text);
+			fprintf(ping_file,"(%s %s) %s: %ju <%s> %s\n",servers[server_index]->server_name,channel,ping_type,(uintmax_t)(time(NULL)),nick,text);
 			fclose(ping_file);
 		}
 	}
@@ -3428,7 +3428,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			*output_channel=find_output_channel(server_index,lower_nick);
 		}else{
 			//if we're configured to log, log PMs too, and in a more obvious way (separate file)
-			ping_log(server_index,"PM",nick,text);
+			ping_log(server_index,"PM",nick,channel,text);
 			
 			//set this to the last PM-ing user, so we can later reply if we so choose
 			strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
@@ -3506,7 +3506,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			//if this was also a ping, handle that too
 			if(ping_index>=0){
 				//if we're configured to log, log this as a ping in the pings file
-				ping_log(server_index,"PING",nick,text);
+				ping_log(server_index,"PING",nick,channel,text);
 				
 				//audio output
 				beep();
@@ -3564,7 +3564,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	//there is a was_pingged flag per channel, so we can display it as newline AND bold in the channel list output
 	}else if(ping_index>=0){
 		//if we're configured to log, log PINGs too, in a separate file
-		ping_log(server_index,"PING",nick,text);
+		ping_log(server_index,"PING",nick,channel,text);
 		
 		//audio output
 		beep();
