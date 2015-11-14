@@ -154,6 +154,12 @@ for channels on the current server, don't display mode strings with nicks (defau
 .TP
 \fB/ping_toggle \fIphrase\fP
 toggles whether or not the given phrase is considered a PING condition (note this is case-insensitive!)
+.TP
+\fB/auto_hi\fP
+automatically creates a faux channel when a user PMs you (default)
+.TP
+\fB/no_auto_hi\fP
+disables automatic faux channel creation when a user PMs you
 .SS "Key Bindings"
 .TP
 \fBf1 or alt+left\fP

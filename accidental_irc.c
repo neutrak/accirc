@@ -160,6 +160,8 @@ char *command_list[]={
 	"/mode_str -> displays modes associated with each user on PRIVMSG including channel messages on current server",
 	"/no_mode_str -> doesn't display modes associated with each user on PRIVMSG including channel messages on current server (default)",
 	"/ping_toggle <phrase> -> toggles whether or not a PING is done on a given phrase",
+	"/auto_hi -> automatically creates a faux channel when a user PMs you (default)",
+	"/no_auto_hi -> disables automatic faux channel creation when a user PMs you",
 	"<Tab> -> automatically completes nicks in current channel"
 };
 
@@ -284,6 +286,9 @@ char ignore_rc;
 //easy mode; set by default, turned off with the --proper cli switch
 //when enabled, sets default aliases for nick, quit, and msg; also sets time format and auto-sends user quartet
 char easy_mode;
+
+//whether or not to automatically create a faux-pm channel with /hi when PM'd
+char auto_hi;
 
 //the file pointer to log non-fatal errors to
 FILE *error_file;
@@ -3062,6 +3067,16 @@ void parse_input(char *input_buffer, char keep_history){
 				sprintf(output_buffer,"accirc: will now %s on phrase %s",(ping_state==TRUE)?"PING":"NOT PING",parameters);
 				scrollback_output(current_server,0,output_buffer,TRUE);
 			}
+		}else if(!strcmp(command,"auto_hi")){
+			auto_hi=TRUE;
+			if(current_server>=0){
+				scrollback_output(current_server,0,"accirc: will now automatically create faux channel on new PM",TRUE);
+			}
+		}else if(!strcmp(command,"no_auto_hi")){
+			auto_hi=FALSE;
+			if(current_server>=0){
+				scrollback_output(current_server,0,"accirc: will now NOT automatically create faux channel on new PM",TRUE);
+			}
 		//this set of command depends on being connected to a server, so first check that we are
 		}else if(current_server>=0){
 			//move a server to the left
@@ -3427,14 +3442,45 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 		if(find_output_channel(server_index,lower_nick)>0){
 			*output_channel=find_output_channel(server_index,lower_nick);
 		}else{
-			//if we're configured to log, log PMs too, and in a more obvious way (separate file)
-			ping_log(server_index,"PM",nick,channel,text);
-			
-			//set this to the last PM-ing user, so we can later reply if we so choose
-			strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
-			
-			//set the was_pingged flag for the server in the case of a PM
-			servers[server_index]->ch[0].was_pingged=TRUE;
+			//there is an auto-hi option to do a /hi for a user who PMs us
+			//but didn't already have a faux-channel associated with their name
+			//so handle that here
+			if(auto_hi){
+				int current_channel=servers[server_index]->current_channel;
+				
+				//temporarily switch active server memory
+				//so the faux channel gets made on the server that got the PM
+				//rather than whatever server was selected at the time
+				int old_server=current_server;
+				current_server=server_index;
+				
+				char cmd_buf[BUFFER_SIZE];
+				snprintf(cmd_buf,BUFFER_SIZE,"%chi %s",client_escape,nick);
+				parse_input(cmd_buf,FALSE);
+				
+				//now that the channel is made keep the user on the server they were on
+				//because they didn't really want to change that
+				current_server=old_server;
+				
+				//at this point an output channel should exist
+				//so create it, set it pingged, and add to the ping log (just for the first message)
+				*output_channel=find_output_channel(server_index,lower_nick);
+				ping_log(server_index,"PM",nick,channel,text);
+				servers[server_index]->ch[*output_channel].was_pingged=TRUE;
+				
+				//do NOT change to this channel yet though
+				//leave it as a deselected pingged channel for now
+				servers[server_index]->current_channel=current_channel;
+			}else{
+				//if we're configured to log, log PMs too, and in a more obvious way (separate file)
+				ping_log(server_index,"PM",nick,channel,text);
+				
+				//set this to the last PM-ing user, so we can later reply if we so choose
+				strncpy(servers[server_index]->last_pm_user,nick,BUFFER_SIZE);
+				
+				//set the was_pingged flag for the server in the case of a PM
+				servers[server_index]->ch[0].was_pingged=TRUE;
+			}
 		}
 	}
 	
@@ -4461,7 +4507,7 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 					strncpy(last_matching_nick,servers[current_server]->ch[servers[current_server]->current_channel].user_names[n],BUFFER_SIZE);
 					
 					//store in aggregate along with other matching nicks
-					all_matching_nicks[matching_nicks_index]=malloc(sizeof(char)*BUFFER_SIZE);
+					all_matching_nicks[matching_nicks_index]=(char*)malloc(sizeof(char)*BUFFER_SIZE);
 					strncpy(all_matching_nicks[matching_nicks_index],last_matching_nick,BUFFER_SIZE);
 					matching_nicks_index++;
 				}
@@ -4956,6 +5002,8 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 int main(int argc, char *argv[]){
 	ignore_rc=FALSE;
 	easy_mode=TRUE;
+	//by default PM faux-channels are opened as needed
+	auto_hi=TRUE;
 	
 	//support utf-8
 //	setlocale(LC_CTYPE,"C-UTF-8");
