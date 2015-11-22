@@ -3471,6 +3471,9 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 				//do NOT change to this channel yet though
 				//leave it as a deselected pingged channel for now
 				servers[server_index]->current_channel=current_channel;
+				
+				//update the buffer to display the change
+				refresh_channel_text();
 			}else{
 				//if we're configured to log, log PMs too, and in a more obvious way (separate file)
 				ping_log(server_index,"PM",nick,channel,text);
