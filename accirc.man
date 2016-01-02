@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "13 November 2014"
+.TH ACCIRC 1 "02 January 2016"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -249,7 +249,5 @@ ncurses(3) strftime(3) openssl(3)
 .SH BUGS
 MIRC colors don't work under screen. auto-reconnecting on drop is unreliable. On the faux-channel PM handling, the PM conversation will behave weirdly if user's nick changes (it's a TODO in the code).  faux-PM channels are CASE-SENSITIVE, this shouldn't be noticable, but you never know
 .SH WWW
-http://neutrak.kaycare.co.uk/index.php?p=code
-.TP
 https://github.com/neutrak/accirc
 
