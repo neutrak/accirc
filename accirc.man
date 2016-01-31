@@ -197,6 +197,40 @@ scroll up one line in the input history, if possible
 .TP
 \fBDown\fP
 scroll down one line in the input history, if possible
+.SH EXAMPLES
+.TP
+\fBConnecting to foonetic over ssl (default easy mode) and joining a channel\fP
+
+accirc
+
+/sconnect daemonic.foonetic.net 7001
+
+:join #channel
+
+.TP
+\fBConnecting to ircnet without ssl, changing nick to my_name, and starting a PM\fP
+
+accirc
+
+/connect us.ircnet.org 6667
+
+:nick my_name
+
+/hi confuseus
+
+.TP
+\fBConnecting to freenode freenode without ssl in "proper" mode and joining a channel\fP
+
+accirc --proper
+
+/connect irc.freenode.net 6667
+
+:nick my_name
+
+:user my_name 2 3 4
+
+:join #channel
+
 .SH FILES
 .TP
 \fC~/.config/accirc/config.rc\fR
