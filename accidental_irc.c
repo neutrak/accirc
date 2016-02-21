@@ -106,6 +106,11 @@
 //how many user names to output when resolving non-unique tab completions
 #define MAX_OUTPUT_NICKS 8
 
+//how much time (in seconds) to wait on a server to say something
+//before we just figure it's dead and disconnect
+//(and perhaps try to reconnect, depending on runtime state)
+#define SERVER_TIMEOUT 1200
+
 //how many lines are reserved for something other than the channel text
 //one for server list
 //one for channel list
@@ -228,6 +233,8 @@ struct irc_connection {
 	char parse_queue[2*BUFFER_SIZE];
 	//the buffer to store what we're going to parse
 	char read_buffer[BUFFER_SIZE];
+	//timestamp of the last message received from this server
+	time_t last_msg_time;
 	//this data is stored in case the connection dies and we need to re-connect
 	int port;
 	//logging information
@@ -860,6 +867,9 @@ void properly_close(int server_index){
 				
 				//we're connected, so time to do some stuff
 				current_server=next_server;
+				
+				//the last message timestamp is now the current time
+				servers[current_server]->last_msg_time=time(NULL);
 				
 				char command_buffer[BUFFER_SIZE];
 				sprintf(command_buffer,"%cnick %s",server_escape,reconnect_nick);
@@ -1727,7 +1737,7 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	
 	//zero out the server structure to ensure no uninitialized data
 	memset(servers[server_index],0,sizeof(irc_connection));
-
+	
 #ifdef _OPENSSL
 	//by default don't use ssl; this will be set by sconnect as needed
 	servers[server_index]->use_ssl=FALSE;
@@ -1746,6 +1756,9 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	
 	//initially we are not in the middle of a line and the parse queue is empty
 	strncpy(servers[server_index]->parse_queue,"",BUFFER_SIZE);
+	
+	//initially the last message was received from the server like right now
+	servers[server_index]->last_msg_time=time(NULL);
 	
 	//set the port information (in case we need to re-connect)
 	servers[server_index]->port=port;
@@ -3965,6 +3978,10 @@ void parse_server(int server_index){
 		servers[server_index]->read_buffer[n]='\0';
 	}
 	
+	//update the timestamp of the last message from this server
+	//because we just got a message from this server (of course)
+	servers[server_index]->last_msg_time=time(NULL);
+	
 	//parse in whatever the server sent and display it appropriately
 	int first_delimiter=strfind(" :",servers[server_index]->read_buffer);
 	//the command
@@ -4383,6 +4400,12 @@ void read_server_data(){
 			if((bytes_transferred<=0)&&(errno!=EAGAIN)){
 				//handle connection errors gracefully here (as much as possible)
 				fprintf(error_file,"Err: connection error with server %i, host %s\n",server_index,servers[server_index]->server_name);
+				properly_close(server_index);
+			//if this server hasn't sent anything in a while, then assume it's dead and close it properly
+			//note if reconnect was set, a reconnection will be attempted
+			}else if((bytes_transferred<=0)&&(errno==EAGAIN)&&((time(NULL)-(servers[server_index]->last_msg_time))>=SERVER_TIMEOUT)){
+				//handle connection timeouts gracefully here (as much as possible)
+				fprintf(error_file,"Err: connection timed out with server %i, host %s\n",server_index,servers[server_index]->server_name);
 				properly_close(server_index);
 			}else if(bytes_transferred>0){
 				//null-terminate the C string
