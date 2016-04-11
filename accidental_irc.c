@@ -64,9 +64,9 @@
 //maximum number of aliases that can be registered
 #define MAX_ALIASES 128
 //maximum number of phrases which a user can be pingged on
-#define MAX_PING_PHRASES 32
+#define MAX_PING_PHRASES 64
 //maximum number of lines allowed to be delayed by a post command
-#define MAX_POST_LINES 32
+#define MAX_POST_LINES 128
 
 //for MIRC colors (these are indexes in an array)
 #define FOREGROUND 0
