@@ -2890,7 +2890,7 @@ void parse_input(char *input_buffer, char keep_history){
 	if(server_command && (current_server>=0) && post_listen && (!keep_history)){
 		//append this command to the current server's post_commands string
 		char tmp_buffer[BUFFER_SIZE*MAX_POST_LINES];
-		sprintf(tmp_buffer,"%c%s%s\n",server_escape,servers[current_server]->post_commands,input_buffer);
+		sprintf(tmp_buffer,"%s%c%s\n",servers[current_server]->post_commands,server_escape,input_buffer);
 		strncpy(servers[current_server]->post_commands,tmp_buffer,BUFFER_SIZE*MAX_POST_LINES);
 		
 		//let the user know we did something
