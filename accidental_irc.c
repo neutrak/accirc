@@ -66,7 +66,7 @@
 //maximum number of phrases which a user can be pingged on
 #define MAX_PING_PHRASES 64
 //maximum number of lines allowed to be delayed by a post command
-#define MAX_POST_LINES 128
+#define MAX_POST_LINES 64
 
 //for MIRC colors (these are indexes in an array)
 #define FOREGROUND 0
@@ -242,7 +242,7 @@ struct irc_connection {
 	//what message to wait for before sending subsequent commands
 	char post_type[BUFFER_SIZE];
 	//everything to parse after a given server message is received
-	char post_commands[MAX_POST_LINES*BUFFER_SIZE];
+	char post_commands[MAX_POST_LINES*(BUFFER_SIZE+2)];
 	//whether, on this server, to rejoin channels when kicked
 	char rejoin_on_kick;
 	//the nick to use if the user's nick is already in use
@@ -328,6 +328,8 @@ char time_format[BUFFER_SIZE];
 char custom_version[BUFFER_SIZE];
 //whether or not we're currently listening for post commands
 char post_listen;
+//how many lines have been saved for post-message commands
+int post_listen_cnt;
 
 //determine if we're done
 char done;
@@ -552,6 +554,7 @@ char load_rc(char *rc_file){
 	if(!rc){
 		fprintf(error_file,"Warn: rc file not found, not executing anything on startup\n");
 		post_listen=FALSE;
+		post_listen_cnt=0;
 		return FALSE;
 	}else{
 		//read in the .rc, parse_input each line until the end
@@ -578,9 +581,11 @@ char load_rc(char *rc_file){
 		
 		fclose(rc);
 		post_listen=FALSE;
+		post_listen_cnt=0;
 		return TRUE;
 	}
 	post_listen=FALSE;
+	post_listen_cnt=0;
 	return TRUE;
 }
 
@@ -740,7 +745,7 @@ void properly_close(int server_index){
 	char reconnect_nick[BUFFER_SIZE];
 	char reconnect_fallback_nick[BUFFER_SIZE];
 	char reconnect_post_type[BUFFER_SIZE];
-	char reconnect_post_commands[BUFFER_SIZE*MAX_POST_LINES];
+	char reconnect_post_commands[(BUFFER_SIZE+2)*MAX_POST_LINES];
 	
 #ifdef _OPENSSL
 	//whether to use ssl when we reconnect
@@ -755,7 +760,7 @@ void properly_close(int server_index){
 		
 		//we'll automatically rejoin the channels we had on auto-join anyway, using the post command
 		strncpy(reconnect_post_type,servers[server_index]->post_type,BUFFER_SIZE);
-		strncpy(reconnect_post_commands,servers[server_index]->post_commands,BUFFER_SIZE*MAX_POST_LINES);
+		strncpy(reconnect_post_commands,servers[server_index]->post_commands,(BUFFER_SIZE+2)*MAX_POST_LINES);
 		
 		strncpy(reconnect_nick,servers[server_index]->nick,BUFFER_SIZE);
 		
@@ -881,8 +886,11 @@ void properly_close(int server_index){
 				parse_input(command_buffer,FALSE);
 				
 				//re-send all the auto-sent text when relevant, just like on first connection
+				//note that the post_commands MUST start with the server escape,
+				//because on bouncer connections join may happen before the post_type message,
+				//and the commands might get leaked to a channel if they don't start with server_escape
 				strncpy(servers[current_server]->post_type,reconnect_post_type,BUFFER_SIZE);
-				strncpy(servers[current_server]->post_commands,reconnect_post_commands,BUFFER_SIZE);
+				strncpy(servers[current_server]->post_commands,reconnect_post_commands,(BUFFER_SIZE+2)*MAX_POST_LINES);
 				
 				//if you wanted to reconnect before you probably still want to
 				//this segfaults with parse_input but doesn't fail at all with just setting the value, not sure why that is
@@ -1850,7 +1858,7 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	
 	//clear out the post information
 	strncpy(servers[server_index]->post_type,"",BUFFER_SIZE);
-	strncpy(servers[server_index]->post_commands,"",MAX_POST_LINES*BUFFER_SIZE);
+	strncpy(servers[server_index]->post_commands,"",MAX_POST_LINES*(BUFFER_SIZE+2));
 	
 	//by default there is no new content on this server
 	//(because new server content is the OR of new channel content, and by default there is no new channel content)
@@ -2014,6 +2022,7 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 void connect_command(char *input_buffer, char *command, char *parameters, char ssl){
 	//if we were listening for post before, we aren't now, this is a new server!
 	post_listen=FALSE;
+	post_listen_cnt=0;
 	
 	char host[BUFFER_SIZE];
 	char port_buffer[BUFFER_SIZE];
@@ -2888,17 +2897,25 @@ void parse_input(char *input_buffer, char keep_history){
 	//NOTE: post ONLY delays /server/ commands, not client commands!
 	//if the lines are intended to be delayed then delay them
 	if(server_command && (current_server>=0) && post_listen && (!keep_history)){
+		//prevent errors by ignoring anything past what we can store
+		char notify_buffer[BUFFER_SIZE];
+		if(post_listen_cnt>=MAX_POST_LINES){
+			sprintf(notify_buffer,"accirc: Warning: cannot store post-%s command \"%c%s\"; MAX_POST_LINES is %i",servers[current_server]->post_type,server_escape,input_buffer,MAX_POST_LINES);
+			scrollback_output(current_server,0,notify_buffer,TRUE);
+			return;
+		}
+		
 		//append this command to the current server's post_commands string
-		char tmp_buffer[BUFFER_SIZE*MAX_POST_LINES];
+		char tmp_buffer[(BUFFER_SIZE+2)*MAX_POST_LINES];
 		sprintf(tmp_buffer,"%s%c%s\n",servers[current_server]->post_commands,server_escape,input_buffer);
-		strncpy(servers[current_server]->post_commands,tmp_buffer,BUFFER_SIZE*MAX_POST_LINES);
+		strncpy(servers[current_server]->post_commands,tmp_buffer,(BUFFER_SIZE+2)*MAX_POST_LINES);
 		
 		//let the user know we did something
-		char notify_buffer[BUFFER_SIZE];
-		sprintf(notify_buffer,"accirc: Saving post-%s command \"%s\" for later",servers[current_server]->post_type,input_buffer);
+		sprintf(notify_buffer,"accirc: Saving post-%s command \"%c%s\" for later",servers[current_server]->post_type,server_escape,input_buffer);
 		scrollback_output(current_server,0,notify_buffer,TRUE);
 		
 		//stop, wait for "hammertime" before we do anything else
+		post_listen_cnt++;
 		return;
 	//the user manually entered /post into the client, rather than putting it in an rc file
 	}else if(server_command && (current_server>=0) && post_listen){
