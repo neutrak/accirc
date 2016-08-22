@@ -4,7 +4,7 @@ accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
 \fBaccirc\fP [ --help | --version ]
 .TP
-\fBaccirc\fP [ --ignorerc ] [ --proper ]
+\fBaccirc\fP [ --ignorerc ] [ --proper ] [ --rc <rc_file> ]
 .SH DESCRIPTION
 \fBaccirc\fP starts ncurses; functionality is available from there; config is read from ~/.config/accirc/config.rc ; logs are stored in ~/.local/share/accirc/logs/
 .SS Options
@@ -18,6 +18,9 @@ afterwards immediately closes the program
 .TP
 \fB--ignorerc\fP
 runs the program without running the startup (rc) file located in ~/.config
+.TP
+\fB--rc\fP \fIrc_file\fP
+causes the program to read an rc file from a custom path instead of the default in ~/.config/accirc/config.rc
 .TP
 \fB--proper\fP
 disables "easy mode"; "easy mode" is on by default and adds aliases for /nick, /msg, and /quit, as well as auto-sends user and nick information on a connect command

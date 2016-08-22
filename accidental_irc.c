@@ -5047,6 +5047,8 @@ int main(int argc, char *argv[]){
 	easy_mode=TRUE;
 	//by default PM faux-channels are opened as needed
 	auto_hi=TRUE;
+	char rc_file[BUFFER_SIZE];
+	strncpy(rc_file,"",BUFFER_SIZE);
 	
 	//support utf-8
 //	setlocale(LC_CTYPE,"C-UTF-8");
@@ -5074,6 +5076,9 @@ int main(int argc, char *argv[]){
 				ignore_rc=TRUE;
 			}else if(!strcmp(argv[n],"--proper")){
 				easy_mode=FALSE;
+			//allow for a custom rc file path to be passed
+			}else if(!strcmp(argv[n],"--rc") && (n+1<argc)){
+				strncpy(rc_file,argv[n+1],BUFFER_SIZE);
 			}
 		}
 	}
@@ -5187,17 +5192,17 @@ int main(int argc, char *argv[]){
 	//force a re-detection of the window and a re-allocation of resources
 	force_resize("",0,0);
 	
-	//store config in ~/.config/accirc/config.rc
-	char rc_file[BUFFER_SIZE];
-	//char *home_dir=getenv("HOME");
-	if(home_dir!=NULL){
-		sprintf(rc_file,"%s/.config",home_dir);
-		verify_or_make_dir(rc_file);
-		sprintf(rc_file,"%s/.config/accirc",home_dir);
-		verify_or_make_dir(rc_file);
-		sprintf(rc_file,"%s/.config/accirc/config.rc",home_dir);
-	}else{
-		sprintf(rc_file,"config.rc");
+	//store config in ~/.config/accirc/config.rc unless otherwise specified
+	if(strlen(rc_file)<1){
+		if(home_dir!=NULL){
+			sprintf(rc_file,"%s/.config",home_dir);
+			verify_or_make_dir(rc_file);
+			sprintf(rc_file,"%s/.config/accirc",home_dir);
+			verify_or_make_dir(rc_file);
+			sprintf(rc_file,"%s/.config/accirc/config.rc",home_dir);
+		}else{
+			sprintf(rc_file,"config.rc");
+		}
 	}
 	
 	//until we're connected to a server we can't listen for post commands
