@@ -53,16 +53,16 @@
 #define BREAK 0x03
 //(I know the IRC spec limits it to 512 but I'd like to have some extra room in case of client commands or something)
 #define BUFFER_SIZE 1024
-//who's gonna be on more than 64 servers at once? really?
-#define MAX_SERVERS 64
+//who's gonna be on more than 32 servers at once? really?
+#define MAX_SERVERS 32
 //same for channels
-#define MAX_CHANNELS 64
+#define MAX_CHANNELS 32
 //the number of lines of scrollback to store (per channel, and for input history) (each line being BUFFER_SIZE chars long)
-#define MAX_SCROLLBACK 1000
+#define MAX_SCROLLBACK 512
 //maximum number of users in a channel
-#define MAX_NAMES 8000
+#define MAX_NAMES 2048
 //maximum number of aliases that can be registered
-#define MAX_ALIASES 128
+#define MAX_ALIASES 64
 //maximum number of phrases which a user can be pingged on
 #define MAX_PING_PHRASES 64
 //maximum number of lines allowed to be delayed by a post command
