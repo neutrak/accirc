@@ -15,7 +15,7 @@ echo "Compiling using ${CC}..."
 #$CC -o accirc accidental_irc.c -Wall -lncurses $*
 
 #unicode support requires linking against ncursesw
-$CC -o accirc accidental_irc.c -Wall -lncursesw $*
+$CC -o accirc accidental_irc.c -I/usr/include/ncursesw -Wall -lncursesw $*
 
 if [ 0 -eq "$?" ]
 then
