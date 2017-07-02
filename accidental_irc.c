@@ -155,6 +155,8 @@ char *command_list[]={
 	"/cr -> channel right",
 	"/me -> sends CTCP ACTION message",
 	"/r -> replies by pm to last user who PM'd you (or empty string if no PMs recieved)",
+	//reverse is an easter egg and so is not documented
+	//morse and unmorse aren't documented here for brevity, but are documented in the manual page
 	"/usleep <microseconds> -> pauses program for given microsecond count",
 	"/comment -> ignores this line (for rc files)",
 	"/fallback_nick <nick> -> sets nick if other nick taken",
@@ -189,6 +191,50 @@ enum {
 	MIRC_LIGHT_GREY,
 	
 	MIRC_COLOR_MAX
+};
+
+//an array of all morse characters starting at a
+char *morse_chars[]={
+	".-", //A
+	"-...", //B
+	"-.-.", //C
+	"-..", //D
+	".", //E
+	"..-.", //F
+	"--.", //G
+	"....", //H
+	"..", //I
+	".---", //J
+	"-.-", //K
+	".-..", //L
+	"--", //M
+	"-.", //N
+	"---", //O
+	".--.", //P
+	"--.-", //Q
+	".-.", //R
+	"...", //S
+	"-", //T
+	"..-", //U
+	"...-", //V
+	".--", //W
+	"-..-", //X
+	"-.--", //Y
+	"--..", //Z
+};
+
+//an array of all morse numbers starting at 0
+char *morse_nums[]={
+	"-----", //0
+	".----", //1
+	"..---", //2
+	"...--", //3
+	"....-", //4
+	".....", //5
+	"-....", //6
+	"--...", //7
+	"---..", //8
+	"----.", //9
 };
 
 //structures
@@ -488,6 +534,125 @@ void strnrev(char *text){
 	
 	//defensive: null terminate no matter what
 	text[size]='\0';
+}
+
+//put a morse equivalent of the given string in the given buffer
+void morse_encode(char *text, char *out_buf, int output_length) {
+	//a single ascii character can be up to 6 characters when encoded in morse
+	//(i.e. a number and a trailing space)
+	//so make sure we have enough room in the output, or else truncate the input
+	if((strlen(text)*sizeof(char))>(output_length/6)){
+		if(current_server>=0){
+			scrollback_output(current_server,servers[current_server]->current_channel,"accirc: Warn: string too long to be reliably morse-encoded; truncating...",TRUE);
+		}
+		text[output_length/6]='\0';
+	}
+	int text_idx;
+	int out_idx=0;
+	for(text_idx=0;text_idx<strlen(text);text_idx++){
+		//the character that we might convert to morse code
+		//lower-case because morse code is case-insensitive
+		char conv_char=tolower(text[text_idx]);
+		char append_str[BUFFER_SIZE];
+		snprintf(append_str,BUFFER_SIZE,"%c",conv_char);
+		if((conv_char>='a') && (conv_char<='z')){
+			snprintf(append_str,BUFFER_SIZE,"%s",morse_chars[conv_char-'a']);
+		}else if((conv_char>='0') && (conv_char<='9')){
+			snprintf(append_str,BUFFER_SIZE,"%s",morse_nums[conv_char-'0']);
+		//don't convert dots and dashes; just put a space there
+		}else if((conv_char=='.') || (conv_char=='-') || (conv_char==' ')){
+			out_buf[out_idx]=' ';
+			out_idx++;
+			continue;
+		}
+		
+		int append_idx;
+		for(append_idx=0;append_idx<strlen(append_str);append_idx++){
+			out_buf[out_idx]=append_str[append_idx];
+			out_idx++;
+		}
+		//always put a trailing space between characters
+		out_buf[out_idx]=' ';
+		out_idx++;
+		
+		//as long as words are space-delimited when they come in
+		//they will still be space-delimited when they come out
+	}
+	//always null terminate
+	out_buf[out_idx]='\0';
+}
+
+//take a morse string and put an equivalent ascii string in the given buffer
+void morse_decode(char *text, char *out_buf) {
+	char conv_str[BUFFER_SIZE];
+	
+	//morse characters are space-delimited so to find a character look for a space
+	int space_idx=strfind(" ",text);
+	int last_space_idx=0;
+	int out_buf_idx=0;
+	char done=FALSE;
+	while(!done){
+		//if we found a space then check everything up to that against the known morse characters
+		if(space_idx>=0){
+			substr(conv_str,text,last_space_idx,space_idx-last_space_idx);
+		//otherwise we found no space so check to end of string
+		}else{
+			strncpy(conv_str,text+(last_space_idx*sizeof(text[0])),BUFFER_SIZE);
+			space_idx=strlen(text);
+			done=TRUE;
+		}
+		if(strlen(conv_str)>0){
+			//substitute for letters
+			int char_idx;
+			for(char_idx=0;char_idx<(sizeof(morse_chars)/sizeof(morse_chars[0]));char_idx++){
+				if(strncmp(conv_str,morse_chars[char_idx],BUFFER_SIZE)==0){
+					out_buf[out_buf_idx]=char_idx+'a';
+					out_buf_idx++;
+					break;
+				}
+			}
+			//if no letters matched
+			if(char_idx==(sizeof(morse_chars)/sizeof(morse_chars[0]))){
+				//substitute for numbers
+				for(char_idx=0;char_idx<(sizeof(morse_nums)/sizeof(morse_nums[0]));char_idx++){
+					if(strncmp(conv_str,morse_nums[char_idx],BUFFER_SIZE)==0){
+						out_buf[out_buf_idx]=char_idx+'0';
+						out_buf_idx++;
+						break;
+					}
+				}
+				//otherwise nothing matched so just pass the character through as-is
+				if(char_idx==(sizeof(morse_nums)/sizeof(morse_nums[0]))){
+					int text_idx=last_space_idx;
+					while(((space_idx>=0) && (text_idx<space_idx)) || ((space_idx<0) && (text_idx<strlen(text)))){
+						out_buf[out_buf_idx]=text[text_idx];
+						out_buf_idx++;
+						text_idx++;
+					}
+				}
+			}
+		//two spaces of input map to one space of output because characters are expected to be space delimited
+		//so words are two-space delimited
+		}else if((space_idx>=0) && (space_idx==last_space_idx)) {
+			out_buf[out_buf_idx]=' ';
+			out_buf_idx++;
+		}
+		
+		//look for the next space
+		int text_idx=space_idx+1;
+		last_space_idx=space_idx+1;
+		if(space_idx>=0){
+			while((text_idx<strlen(text)) && (text[text_idx]!=' ')){
+				text_idx++;
+			}
+			if(text_idx==strlen(text)){
+				text_idx=-1;
+			}
+			space_idx=text_idx;
+		}
+	}
+	//always null-terminate
+	out_buf[out_buf_idx]='\0';
 }
 
 //verify that a directory exists, if it doesn't, try to make it
@@ -2893,6 +3058,11 @@ void parse_input(char *input_buffer, char keep_history){
 		substr(tmp_buffer,input_buffer,1,strlen(input_buffer)-1);
 		strncpy(input_buffer,tmp_buffer,BUFFER_SIZE);
 	}
+	//if the user is not connected to any server and didn't issue a known client or server command
+	//then assume it's a client command; they probably want /help
+	if((current_server<0) && (!server_command) && (!client_command)){
+		client_command=TRUE;
+	}
 	
 	//NOTE: post ONLY delays /server/ commands, not client commands!
 	//if the lines are intended to be delayed then delay them
@@ -2946,7 +3116,7 @@ void parse_input(char *input_buffer, char keep_history){
 		if(!strcmp("help",command)){
 			if(current_server>=0){
 				char notify_buffer[BUFFER_SIZE];
-				strncpy(notify_buffer,"accirc: For detailed help please read the manual page",BUFFER_SIZE);
+				strncpy(notify_buffer,"accirc: For detailed help and additional commands please read the manual page",BUFFER_SIZE);
 				scrollback_output(current_server,0,notify_buffer,TRUE);
 				
 				int n;
@@ -3142,6 +3312,24 @@ void parse_input(char *input_buffer, char keep_history){
 				sprintf(tmp_buffer,"%s",parameters);
 				//reverse!
 				strnrev(tmp_buffer);
+				
+				//don't keep the recursion in the history
+				parse_input(tmp_buffer,FALSE);
+			//morse encode function
+			}else if(!strcmp(command,"morse")){
+				char tmp_buffer[BUFFER_SIZE];
+				sprintf(tmp_buffer,"%s",parameters);
+				//encode the text in morse
+				morse_encode(parameters,tmp_buffer,BUFFER_SIZE);
+				
+				//don't keep the recursion in the history
+				parse_input(tmp_buffer,FALSE);
+			//morse decode function
+			}else if(!strcmp(command,"unmorse")){
+				char tmp_buffer[BUFFER_SIZE];
+				sprintf(tmp_buffer,"%s",parameters);
+				//decode the text in morse
+				morse_decode(parameters,tmp_buffer);
 				
 				//don't keep the recursion in the history
 				parse_input(tmp_buffer,FALSE);
@@ -5061,7 +5249,7 @@ int main(int argc, char *argv[]){
 			exit(0);
 		}else if(!strcmp(argv[1],"--help")){
 			printf("accidental_irc, the irc client that accidentally got written; see man page for docs\n");
-			printf("a short summary of commands is as follows, but detailed docs are in the man page\n");
+			printf("a short summary of commands is as follows, but detailed docs and documentation for additional commands are in the man page\n");
 			int n;
 			for(n=0;n<(sizeof(command_list)/sizeof(command_list[0]));n++){
 				printf("accirc: command: %s\n",command_list[n]);

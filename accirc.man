@@ -163,6 +163,12 @@ automatically creates a faux channel when a user PMs you (default)
 .TP
 \fB/no_auto_hi\fP
 disables automatic faux channel creation when a user PMs you
+.TP
+\fB/morse \fItext\fP
+encodes the given text in morse code, with one space between each character; characters that have no mapping in morse code are left as-is
+.TP
+\fB/unmorse \fItext\fP
+decodes the given morse string into ascii; assumes the same input format as the output format of /morse
 .SS "Key Bindings"
 .TP
 \fBf1 or alt+left\fP
