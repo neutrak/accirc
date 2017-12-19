@@ -169,6 +169,8 @@ char *command_list[]={
 	"/ping_toggle <phrase> -> toggles whether or not a PING is done on a given phrase",
 	"/auto_hi -> automatically creates a faux channel when a user PMs you (default)",
 	"/no_auto_hi -> disables automatic faux channel creation when a user PMs you",
+	"/ping_on_pms -> makes PMs in faux PM channels on the current server considered PINGs",
+	"/no_ping_on_pms -> makes PMs in faux PM channels on the server considered as normal messages after the first one (default)",
 	"<Tab> -> automatically completes nicks in current channel"
 };
 
@@ -295,6 +297,9 @@ struct irc_connection {
 	char fallback_nick[BUFFER_SIZE];
 	//whether to try to reconnect to this server if connection is lost
 	char reconnect;
+	//whether to consider all pm messages (even after the first one) pings or not
+	//if FALSE, only the first private message in a conversation is considered a ping, and others are not
+	char ping_on_pms;
 	
 #ifdef _OPENSSL
 	//SSL additions
@@ -1938,6 +1943,9 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	
 	//set the server name
 	strncpy(servers[server_index]->server_name,host,BUFFER_SIZE);
+
+	//by default don't ping on pms, other than the first one
+	servers[server_index]->ping_on_pms=FALSE;
 	
 	//set the current channel to be 0 (the system/debug channel)
 	//a JOIN would add channels, but upon initial connection 0 is the only valid one
@@ -3410,6 +3418,12 @@ void parse_input(char *input_buffer, char keep_history){
 				char notify_buffer[BUFFER_SIZE];
 				sprintf(notify_buffer,"accirc: quit message for this erver set to \"%s\"",servers[current_server]->quit_msg);
 				scrollback_output(current_server,0,notify_buffer,TRUE);
+			}else if(!strcmp(command,"ping_on_pms")){
+				servers[current_server]->ping_on_pms=TRUE;
+				scrollback_output(current_server,0,"accirc: will now consider every PM received on this server to be a PING",TRUE);
+			}else if(!strcmp(command,"no_ping_on_pms")){
+				servers[current_server]->ping_on_pms=FALSE;
+				scrollback_output(current_server,0,"accirc: will now NOT consider every PM received on this server to be a PING (the first one still is considered a PING though)",TRUE);
 			//unknown command error
 			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
 			}else if(!handle_aliased_command(command,parameters)){
@@ -3659,6 +3673,14 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 		
 		if(find_output_channel(server_index,lower_nick)>0){
 			*output_channel=find_output_channel(server_index,lower_nick);
+			
+			//if configured, treat all pms as pings on this server
+			if(servers[server_index]->ch[*output_channel].is_pm){
+				if(servers[server_index]->ping_on_pms){
+					ping_log(server_index,"PM",nick,channel,text);
+					servers[server_index]->ch[*output_channel].was_pingged=TRUE;
+				}
+			}
 		}else{
 			//there is an auto-hi option to do a /hi for a user who PMs us
 			//but didn't already have a faux-channel associated with their name

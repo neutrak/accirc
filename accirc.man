@@ -164,6 +164,12 @@ automatically creates a faux channel when a user PMs you (default)
 \fB/no_auto_hi\fP
 disables automatic faux channel creation when a user PMs you
 .TP
+\fB/ping_on_pms\fP
+makes PMs in faux PM channels on the current server considered PINGs
+.TP
+\fB/no_ping_on_pms\fP
+makes PMs in faux PM channels on the server considered as normal messages after the first one (default)
+.TP
 \fB/morse \fItext\fP
 encodes the given text in morse code, with one space between each character; characters that have no mapping in morse code are left as-is
 .TP
