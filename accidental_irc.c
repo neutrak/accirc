@@ -2877,6 +2877,9 @@ void hi_command(char *input_buffer, char *command, char *parameters){
 	scrollback_output(current_server,output_channel,output_buffer,TRUE);
 }
 
+//TODO: add support for "otr_hi", which would initialize an otr PM chat via libotr
+//when compilation is enabled for this feature
+
 //"part" a PM conversation
 void bye_command(char *input_buffer, char *command, char *parameters){
 	int channel_index=servers[current_server]->current_channel;
