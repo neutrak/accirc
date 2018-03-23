@@ -261,6 +261,9 @@ struct channel_info {
 	//mode strings for each user
 	char *mode_str[MAX_NAMES];
 	
+	//store user count separately so we don't have to count it by iterating for non-nulls in the user_names array
+	unsigned int nick_count;
+	
 	//topic for this channel
 	char topic[BUFFER_SIZE];
 	
@@ -705,7 +708,7 @@ void ping_log(int server_index, const char *ping_type, const char *nick, const c
 	//if we were keeping logs then (try to) store this PM in the ping.txt file
 	if((can_log) && (servers[server_index]->keep_logs)){
 		char ping_file_buffer[BUFFER_SIZE];
-		sprintf(ping_file_buffer,"%s/.local/share/accirc/%s/pings.txt",getenv("HOME"),LOGGING_DIRECTORY);
+		snprintf(ping_file_buffer,BUFFER_SIZE,"%s/.local/share/accirc/%s/pings.txt",getenv("HOME"),LOGGING_DIRECTORY);
 		
 		//try to make a ping log file, if that's impossible just give up
 		FILE *ping_file=fopen(ping_file_buffer,"a");
@@ -897,7 +900,7 @@ void custom_format_time(char *time_buffer, time_t current_unixtime){
 //handles SIGHUP by sending a default exit message to every server currently in use
 void terminal_close(int signal){
 	char quit_buffer[BUFFER_SIZE];
-	sprintf(quit_buffer,"%cexit %s",client_escape,DEFAULT_TERM_LOST_MESSAGE);
+	snprintf(quit_buffer,BUFFER_SIZE,"%cexit %s",client_escape,DEFAULT_TERM_LOST_MESSAGE);
 	parse_input(quit_buffer,FALSE);
 }
 
@@ -1004,11 +1007,11 @@ void properly_close(int server_index){
 	//if we'll be reconnecting to this server, and we didn't exit yet
 	if(reconnect_this && (!done)){
 		char reconnect_command[BUFFER_SIZE];
-		sprintf(reconnect_command,"%cconnect %s %i",client_escape,reconnect_host,reconnect_port);
+		snprintf(reconnect_command,BUFFER_SIZE,"%cconnect %s %i",client_escape,reconnect_host,reconnect_port);
 		
 #ifdef _OPENSSL
 		if(reconnect_with_ssl){
-			sprintf(reconnect_command,"%csconnect %s %i",client_escape,reconnect_host,reconnect_port);
+			snprintf(reconnect_command,BUFFER_SIZE,"%csconnect %s %i",client_escape,reconnect_host,reconnect_port);
 		//else keep the default reconnect_command that was set just above this
 		}
 #endif
@@ -1047,12 +1050,12 @@ void properly_close(int server_index){
 				servers[current_server]->last_msg_time=time(NULL);
 				
 				char command_buffer[BUFFER_SIZE];
-				sprintf(command_buffer,"%cnick %s",server_escape,reconnect_nick);
+				snprintf(command_buffer,BUFFER_SIZE,"%cnick %s",server_escape,reconnect_nick);
 				parse_input(command_buffer,FALSE);
-				sprintf(command_buffer,"%cuser %s",server_escape,DEFAULT_USER);
+				snprintf(command_buffer,BUFFER_SIZE,"%cuser %s",server_escape,DEFAULT_USER);
 				parse_input(command_buffer,FALSE);
 				
-				sprintf(command_buffer,"%cfallback_nick %s",client_escape,reconnect_fallback_nick);
+				snprintf(command_buffer,BUFFER_SIZE,"%cfallback_nick %s",client_escape,reconnect_fallback_nick);
 				parse_input(command_buffer,FALSE);
 				
 				//re-send all the auto-sent text when relevant, just like on first connection
@@ -1626,6 +1629,21 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 //refresh the bottom bar above the input area
 void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 	time_t old_time=(*persistent_old_time);
+
+	//output for how many users are in the channel
+	char user_status[BUFFER_SIZE];
+	strncpy(user_status,"",BUFFER_SIZE);
+	if(current_server>=0){
+		if(servers[current_server]->current_channel>0){
+			channel_info ch=servers[current_server]->ch[servers[current_server]->current_channel];
+			if(!ch.is_pm){
+				//the reason for the -1 here is because the channel name is within the user_name list
+				//for tab completion reasons
+				//but shouldn't be considered a user for this status count
+				snprintf(user_status,BUFFER_SIZE,"[%i users]-",ch.nick_count-1);
+			}
+		}
+	}
 	
 	//output for when the user is scrolled up and by how much
 	char scroll_status[BUFFER_SIZE];
@@ -1633,7 +1651,7 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 	
 	//if the user is scrolled up at all, give them some info
 	if(scrollback_end>=0){
-		sprintf(scroll_status,"[scrolled to line %i]",scrollback_end);
+		snprintf(scroll_status,BUFFER_SIZE,"[scrolled to line %i]",scrollback_end);
 	}else{
 		strncpy(scroll_status,"[end]",BUFFER_SIZE);
 	}
@@ -1664,9 +1682,10 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 			wprintw(bottom_border,time_buffer);
 			
 			int n;
-			for(n=strlen(time_buffer);n<(width-strlen(scroll_status));n++){
+			for(n=strlen(time_buffer);n<(width-strlen(user_status)-strlen(scroll_status));n++){
 				wprintw(bottom_border,"-");
 			}
+			wprintw(bottom_border,user_status);
 			wprintw(bottom_border,scroll_status);
 			//refresh the window from the buffer
 			wrefresh(bottom_border);
@@ -1690,14 +1709,14 @@ void scrollback_output(int server_index, int output_channel, char *to_output, ch
 	//regardless of what our output was, timestamp it
 	//for logging, always use the unix timestamp
 	char log_buffer[BUFFER_SIZE];
-	sprintf(log_buffer,"%ju %s",(uintmax_t)(time(NULL)),output_buffer);
+	snprintf(log_buffer,BUFFER_SIZE,"%ju %s",(uintmax_t)(time(NULL)),output_buffer);
 	
 	//for outputting to the user in ncurses, use a custom time format (by default unix timestamp)
 	char time_buffer[BUFFER_SIZE];
 	char custom_time[BUFFER_SIZE];
 	custom_format_time(custom_time,time(NULL));
 	
-	sprintf(time_buffer,"%s %s",custom_time,output_buffer);
+	snprintf(time_buffer,BUFFER_SIZE,"%s %s",custom_time,output_buffer);
 	strncpy(output_buffer,time_buffer,BUFFER_SIZE);
 	
 	//add the message to the relevant channel scrollback structure
@@ -1819,6 +1838,8 @@ void add_name(int server_index, int channel_index, char *name, const char *mode_
 				free(servers[server_index]->ch[channel_index].mode_str[idx]);
 				servers[server_index]->ch[channel_index].mode_str[idx]=NULL;
 				
+				servers[server_index]->ch[channel_index].nick_count--;
+				
 				matches--;
 			}
 			
@@ -1838,6 +1859,8 @@ void add_name(int server_index, int channel_index, char *name, const char *mode_
 			
 			servers[server_index]->ch[channel_index].mode_str[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 			strncpy(servers[server_index]->ch[channel_index].mode_str[n],mode_str,BUFFER_SIZE);
+
+			servers[server_index]->ch[channel_index].nick_count++;
 		}
 	}
 }
@@ -1863,6 +1886,9 @@ void del_name(int server_index, int channel_index, char *name){
 				//and the mode string too
 				free(servers[server_index]->ch[channel_index].mode_str[idx]);
 				servers[server_index]->ch[channel_index].mode_str[idx]=NULL;
+
+				//update the user count to note that we just lost a user
+				servers[server_index]->ch[channel_index].nick_count--;
 				
 				idx++;
 			}
@@ -1976,9 +2002,9 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	if(servers[server_index]->keep_logs){
 		//first make a directory for this server
 		char file_location[BUFFER_SIZE];
-		sprintf(file_location,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name);
+		snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name);
 		if(verify_or_make_dir(file_location)){
-			sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->ch[0].name);
+			snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->ch[0].name);
 			//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
 			servers[server_index]->ch[0].log_file=fopen(file_location,"a");
 			if(servers[server_index]->ch[0].log_file==NULL){
@@ -2002,6 +2028,7 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	for(n=0;n<MAX_NAMES;n++){
 		servers[server_index]->ch[0].user_names[n]=NULL;
 		servers[server_index]->ch[0].mode_str[n]=NULL;
+		servers[server_index]->ch[0].nick_count=0;
 	}
 	
 	//channel content for server is empty, as is ping state
@@ -2025,6 +2052,7 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 		for(n1=0;n1<MAX_NAMES;n1++){
 			servers[server_index]->ch[n].user_names[n1]=NULL;
 			servers[server_index]->ch[n].mode_str[n1]=NULL;
+			servers[server_index]->ch[n].nick_count=0;
 		}
 		servers[server_index]->ch[n].log_file=NULL;
 	}
@@ -2146,12 +2174,13 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 		for(n=0;n<MAX_NAMES;n++){
 			servers[server_index]->ch[channel_index].user_names[n]=NULL;
 			servers[server_index]->ch[channel_index].mode_str[n]=NULL;
+			servers[server_index]->ch[channel_index].nick_count=0;
 		}
 		
 		//if we should be keeping logs make sure we are
 		if(servers[server_index]->keep_logs){
 			char file_location[BUFFER_SIZE];
-			sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->ch[channel_index].name);
+			snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[server_index]->server_name,servers[server_index]->ch[channel_index].name);
 			//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
 			servers[server_index]->ch[channel_index].log_file=fopen(file_location,"a");
 			
@@ -2169,7 +2198,7 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 		
 		//if this is a PM opening we won't have the normal join, so add in a message to let the user know about it
 		if(pm_flag){
-			sprintf(output_buffer,"accirc: Joining new (faux) PM channel");
+			snprintf(output_buffer,BUFFER_SIZE,"accirc: Joining new (faux) PM channel");
 		}
 		
 		//output the join at the top of this channel, why not
@@ -2185,7 +2214,7 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 	//this will just not have the new channel available, and as a result redirect all output to the system channel
 	}else{
 		char error_buffer[BUFFER_SIZE];
-		sprintf(error_buffer,"accirc: Err: out of available channels in structure (limit is %i); output will go to the SERVER channel; use %cprivmsg to send data",MAX_CHANNELS,server_escape);
+		snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: out of available channels in structure (limit is %i); output will go to the SERVER channel; use %cprivmsg to send data",MAX_CHANNELS,server_escape);
 		scrollback_output(server_index,0,error_buffer,TRUE);
 	}
 }
@@ -2310,11 +2339,11 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 		if(easy_mode){
 			char easy_mode_buf[BUFFER_SIZE];
 			
-			sprintf(easy_mode_buf,":user %s",DEFAULT_USER);
+			snprintf(easy_mode_buf,BUFFER_SIZE,":user %s",DEFAULT_USER);
 			parse_input(easy_mode_buf,FALSE);
 			
 			//default the nick to accirc_user too, just to get connected (the user can always change this later)
-			sprintf(easy_mode_buf,":nick %s",DEFAULT_NICK);
+			snprintf(easy_mode_buf,BUFFER_SIZE,":nick %s",DEFAULT_NICK);
 			parse_input(easy_mode_buf,FALSE);
 		}
 		
@@ -2335,9 +2364,9 @@ void exit_command(char *input_buffer, char *command, char *parameters){
 			if(!strcmp(parameters,"")){
 				//TODO: handle overflow case if quit_msg is longer than can fit
 				//^ I think set command string length solves this implicitly?
-				sprintf(quit_message,"QUIT :%s\n",servers[n]->quit_msg);
+				snprintf(quit_message,BUFFER_SIZE,"QUIT :%s\n",servers[n]->quit_msg);
 			}else{
-				sprintf(quit_message,"QUIT :%s\n",parameters);
+				snprintf(quit_message,BUFFER_SIZE,"QUIT :%s\n",parameters);
 			}
 			
 			server_write(n,quit_message);
@@ -2352,7 +2381,7 @@ void cli_escape_command(char *input_buffer, char *command, char *parameters){
 		
 		//tell the user there were too few arguments
 		char error_buffer[BUFFER_SIZE];
-		sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+		snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: too few arguments given to \"%s\"",command);
 		
 		//use the ncurses UI if possible; if not fall back to the error log file
 		if(current_server>=0){
@@ -2373,9 +2402,9 @@ void cli_escape_command(char *input_buffer, char *command, char *parameters){
 			client_escape=tmp_client_escape;
 			
 			//tell the user we set the escape
-			sprintf(reply_buffer,"accirc: client escape set to \"%c\"",client_escape);
+			snprintf(reply_buffer,BUFFER_SIZE,"accirc: client escape set to \"%c\"",client_escape);
 		}else{
-			sprintf(reply_buffer,"accirc: Err: client escape could not be set to \"%c\", that escape is already in use",tmp_client_escape);
+			snprintf(reply_buffer,BUFFER_SIZE,"accirc: Err: client escape could not be set to \"%c\", that escape is already in use",tmp_client_escape);
 		}
 		
 		//use the ncurses UI if possible; if not fall back to the error log file
@@ -2394,7 +2423,7 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 		
 		//tell the user there were too few arguments
 		char error_buffer[BUFFER_SIZE];
-		sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+		snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: too few arguments given to \"%s\"",command);
 		
 		//use the ncurses UI if possible; if not fall back to the error log file
 		if(current_server>=0){
@@ -2415,9 +2444,9 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 			server_escape=tmp_server_escape;
 			
 			//tell the user we set the escape
-			sprintf(reply_buffer,"accirc: server escape set to \"%c\"",server_escape);
+			snprintf(reply_buffer,BUFFER_SIZE,"accirc: server escape set to \"%c\"",server_escape);
 		}else{
-			sprintf(reply_buffer,"accirc: Err: server escape could not be set to \"%c\", that escape is already in use",tmp_server_escape);
+			snprintf(reply_buffer,BUFFER_SIZE,"accirc: Err: server escape could not be set to \"%c\", that escape is already in use",tmp_server_escape);
 		}
 		
 		//use the ncurses UI if possible; if not fall back to the error log file
@@ -2485,9 +2514,9 @@ void alias_command(char *input_buffer, char *command, char *parameters){
 	if(current_server>=0){
 		char output_buffer[BUFFER_SIZE];
 		if(!strcmp(substitution,"")){
-			sprintf(output_buffer,"accirc: deleted alias for \"%s\"",trigger);
+			snprintf(output_buffer,BUFFER_SIZE,"accirc: deleted alias for \"%s\"",trigger);
 		}else{
-			sprintf(output_buffer,"accirc: setting alias \"%s\" to complete to \"%s\"",trigger,substitution);
+			snprintf(output_buffer,BUFFER_SIZE,"accirc: setting alias \"%s\" to complete to \"%s\"",trigger,substitution);
 		}
 		scrollback_output(current_server,0,output_buffer,TRUE);
 	}
@@ -2685,7 +2714,7 @@ void log_command(){
 					//try to open a file for every channel
 					
 					char file_location[BUFFER_SIZE];
-					sprintf(file_location,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->ch[channel_index].name);
+					snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,servers[current_server]->server_name,servers[current_server]->ch[channel_index].name);
 					//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
 					servers[current_server]->ch[channel_index].log_file=fopen(file_location,"a");
 					
@@ -2732,7 +2761,7 @@ void rsearch_command(char *input_buffer, char *command, char *parameters, int ol
 		
 		//tell the user there were too few arguments
 		char error_buffer[BUFFER_SIZE];
-		sprintf(error_buffer,"accirc: Err: too few arguments given to \"%s\"",command);
+		snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: too few arguments given to \"%s\"",command);
 		
 		//use the ncurses UI to notify the user
 		//NOTE: the rsearch command is only called after a check for current_server being valid from within parse_input
@@ -2776,7 +2805,7 @@ void rsearch_command(char *input_buffer, char *command, char *parameters, int ol
 		//display an error if the term was not found
 		}else{
 			char error_buffer[BUFFER_SIZE];
-			sprintf(error_buffer,"accirc: Could not find search term \"%s\"",parameters);
+			snprintf(error_buffer,BUFFER_SIZE,"accirc: Could not find search term \"%s\"",parameters);
 			scrollback_output(current_server,servers[current_server]->current_channel,error_buffer,TRUE);
 		}
 	}
@@ -2888,7 +2917,7 @@ void bye_command(char *input_buffer, char *command, char *parameters){
 	
 	//ensure this is a PM channel and not a real channel, don't want to /bye those, you gotta part like a good person
 	if(servers[current_server]->ch[channel_index].is_pm){
-		sprintf(output_buffer,"accirc: Parting (faux) PM channel \"%s\"",servers[current_server]->ch[channel_index].name);
+		snprintf(output_buffer,BUFFER_SIZE,"accirc: Parting (faux) PM channel \"%s\"",servers[current_server]->ch[channel_index].name);
 		
 		leave_channel(current_server,servers[current_server]->ch[channel_index].name);
 	}else{
@@ -2903,23 +2932,23 @@ void privmsg_command(char *input_buffer){
 		//if we're on the server channel treat it as a command (recurse)
 		if(servers[current_server]->current_channel==0){
 			char tmp_buffer[BUFFER_SIZE];
-			sprintf(tmp_buffer,"%c%s",server_escape,input_buffer);
+			snprintf(tmp_buffer,BUFFER_SIZE,"%c%s",server_escape,input_buffer);
 			//but don't keep history for this recursion call
 			parse_input(tmp_buffer,FALSE);
 		}else{
 			//format the text for the server's benefit
 			char output_buffer[BUFFER_SIZE];
-			sprintf(output_buffer,"PRIVMSG %s :%s\n",servers[current_server]->ch[servers[current_server]->current_channel].name,input_buffer);
+			snprintf(output_buffer,BUFFER_SIZE,"PRIVMSG %s :%s\n",servers[current_server]->ch[servers[current_server]->current_channel].name,input_buffer);
 			server_write(current_server,output_buffer);
 			
 			//then format the text for my viewing benefit (this is also what will go in logs, with a newline)
 			//accounting specially for if the user sent a CTCP ACTION
 			char ctcp[BUFFER_SIZE];
-			sprintf(ctcp,"%cACTION ",0x01);
+			snprintf(ctcp,BUFFER_SIZE,"%cACTION ",0x01);
 			if(strfind(ctcp,input_buffer)==0){
 				char tmp_buffer[BUFFER_SIZE];
 				substr(tmp_buffer,input_buffer,strlen(ctcp),strlen(input_buffer)-strlen(ctcp)-1);
-				sprintf(output_buffer,">> *%s %s",servers[current_server]->nick,tmp_buffer);
+				snprintf(output_buffer,BUFFER_SIZE,">> *%s %s",servers[current_server]->nick,tmp_buffer);
 			}else{
 				char nick_mode_str[BUFFER_SIZE];
 				strncpy(nick_mode_str,"",BUFFER_SIZE);
@@ -2930,7 +2959,7 @@ void privmsg_command(char *input_buffer){
 					strncpy(nick_mode_str,servers[current_server]->ch[servers[current_server]->current_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
 				}
 				
-				sprintf(output_buffer,">> <%s%s> %s",nick_mode_str,servers[current_server]->nick,input_buffer);
+				snprintf(output_buffer,BUFFER_SIZE,">> <%s%s> %s",nick_mode_str,servers[current_server]->nick,input_buffer);
 			}
 			
 			//place my own text in the scrollback for this server and channel
@@ -2959,7 +2988,7 @@ char handle_aliased_command(char *command, char *parameters){
 			//if a command is found to match, do the substitution and parse it again
 			if(!strncmp(alias_array[n]->trigger,command,BUFFER_SIZE)){
 				char new_command_buffer[BUFFER_SIZE];
-				sprintf(new_command_buffer,"%s %s",alias_array[n]->substitution,parameters);
+				snprintf(new_command_buffer,BUFFER_SIZE,"%s %s",alias_array[n]->substitution,parameters);
 				parse_input(new_command_buffer,FALSE);
 				
 				return TRUE;
@@ -3012,7 +3041,7 @@ void swap_channel(int server_idx, int delta){
 	
 	//let the user know we swapped channels
 	char notify_buffer[BUFFER_SIZE];
-	sprintf(notify_buffer,"accirc: Swapped channel %s and channel %s in channel list",servers[server_idx]->ch[cur_idx].name,servers[server_idx]->ch[idx].name);
+	snprintf(notify_buffer,BUFFER_SIZE,"accirc: Swapped channel %s and channel %s in channel list",servers[server_idx]->ch[cur_idx].name,servers[server_idx]->ch[idx].name);
 	scrollback_output(current_server,0,notify_buffer,TRUE);
 	
 	//set the swap point to be the current channel
@@ -3081,18 +3110,18 @@ void parse_input(char *input_buffer, char keep_history){
 		//prevent errors by ignoring anything past what we can store
 		char notify_buffer[BUFFER_SIZE];
 		if(post_listen_cnt>=MAX_POST_LINES){
-			sprintf(notify_buffer,"accirc: Warning: cannot store post-%s command \"%c%s\"; MAX_POST_LINES is %i",servers[current_server]->post_type,server_escape,input_buffer,MAX_POST_LINES);
+			snprintf(notify_buffer,BUFFER_SIZE,"accirc: Warning: cannot store post-%s command \"%c%s\"; MAX_POST_LINES is %i",servers[current_server]->post_type,server_escape,input_buffer,MAX_POST_LINES);
 			scrollback_output(current_server,0,notify_buffer,TRUE);
 			return;
 		}
 		
 		//append this command to the current server's post_commands string
 		char tmp_buffer[(BUFFER_SIZE+2)*MAX_POST_LINES];
-		sprintf(tmp_buffer,"%s%c%s\n",servers[current_server]->post_commands,server_escape,input_buffer);
+		snprintf(tmp_buffer,BUFFER_SIZE,"%s%c%s\n",servers[current_server]->post_commands,server_escape,input_buffer);
 		strncpy(servers[current_server]->post_commands,tmp_buffer,(BUFFER_SIZE+2)*MAX_POST_LINES);
 		
 		//let the user know we did something
-		sprintf(notify_buffer,"accirc: Saving post-%s command \"%c%s\" for later",servers[current_server]->post_type,server_escape,input_buffer);
+		snprintf(notify_buffer,BUFFER_SIZE,"accirc: Saving post-%s command \"%c%s\" for later",servers[current_server]->post_type,server_escape,input_buffer);
 		scrollback_output(current_server,0,notify_buffer,TRUE);
 		
 		//stop, wait for "hammertime" before we do anything else
@@ -3132,7 +3161,7 @@ void parse_input(char *input_buffer, char keep_history){
 				
 				int n;
 				for(n=0;n<(sizeof(command_list)/sizeof(command_list[0]));n++){
-					sprintf(notify_buffer,"accirc: command: %s",command_list[n]);
+					snprintf(notify_buffer,BUFFER_SIZE,"accirc: command: %s",command_list[n]);
 					scrollback_output(current_server,0,notify_buffer,TRUE);
 				}
 			}else{
@@ -3144,7 +3173,7 @@ void parse_input(char *input_buffer, char keep_history){
 				int n;
 				for(n=0;n<(sizeof(command_list)/sizeof(command_list[0]));n++){
 					if((n+2)<(height-RESERVED_LINES)){
-						sprintf(notify_buffer,"accirc: command: %s",command_list[n]);
+						snprintf(notify_buffer,BUFFER_SIZE,"accirc: command: %s",command_list[n]);
 						wmove(channel_text,(n+1),0);
 						wprintw(channel_text,notify_buffer,TRUE);
 					}else if((n+1)<(height-RESERVED_LINES)){
@@ -3200,7 +3229,7 @@ void parse_input(char *input_buffer, char keep_history){
 			
 			if(current_server>=0){
 				char notify_buffer[BUFFER_SIZE];
-				sprintf(notify_buffer,"accirc: updated time format to \"%s\"",parameters);
+				snprintf(notify_buffer,BUFFER_SIZE,"accirc: updated time format to \"%s\"",parameters);
 				scrollback_output(current_server,0,notify_buffer,TRUE);
 			}
 		//change the version response to a custom one, if given
@@ -3208,12 +3237,12 @@ void parse_input(char *input_buffer, char keep_history){
 			if(strlen(parameters)>0){
 				strncpy(custom_version,parameters,BUFFER_SIZE);
 			}else{
-				sprintf(custom_version,"accidental_irc v%s compiled %s %s",VERSION,__DATE__,__TIME__);
+				snprintf(custom_version,BUFFER_SIZE,"accidental_irc v%s compiled %s %s",VERSION,__DATE__,__TIME__);
 			}
 			
 			if(current_server>=0){
 				char notify_buffer[BUFFER_SIZE];
-				sprintf(notify_buffer,"accirc: updated custom version string to \"%s\"",custom_version);
+				snprintf(notify_buffer,BUFFER_SIZE,"accirc: updated custom version string to \"%s\"",custom_version);
 				scrollback_output(current_server,0,notify_buffer,TRUE);
 			}
 		//toggle easy mode on
@@ -3222,22 +3251,22 @@ void parse_input(char *input_buffer, char keep_history){
 			
 			char easy_mode_buf[BUFFER_SIZE];
 			
-			sprintf(easy_mode_buf,"%calias nick %cnick",client_escape,server_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias nick %cnick",client_escape,server_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%calias join %cjoin",client_escape,server_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias join %cjoin",client_escape,server_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%calias part %cpart",client_escape,server_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias part %cpart",client_escape,server_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%calias quit %cexit",client_escape,client_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias quit %cexit",client_escape,client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%calias msg %cprivmsg",client_escape,server_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias msg %cprivmsg",client_escape,server_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%ctime_format %%Y-%%m-%%d %%R:%%S",client_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%ctime_format %%Y-%%m-%%d %%R:%%S",client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
 			if(current_server>=0){
@@ -3249,22 +3278,22 @@ void parse_input(char *input_buffer, char keep_history){
 
 			char easy_mode_buf[BUFFER_SIZE];
 			
-			sprintf(easy_mode_buf,"%calias nick ",client_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias nick ",client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%calias join ",client_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias join ",client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%calias part ",client_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias part ",client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%calias quit ",client_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias quit ",client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%calias msg ",client_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias msg ",client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			sprintf(easy_mode_buf,"%ctime_format %%s",client_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%ctime_format %%s",client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
 			if(current_server>=0){
@@ -3275,7 +3304,7 @@ void parse_input(char *input_buffer, char keep_history){
 			char ping_state=ping_toggle_command(parameters);
 			if(current_server>=0){
 				char output_buffer[BUFFER_SIZE];
-				sprintf(output_buffer,"accirc: will now %s on phrase %s",(ping_state==TRUE)?"PING":"NOT PING",parameters);
+				snprintf(output_buffer,BUFFER_SIZE,"accirc: will now %s on phrase %s",(ping_state==TRUE)?"PING":"NOT PING",parameters);
 				scrollback_output(current_server,0,output_buffer,TRUE);
 			}
 		}else if(!strcmp(command,"auto_hi")){
@@ -3306,21 +3335,21 @@ void parse_input(char *input_buffer, char keep_history){
 			}else if(!strcmp(command,"me")){
 				//attach the control data and recurse
 				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,"%cACTION %s%c",0x01,parameters,0x01);
+				snprintf(tmp_buffer,BUFFER_SIZE,"%cACTION %s%c",0x01,parameters,0x01);
 				//don't keep that in the history though
 				parse_input(tmp_buffer,FALSE);
 			//r is short for "reply"; this will send a PM to the last user we got a PM from
 			}else if(!strcmp(command,"r")){
 				//prepend the "privmsg <nick> :" and recurse
 				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,"%cprivmsg %s :%s",server_escape,servers[current_server]->last_pm_user,parameters);
+				snprintf(tmp_buffer,BUFFER_SIZE,"%cprivmsg %s :%s",server_escape,servers[current_server]->last_pm_user,parameters);
 				//don't keep the recursion in the history, if the user wants it they can get the /r command out of history
 				parse_input(tmp_buffer,FALSE);
 			//reverse, an easter egg to flip text around
 			}else if(!strcmp(command,"reverse")){
 				//flip the text around and recurse
 				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,"%s",parameters);
+				snprintf(tmp_buffer,BUFFER_SIZE,"%s",parameters);
 				//reverse!
 				strnrev(tmp_buffer);
 				
@@ -3329,7 +3358,7 @@ void parse_input(char *input_buffer, char keep_history){
 			//morse encode function
 			}else if(!strcmp(command,"morse")){
 				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,"%s",parameters);
+				snprintf(tmp_buffer,BUFFER_SIZE,"%s",parameters);
 				//encode the text in morse
 				morse_encode(parameters,tmp_buffer,BUFFER_SIZE);
 				
@@ -3338,7 +3367,7 @@ void parse_input(char *input_buffer, char keep_history){
 			//morse decode function
 			}else if(!strcmp(command,"unmorse")){
 				char tmp_buffer[BUFFER_SIZE];
-				sprintf(tmp_buffer,"%s",parameters);
+				snprintf(tmp_buffer,BUFFER_SIZE,"%s",parameters);
 				//decode the text in morse
 				morse_decode(parameters,tmp_buffer);
 				
@@ -3357,7 +3386,7 @@ void parse_input(char *input_buffer, char keep_history){
 			}else if(!strcmp(command,"fallback_nick")){
 				strncpy(servers[current_server]->fallback_nick,parameters,BUFFER_SIZE);
 				char output_buffer[BUFFER_SIZE];
-				sprintf(output_buffer,"accirc: fallback_nick set to %s",servers[current_server]->fallback_nick);
+				snprintf(output_buffer,BUFFER_SIZE,"accirc: fallback_nick set to %s",servers[current_server]->fallback_nick);
 				scrollback_output(current_server,0,output_buffer,TRUE);
 			}else if(!strcmp(command,"rejoin_on_kick")){
 				servers[current_server]->rejoin_on_kick=TRUE;
@@ -3419,7 +3448,7 @@ void parse_input(char *input_buffer, char keep_history){
 				}
 				
 				char notify_buffer[BUFFER_SIZE];
-				sprintf(notify_buffer,"accirc: quit message for this erver set to \"%s\"",servers[current_server]->quit_msg);
+				snprintf(notify_buffer,BUFFER_SIZE,"accirc: quit message for this erver set to \"%s\"",servers[current_server]->quit_msg);
 				scrollback_output(current_server,0,notify_buffer,TRUE);
 			}else if(!strcmp(command,"ping_on_pms")){
 				servers[current_server]->ping_on_pms=TRUE;
@@ -3431,7 +3460,7 @@ void parse_input(char *input_buffer, char keep_history){
 			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
 			}else if(!handle_aliased_command(command,parameters)){
 				char error_buffer[BUFFER_SIZE];
-				sprintf(error_buffer,"accirc: Err: unknown command \"%s\"",command);
+				snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: unknown command \"%s\"",command);
 				scrollback_output(current_server,0,error_buffer,TRUE);
 			}
 		}else{
@@ -3444,12 +3473,12 @@ void parse_input(char *input_buffer, char keep_history){
 		//if we're connected to a server
 		if(current_server>=0){
 			char to_send[BUFFER_SIZE];
-			sprintf(to_send,"%s\n",input_buffer);
+			snprintf(to_send,BUFFER_SIZE,"%s\n",input_buffer);
 			server_write(current_server,to_send);
 			
 			//format the text for my viewing benefit (this is also what will go in logs, with a newline)
 			char output_buffer[BUFFER_SIZE];
-			sprintf(output_buffer,"%s",input_buffer);
+			snprintf(output_buffer,BUFFER_SIZE,"%s",input_buffer);
 			
 			//place my own text in the scrollback for this server and channel
 			scrollback_output(current_server,0,output_buffer,TRUE);
@@ -3520,7 +3549,7 @@ void server_332_command(int server_index, char *tmp_buffer, int first_space, cha
 			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
 				*output_channel=channel_index;
 				
-				sprintf(output_buffer,"TOPIC for %s :%s",servers[server_index]->ch[channel_index].name,topic);
+				snprintf(output_buffer,BUFFER_SIZE,"TOPIC for %s :%s",servers[server_index]->ch[channel_index].name,topic);
 				
 				//store the topic in the general data structure
 				strncpy(servers[server_index]->ch[channel_index].topic,topic,BUFFER_SIZE);
@@ -3576,7 +3605,7 @@ void server_333_command(int server_index, char *tmp_buffer, int first_space, cha
 			if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
 				*output_channel=channel_index;
 				
-				sprintf(output_buffer,"Topic set by %s at %s",setting_user,ctime(&timestamp));
+				snprintf(output_buffer,BUFFER_SIZE,"Topic set by %s at %s",setting_user,ctime(&timestamp));
 				
 				//and output
 				refresh_channel_topic();
@@ -3750,7 +3779,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 	
 	//for any CTCP message (which takes highest precedence)
 	char ctcp[BUFFER_SIZE];
-	sprintf(ctcp,"%c",0x01);
+	snprintf(ctcp,BUFFER_SIZE,"%c",0x01);
 	int ctcp_check=strfind(ctcp,text);
 	
 	//if there was a CTCP message
@@ -3769,7 +3798,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			strncpy(tmp_buffer,ctcp,BUFFER_SIZE);
 			
 			//this accounts for a possible trailing byte
-			sprintf(ctcp,"%c",0x01);
+			snprintf(ctcp,BUFFER_SIZE,"%c",0x01);
 			if(strfind(ctcp,tmp_buffer)>=0){
 				tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
 			}
@@ -3790,7 +3819,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			substr(tmp_buffer,text,ctcp_check+offset+2,strlen(text)-ctcp_check-offset-2);
 			
 			//this accounts for a possible trailing byte
-			sprintf(ctcp,"%c",0x01);
+			snprintf(ctcp,BUFFER_SIZE,"%c",0x01);
 			if(strfind(ctcp,tmp_buffer)>=0){
 				tmp_buffer[strfind(ctcp,tmp_buffer)]='\0';
 			}
@@ -3803,13 +3832,13 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 				//audio output
 				beep();
 				//format the output to show that we were pingged
-				sprintf(output_buffer,"*** *%s %s",nick,tmp_buffer);
+				snprintf(output_buffer,BUFFER_SIZE,"*** *%s %s",nick,tmp_buffer);
 				
 				//set the was_pingged flag so the user can see that information at a glance
 				servers[server_index]->ch[*output_channel].was_pingged=TRUE;
 			//if this wasn't a ping but was a normal CTCP ACTION output for that
 			}else{
-				sprintf(output_buffer,"*%s %s",nick,tmp_buffer);
+				snprintf(output_buffer,BUFFER_SIZE,"*%s %s",nick,tmp_buffer);
 			}
 		//NOTE: VERSION string is a configuration option, so users can set it to something interesting if they want
 		//handle CTCP VERSION
@@ -3823,8 +3852,8 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			//some clients prefer privmsg responses, others prefer notice response; we do notices
 			int old_server=current_server;
 			current_server=server_index;
-//			sprintf(ctcp,"%cprivmsg %s :%cVERSION %s%c",server_escape,nick,0x01,custom_version,0x01);
-			sprintf(ctcp,"%cnotice %s :%cVERSION %s%c",server_escape,nick,0x01,custom_version,0x01);
+//			snprintf(ctcp,BUFFER_SIZE,"%cprivmsg %s :%cVERSION %s%c",server_escape,nick,0x01,custom_version,0x01);
+			snprintf(ctcp,BUFFER_SIZE,"%cnotice %s :%cVERSION %s%c",server_escape,nick,0x01,custom_version,0x01);
 			parse_input(ctcp,FALSE);
 			current_server=old_server;
 			
@@ -3843,7 +3872,7 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 			//this response is a notice in the spec
 			int old_server=current_server;
 			current_server=server_index;
-			sprintf(ctcp,"%cnotice %s :%s",server_escape,nick,text);
+			snprintf(ctcp,BUFFER_SIZE,"%cnotice %s :%s",server_escape,nick,text);
 			parse_input(ctcp,FALSE);
 			current_server=old_server;
 			
@@ -3861,13 +3890,13 @@ void server_privmsg_command(int server_index, char *tmp_buffer, int first_space,
 		//audio output
 		beep();
 		//format the output to show that we were pingged
-		sprintf(output_buffer,"***<%s%s> %s",nick_mode_str,nick,text);
+		snprintf(output_buffer,BUFFER_SIZE,"***<%s%s> %s",nick_mode_str,nick,text);
 		
 		//set the was_pingged flag so the user can see that information at a glance
 		servers[server_index]->ch[*output_channel].was_pingged=TRUE;
 	}else{
 		//format the output of a PM in a very pretty way
-		sprintf(output_buffer,"<%s%s> %s",nick_mode_str,nick,text);
+		snprintf(output_buffer,BUFFER_SIZE,"<%s%s> %s",nick_mode_str,nick,text);
 	}
 }
 
@@ -3908,6 +3937,8 @@ void server_join_command(int server_index, char *tmp_buffer, int first_space, ch
 						
 						servers[server_index]->ch[channel_index].mode_str[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 						strncpy(servers[server_index]->ch[channel_index].mode_str[n],"",BUFFER_SIZE);
+
+						servers[server_index]->ch[channel_index].nick_count++;
 					}
 					
 					*output_channel=channel_index;
@@ -3967,7 +3998,7 @@ void server_kick_command(int server_index, char *tmp_buffer, int first_space, ch
 			int old_server=current_server;
 			current_server=server_index;
 			char to_parse[BUFFER_SIZE];
-			sprintf(to_parse,"%cjoin %s",server_escape,channel);
+			snprintf(to_parse,BUFFER_SIZE,"%cjoin %s",server_escape,channel);
 			parse_input(to_parse,FALSE);
 			current_server=old_server;
 			
@@ -4189,6 +4220,9 @@ void server_quit_command(int server_index, char *tmp_buffer, int first_space, ch
 					//and the mode string
 					free(servers[server_index]->ch[channel_index].mode_str[name_index]);
 					servers[server_index]->ch[channel_index].mode_str[name_index]=NULL;
+
+					//and update the user count
+					servers[server_index]->ch[channel_index].nick_count--;
 				}
 				
 				//for handling later; just let us know we found a channel to output to
@@ -4229,7 +4263,7 @@ void parse_server(int server_index){
 	//respond to server pings, silently
 	if(!strcmp(command,"PING")){
 		char to_send[BUFFER_SIZE];
-		sprintf(to_send,"PONG :%s",parameters);
+		snprintf(to_send,BUFFER_SIZE,"PONG :%s",parameters);
 		server_write(server_index,to_send);
 	//if we got an error, close the link and clean up the structures
 	}else if(!strcmp(command,"ERROR")){
@@ -4350,11 +4384,11 @@ void parse_server(int server_index){
 				//nick already in use, so try a new one
 				}else if(!strcmp(command,"433")){
 					char new_nick[BUFFER_SIZE];
-					sprintf(new_nick,"%s_",servers[server_index]->fallback_nick);
+					snprintf(new_nick,BUFFER_SIZE,"%s_",servers[server_index]->fallback_nick);
 					//in case this fails again start with another _ for the next try
 					strncpy(servers[server_index]->fallback_nick,new_nick,BUFFER_SIZE);
 					
-					sprintf(new_nick,"NICK %s\n",servers[server_index]->fallback_nick);
+					snprintf(new_nick,BUFFER_SIZE,"NICK %s\n",servers[server_index]->fallback_nick);
 					server_write(server_index,new_nick);
 				}
 			//a message from another user
@@ -4643,7 +4677,7 @@ void read_server_data(){
 				
 				//note: if there's nothing in the parse_queue waiting then this does nothing but a copy from server_in_buffer
 				char tmp_buffer[2*BUFFER_SIZE];
-				sprintf(tmp_buffer,"%s%s",servers[server_index]->parse_queue,server_in_buffer);
+				snprintf(tmp_buffer,2*BUFFER_SIZE,"%s%s",servers[server_index]->parse_queue,server_in_buffer);
 				strncpy(servers[server_index]->parse_queue,tmp_buffer,2*BUFFER_SIZE);
 				
 				int queue_index;
@@ -4677,7 +4711,7 @@ void read_server_data(){
 					}else{
 						//tell the user this happened
 						char error_buffer[BUFFER_SIZE];
-						sprintf(error_buffer,"accirc: Err: read queue has overflowed (nothing we can do), clearing");
+						snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: read queue has overflowed (nothing we can do), clearing");
 						scrollback_output(server_index,0,error_buffer,TRUE);
 						
 						//we can't do anything but clear this and ignore it, since we could end up reading garbage data
@@ -4735,12 +4769,7 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 		strtolower(partial_nick,BUFFER_SIZE);
 		
 		//count the number of nicks in the current channel
-		int nick_count=0;
-		for(n=0;n<MAX_NAMES;n++){
-			if(servers[current_server]->ch[servers[current_server]->current_channel].user_names[n]!=NULL){
-				nick_count++;
-			}
-		}
+		int nick_count=servers[current_server]->ch[servers[current_server]->current_channel].nick_count;
 		
 		//create a structure to hold ALL matching nicks, so we can do aggregate operations
 		char *all_matching_nicks[MAX_NAMES];
@@ -4861,17 +4890,21 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 		}else if(tab_completions>=COMPLETION_ATTEMPTS){
 			//the entire line we'll output, we're gonna append to this a lot
 			char output_text[BUFFER_SIZE];
-			sprintf(output_text,"accirc: Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->ch[servers[current_server]->current_channel].name);
+			snprintf(output_text,BUFFER_SIZE,"accirc: Attempted to complete %i times in %s; possible completions are: ",tab_completions,servers[current_server]->ch[servers[current_server]->current_channel].name);
 			
 			//output the array we just made of nicks that are acceptable (but non-unique) completions
 			int output_nicks=0;
 			int n;
 			for(n=0;n<nick_count;n++){
 				if(all_matching_nicks[n]!=NULL){
+					//NOTE: source and destination strings cannot be the same for snprintf, which is why a separate temporary buffer is needed
+					char tmp_buffer[BUFFER_SIZE];
 					if(output_nicks<MAX_OUTPUT_NICKS){
-						sprintf(output_text,"%s%s ",output_text,all_matching_nicks[n]);
+						snprintf(tmp_buffer,BUFFER_SIZE,"%s%s ",output_text,all_matching_nicks[n]);
+						strncpy(output_text,tmp_buffer,BUFFER_SIZE);
 					}else if(output_nicks==MAX_OUTPUT_NICKS){
-						sprintf(output_text,"%s%s",output_text,LINE_OVERFLOW_ERROR);
+						snprintf(tmp_buffer,BUFFER_SIZE,"%s%s",output_text,LINE_OVERFLOW_ERROR);
+						strncpy(output_text,tmp_buffer,BUFFER_SIZE);
 					}
 					output_nicks++;
 				}
@@ -4964,19 +4997,19 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 				c=wgetch(user_input);
 				switch(c){
 					case KEY_UP:
-						sprintf(key_combo_buffer,"%csl",client_escape);
+						snprintf(key_combo_buffer,BUFFER_SIZE,"%csl",client_escape);
 						parse_input(key_combo_buffer,FALSE);
 						break;
 					case KEY_DOWN:
-						sprintf(key_combo_buffer,"%csr",client_escape);
+						snprintf(key_combo_buffer,BUFFER_SIZE,"%csr",client_escape);
 						parse_input(key_combo_buffer,FALSE);
 						break;
 					case KEY_LEFT:
-						sprintf(key_combo_buffer,"%ccl",client_escape);
+						snprintf(key_combo_buffer,BUFFER_SIZE,"%ccl",client_escape);
 						parse_input(key_combo_buffer,FALSE);
 						break;
 					case KEY_RIGHT:
-						sprintf(key_combo_buffer,"%ccr",client_escape);
+						snprintf(key_combo_buffer,BUFFER_SIZE,"%ccr",client_escape);
 						parse_input(key_combo_buffer,FALSE);
 						break;
 					//alt+tab is a literal tab character, since tab-completion is done on regular tab
@@ -5015,25 +5048,25 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 //			case ALT_UP:
 			//f3
 			case 267:
-				sprintf(key_combo_buffer,"%csl",client_escape);
+				snprintf(key_combo_buffer,BUFFER_SIZE,"%csl",client_escape);
 				parse_input(key_combo_buffer,FALSE);
 				break;
 //			case ALT_DOWN:
 			//f4
 			case 268:
-				sprintf(key_combo_buffer,"%csr",client_escape);
+				snprintf(key_combo_buffer,BUFFER_SIZE,"%csr",client_escape);
 				parse_input(key_combo_buffer,FALSE);
 				break;
 //			case ALT_LEFT:
 			//f1
 			case 265:
-				sprintf(key_combo_buffer,"%ccl",client_escape);
+				snprintf(key_combo_buffer,BUFFER_SIZE,"%ccl",client_escape);
 				parse_input(key_combo_buffer,FALSE);
 				break;
 //			case ALT_RIGHT:
 			//f2
 			case 266:
-				sprintf(key_combo_buffer,"%ccr",client_escape);
+				snprintf(key_combo_buffer,BUFFER_SIZE,"%ccr",client_escape);
 				parse_input(key_combo_buffer,FALSE);
 				break;
 			//user hit enter, meaning parse and handle the user's input
@@ -5066,12 +5099,12 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 				break;
 //			case KEY_PGUP:
 			case 339:
-				sprintf(key_combo_buffer,"%cup",client_escape);
+				snprintf(key_combo_buffer,BUFFER_SIZE,"%cup",client_escape);
 				parse_input(key_combo_buffer,FALSE);
 				break;
 //			case KEY_PGDN:
 			case 338:
-				sprintf(key_combo_buffer,"%cdown",client_escape);
+				snprintf(key_combo_buffer,BUFFER_SIZE,"%cdown",client_escape);
 				parse_input(key_combo_buffer,FALSE);
 				break;
 			//handle text entry history
@@ -5301,15 +5334,15 @@ int main(int argc, char *argv[]){
 	char error_file_buffer[BUFFER_SIZE];
 	char *home_dir=getenv("HOME");
 	if(home_dir!=NULL){
-		sprintf(error_file_buffer,"%s/.local/",home_dir);
+		snprintf(error_file_buffer,BUFFER_SIZE,"%s/.local/",home_dir);
 		verify_or_make_dir(error_file_buffer);
-		sprintf(error_file_buffer,"%s/.local/share",home_dir);
+		snprintf(error_file_buffer,BUFFER_SIZE,"%s/.local/share",home_dir);
 		verify_or_make_dir(error_file_buffer);
-		sprintf(error_file_buffer,"%s/.local/share/accirc",home_dir);
+		snprintf(error_file_buffer,BUFFER_SIZE,"%s/.local/share/accirc",home_dir);
 		verify_or_make_dir(error_file_buffer);
-		sprintf(error_file_buffer,"%s/.local/share/accirc/%s",home_dir,ERROR_FILE);
+		snprintf(error_file_buffer,BUFFER_SIZE,"%s/.local/share/accirc/%s",home_dir,ERROR_FILE);
 	}else{
-		sprintf(error_file_buffer,ERROR_FILE);
+		snprintf(error_file_buffer,BUFFER_SIZE,ERROR_FILE);
 	}
 	
 	//try to make an error log file, if that's impossible just use stderr
@@ -5331,15 +5364,15 @@ int main(int argc, char *argv[]){
 	//ensure appropriate directories exist for config and logs
 	char log_dir[BUFFER_SIZE];
 	if(home_dir!=NULL){
-		sprintf(log_dir,"%s/.local/",home_dir);
+		snprintf(log_dir,BUFFER_SIZE,"%s/.local/",home_dir);
 		verify_or_make_dir(log_dir);
-		sprintf(log_dir,"%s/.local/share",home_dir);
+		snprintf(log_dir,BUFFER_SIZE,"%s/.local/share",home_dir);
 		verify_or_make_dir(log_dir);
-		sprintf(log_dir,"%s/.local/share/accirc",home_dir);
+		snprintf(log_dir,BUFFER_SIZE,"%s/.local/share/accirc",home_dir);
 		verify_or_make_dir(log_dir);
-		sprintf(log_dir,"%s/.local/share/accirc/%s",home_dir,LOGGING_DIRECTORY);
+		snprintf(log_dir,BUFFER_SIZE,"%s/.local/share/accirc/%s",home_dir,LOGGING_DIRECTORY);
 	}else{
-		sprintf(log_dir,LOGGING_DIRECTORY);
+		snprintf(log_dir,BUFFER_SIZE,LOGGING_DIRECTORY);
 	}
 	
 	//not making log dir is a non-fatal error
@@ -5364,9 +5397,9 @@ int main(int argc, char *argv[]){
 	}
 	
 	//by default the time format is unix time, this can be changed with the "time_format" client command
-	sprintf(time_format,"%%s");
+	snprintf(time_format,BUFFER_SIZE,"%%s");
 	//by default the software CTCP version string is the real version of the software
-	sprintf(custom_version,"accidental_irc v%s compiled %s %s",VERSION,__DATE__,__TIME__);
+	snprintf(custom_version,BUFFER_SIZE,"accidental_irc v%s compiled %s %s",VERSION,__DATE__,__TIME__);
 	//clear out ping phrase list (the in-use nickname is always considered a ping though)
 	for(n=0;n<MAX_PING_PHRASES;n++){
 		ping_phrases[n]=NULL;
@@ -5408,13 +5441,13 @@ int main(int argc, char *argv[]){
 	//store config in ~/.config/accirc/config.rc unless otherwise specified
 	if(strlen(rc_file)<1){
 		if(home_dir!=NULL){
-			sprintf(rc_file,"%s/.config",home_dir);
+			snprintf(rc_file,BUFFER_SIZE,"%s/.config",home_dir);
 			verify_or_make_dir(rc_file);
-			sprintf(rc_file,"%s/.config/accirc",home_dir);
+			snprintf(rc_file,BUFFER_SIZE,"%s/.config/accirc",home_dir);
 			verify_or_make_dir(rc_file);
-			sprintf(rc_file,"%s/.config/accirc/config.rc",home_dir);
+			snprintf(rc_file,BUFFER_SIZE,"%s/.config/accirc/config.rc",home_dir);
 		}else{
-			sprintf(rc_file,"config.rc");
+			snprintf(rc_file,BUFFER_SIZE,"config.rc");
 		}
 	}
 	
@@ -5427,22 +5460,22 @@ int main(int argc, char *argv[]){
 	if(easy_mode){
 		char easy_mode_buf[BUFFER_SIZE];
 		
-		sprintf(easy_mode_buf,"%calias nick %cnick",client_escape,server_escape);
+		snprintf(easy_mode_buf,BUFFER_SIZE,"%calias nick %cnick",client_escape,server_escape);
 		parse_input(easy_mode_buf,FALSE);
 		
-		sprintf(easy_mode_buf,"%calias join %cjoin",client_escape,server_escape);
+		snprintf(easy_mode_buf,BUFFER_SIZE,"%calias join %cjoin",client_escape,server_escape);
 		parse_input(easy_mode_buf,FALSE);
 		
-		sprintf(easy_mode_buf,"%calias part %cpart",client_escape,server_escape);
+		snprintf(easy_mode_buf,BUFFER_SIZE,"%calias part %cpart",client_escape,server_escape);
 		parse_input(easy_mode_buf,FALSE);
 		
-		sprintf(easy_mode_buf,"%calias quit %cexit",client_escape,client_escape);
+		snprintf(easy_mode_buf,BUFFER_SIZE,"%calias quit %cexit",client_escape,client_escape);
 		parse_input(easy_mode_buf,FALSE);
 		
-		sprintf(easy_mode_buf,"%calias msg %cprivmsg",client_escape,server_escape);
+		snprintf(easy_mode_buf,BUFFER_SIZE,"%calias msg %cprivmsg",client_escape,server_escape);
 		parse_input(easy_mode_buf,FALSE);
 		
-		sprintf(easy_mode_buf,"%ctime_format %%Y-%%m-%%d %%R:%%S",client_escape);
+		snprintf(easy_mode_buf,BUFFER_SIZE,"%ctime_format %%Y-%%m-%%d %%R:%%S",client_escape);
 		parse_input(easy_mode_buf,FALSE);
 	}
 	
