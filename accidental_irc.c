@@ -1627,12 +1627,15 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 }
 
 //refresh the bottom bar above the input area
-void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
+void refresh_statusbar(time_t *persistent_old_time, char *time_buffer, char *user_status_buffer){
 	time_t old_time=(*persistent_old_time);
 
+	//store the previous user status so we know if a change occurred
+	char old_user_status_buffer[BUFFER_SIZE];
+	strncpy(old_user_status_buffer,user_status_buffer,BUFFER_SIZE);
+	
 	//output for how many users are in the channel
-	char user_status[BUFFER_SIZE];
-	strncpy(user_status,"",BUFFER_SIZE);
+	strncpy(user_status_buffer,"",BUFFER_SIZE);
 	if(current_server>=0){
 		if(servers[current_server]->current_channel>0){
 			channel_info ch=servers[current_server]->ch[servers[current_server]->current_channel];
@@ -1640,7 +1643,7 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 				//the reason for the -1 here is because the channel name is within the user_name list
 				//for tab completion reasons
 				//but shouldn't be considered a user for this status count
-				snprintf(user_status,BUFFER_SIZE,"[%i users]-",ch.nick_count-1);
+				snprintf(user_status_buffer,BUFFER_SIZE,"[%i users]-",ch.nick_count-1);
 			}
 		}
 	}
@@ -1656,7 +1659,7 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 		strncpy(scroll_status,"[end]",BUFFER_SIZE);
 	}
 	
-	if(scrollback_end!=prev_scrollback_end){
+	if((scrollback_end!=prev_scrollback_end)||(strncmp(old_user_status_buffer,user_status_buffer,BUFFER_SIZE)!=0)){
 		//this is to "trick" the time check into updating even when it otherwise wouldn't have
 		old_time=0;
 		strncpy(time_buffer,"",BUFFER_SIZE);
@@ -1682,10 +1685,10 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer){
 			wprintw(bottom_border,time_buffer);
 			
 			int n;
-			for(n=strlen(time_buffer);n<(width-strlen(user_status)-strlen(scroll_status));n++){
+			for(n=strlen(time_buffer);n<(width-strlen(user_status_buffer)-strlen(scroll_status));n++){
 				wprintw(bottom_border,"-");
 			}
-			wprintw(bottom_border,user_status);
+			wprintw(bottom_border,user_status_buffer);
 			wprintw(bottom_border,scroll_status);
 			//refresh the window from the buffer
 			wrefresh(bottom_border);
@@ -3117,7 +3120,7 @@ void parse_input(char *input_buffer, char keep_history){
 		
 		//append this command to the current server's post_commands string
 		char tmp_buffer[(BUFFER_SIZE+2)*MAX_POST_LINES];
-		snprintf(tmp_buffer,BUFFER_SIZE,"%s%c%s\n",servers[current_server]->post_commands,server_escape,input_buffer);
+		snprintf(tmp_buffer,(BUFFER_SIZE+2)*MAX_POST_LINES,"%s%c%s\n",servers[current_server]->post_commands,server_escape,input_buffer);
 		strncpy(servers[current_server]->post_commands,tmp_buffer,(BUFFER_SIZE+2)*MAX_POST_LINES);
 		
 		//let the user know we did something
@@ -4953,7 +4956,7 @@ void kill_word(char *input_buffer, int *persistent_cursor_pos, int *persistent_i
 //listen for the next relevant thing to happen and handle it accordingly
 //this may be a user input or network read from any connected network
 //this is the body of the "main" loop, called from main
-void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *persistent_input_display_start, int *persistent_tab_completions, time_t *persistent_old_time, char *time_buffer, char *key_combo_buffer, char *pre_history){
+void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *persistent_input_display_start, int *persistent_tab_completions, time_t *persistent_old_time, char *time_buffer, char *user_status_buffer, char *key_combo_buffer, char *pre_history){
 	//make local variables out of the persistent variables from higher scopes
 	//note the persistent vars will be re-set to these values at the end of this function
 	int cursor_pos=(*persistent_cursor_pos);
@@ -5250,7 +5253,8 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	read_server_data();
 	
 	//refresh the bottom bar above the input area
-	refresh_statusbar(&old_time,time_buffer);
+	//this refresh once a second or when the display changes
+	refresh_statusbar(&old_time,time_buffer,user_status_buffer);
 	
 	//output the most up-to-date information about servers, channels, topics, and various whatnot
 	//(do this where changes occur so we're not CONSTANTLY refreshing, which causes flicker among other things)
@@ -5416,11 +5420,14 @@ int main(int argc, char *argv[]){
 	//declare some variables
 	//for the clock
 	char time_buffer[BUFFER_SIZE];
+	//for the user count display on the status bar
+	char user_status_buffer[BUFFER_SIZE];
 	//for user input
 	char input_buffer[BUFFER_SIZE];
 	for(n=0;n<BUFFER_SIZE;n++){
-		input_buffer[n]='\0';
 		time_buffer[n]='\0';
+		user_status_buffer[n]='\0';
+		input_buffer[n]='\0';
 	}
 	
 	//start ncurses interface
@@ -5519,7 +5526,7 @@ int main(int argc, char *argv[]){
 	//MAIN LOOP, everything between initialization and shutdown is HERE
 	while(!done){
 		//EVENT POLLING (tons of side-effects here, which is why we're passing a bunch of pointers)
-		event_poll(c,input_buffer,&cursor_pos,&input_display_start,&tab_completions,&old_time,time_buffer,key_combo_buffer,pre_history);
+		event_poll(c,input_buffer,&cursor_pos,&input_display_start,&tab_completions,&old_time,time_buffer,user_status_buffer,key_combo_buffer,pre_history);
 	}
 	
 	//now that we're done, close the error log file
