@@ -4276,9 +4276,10 @@ void parse_server(int server_index){
 		//(this is done automatically as a result of new_content being set true in scrollback_output)
 		refresh_server_list();
 		
-		//take out the trailing newline (accounting for the possibility of windows newlines
+		//take out the trailing newline (accounting for the possibility of windows newlines)
 		int newline_index=strfind("\r\n",servers[server_index]->read_buffer);
 		if(newline_index<0){
+			//the possibility, not the necessity; proper newlines are accepted also
 			newline_index=strfind("\n",servers[server_index]->read_buffer);
 		}
 		//NOTE: I can set this to be a substring of itself since I'm not overwriting anything during copy that I'll need
