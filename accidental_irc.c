@@ -53,6 +53,13 @@
 #define BREAK 0x03
 //(I know the IRC spec limits it to 512 but I'd like to have some extra room in case of client commands or something)
 #define BUFFER_SIZE 1024
+
+//TODO: create a linked list library that operates on void* and use that for servers, channels, name lists, aliases, ping phrases, and post lines
+//so that we don't have to set a fixed limit and so that when we're not using a large number of those we use less memory
+//because this allows arbitrary-length server lists and channel lists, we should also have the ability to scroll the view of these lists
+//this scroll should start with <- and end with -> and the arrows should be highlighted for pings on servers and channels that are currently out of the scroll view
+//this may necessitate a notion of cursor context, in which case we will need a way to track that cursor context
+
 //who's gonna be on more than 32 servers at once? really?
 #define MAX_SERVERS 32
 //same for channels
