@@ -11,8 +11,8 @@
 #define TRUE 1
 #define FALSE 0
 
-#define TEST_LIST_SIZE 8192
-#define TEST_DELETE_COUNT 512
+#define TEST_LIST_SIZE 256
+#define TEST_DELETE_COUNT 128
 
 int dlist_test(char be_verbose){
 	int failure_count=0;

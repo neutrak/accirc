@@ -37,6 +37,9 @@
 //utf-8
 #include <locale.h>
 
+//doubly-linked lists
+#include "dlist.h"
+
 //preprocessor defines
 #define TRUE 1
 #define FALSE 0
@@ -72,8 +75,6 @@
 #define MAX_ALIASES 64
 //maximum number of phrases which a user can be pingged on
 #define MAX_PING_PHRASES 64
-//maximum number of lines allowed to be delayed by a post command
-#define MAX_POST_LINES 64
 
 //for MIRC colors (these are indexes in an array)
 #define FOREGROUND 0
@@ -300,7 +301,8 @@ struct irc_connection {
 	//what message to wait for before sending subsequent commands
 	char post_type[BUFFER_SIZE];
 	//everything to parse after a given server message is received
-	char post_commands[MAX_POST_LINES*(BUFFER_SIZE+2)];
+	dlist_entry *post_commands;
+	
 	//whether, on this server, to rejoin channels when kicked
 	char rejoin_on_kick;
 	//the nick to use if the user's nick is already in use
@@ -389,8 +391,6 @@ char time_format[BUFFER_SIZE];
 char custom_version[BUFFER_SIZE];
 //whether or not we're currently listening for post commands
 char post_listen;
-//how many lines have been saved for post-message commands
-int post_listen_cnt;
 
 //determine if we're done
 char done;
@@ -734,7 +734,6 @@ char load_rc(char *rc_file){
 	if(!rc){
 		fprintf(error_file,"Warn: rc file not found, not executing anything on startup\n");
 		post_listen=FALSE;
-		post_listen_cnt=0;
 		return FALSE;
 	}else{
 		//read in the .rc, parse_input each line until the end
@@ -761,11 +760,9 @@ char load_rc(char *rc_file){
 		
 		fclose(rc);
 		post_listen=FALSE;
-		post_listen_cnt=0;
 		return TRUE;
 	}
 	post_listen=FALSE;
-	post_listen_cnt=0;
 	return TRUE;
 }
 
@@ -925,7 +922,7 @@ void properly_close(int server_index){
 	char reconnect_nick[BUFFER_SIZE];
 	char reconnect_fallback_nick[BUFFER_SIZE];
 	char reconnect_post_type[BUFFER_SIZE];
-	char reconnect_post_commands[(BUFFER_SIZE+2)*MAX_POST_LINES];
+	dlist_entry *reconnect_post_commands=NULL;
 	
 #ifdef _OPENSSL
 	//whether to use ssl when we reconnect
@@ -940,7 +937,7 @@ void properly_close(int server_index){
 		
 		//we'll automatically rejoin the channels we had on auto-join anyway, using the post command
 		strncpy(reconnect_post_type,servers[server_index]->post_type,BUFFER_SIZE);
-		strncpy(reconnect_post_commands,servers[server_index]->post_commands,(BUFFER_SIZE+2)*MAX_POST_LINES);
+		reconnect_post_commands=dlist_deep_copy(servers[server_index]->post_commands,sizeof(char)*(BUFFER_SIZE+2));
 		
 		strncpy(reconnect_nick,servers[server_index]->nick,BUFFER_SIZE);
 		
@@ -996,6 +993,8 @@ void properly_close(int server_index){
 			servers[server_index]->ch[n].actv=FALSE;
 		}
 	}
+	
+	dlist_free(servers[server_index]->post_commands,TRUE);
 	
 	free(servers[server_index]);
 	servers[server_index]=NULL;
@@ -1070,7 +1069,7 @@ void properly_close(int server_index){
 				//because on bouncer connections join may happen before the post_type message,
 				//and the commands might get leaked to a channel if they don't start with server_escape
 				strncpy(servers[current_server]->post_type,reconnect_post_type,BUFFER_SIZE);
-				strncpy(servers[current_server]->post_commands,reconnect_post_commands,(BUFFER_SIZE+2)*MAX_POST_LINES);
+				servers[current_server]->post_commands=dlist_deep_copy(reconnect_post_commands,(sizeof(char)*(BUFFER_SIZE+2)));
 				
 				//if you wanted to reconnect before you probably still want to
 				//this segfaults with parse_input but doesn't fail at all with just setting the value, not sure why that is
@@ -1083,6 +1082,10 @@ void properly_close(int server_index){
 			//else it was a timeout, so sorry, can't do anything, give up
 		}
 	}
+	
+	//free memory that was for a reconnect buffer
+	//if we needed it then we made a deep copy already in the serve structure
+	dlist_free(reconnect_post_commands,TRUE);
 	
 	//output
 	if(current_server<0){
@@ -2069,7 +2072,7 @@ void add_server(int server_index, int new_socket_fd, char *host, int port){
 	
 	//clear out the post information
 	strncpy(servers[server_index]->post_type,"",BUFFER_SIZE);
-	strncpy(servers[server_index]->post_commands,"",MAX_POST_LINES*(BUFFER_SIZE+2));
+	servers[server_index]->post_commands=NULL;
 	
 	//by default there is no new content on this server
 	//(because new server content is the OR of new channel content, and by default there is no new channel content)
@@ -2234,7 +2237,6 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 void connect_command(char *input_buffer, char *command, char *parameters, char ssl){
 	//if we were listening for post before, we aren't now, this is a new server!
 	post_listen=FALSE;
-	post_listen_cnt=0;
 	
 	char host[BUFFER_SIZE];
 	char port_buffer[BUFFER_SIZE];
@@ -3117,25 +3119,18 @@ void parse_input(char *input_buffer, char keep_history){
 	//NOTE: post ONLY delays /server/ commands, not client commands!
 	//if the lines are intended to be delayed then delay them
 	if(server_command && (current_server>=0) && post_listen && (!keep_history)){
-		//prevent errors by ignoring anything past what we can store
-		char notify_buffer[BUFFER_SIZE];
-		if(post_listen_cnt>=MAX_POST_LINES){
-			snprintf(notify_buffer,BUFFER_SIZE,"accirc: Warning: cannot store post-%s command \"%c%s\"; MAX_POST_LINES is %i",servers[current_server]->post_type,server_escape,input_buffer,MAX_POST_LINES);
-			scrollback_output(current_server,0,notify_buffer,TRUE);
-			return;
-		}
+		//NOTE: we used a linked list so there is no maximum number of commands we can store
 		
-		//append this command to the current server's post_commands string
-		char tmp_buffer[(BUFFER_SIZE+2)*MAX_POST_LINES];
-		snprintf(tmp_buffer,(BUFFER_SIZE+2)*MAX_POST_LINES,"%s%c%s\n",servers[current_server]->post_commands,server_escape,input_buffer);
-		strncpy(servers[current_server]->post_commands,tmp_buffer,(BUFFER_SIZE+2)*MAX_POST_LINES);
+		//append this command to the current server's post_commands
+		char *post_cmd_buffer=malloc(sizeof(char)*(BUFFER_SIZE+2));
+		snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE+2)),"%c%s\n",server_escape,input_buffer);
+		servers[current_server]->post_commands=dlist_append(servers[current_server]->post_commands,post_cmd_buffer);
 		
 		//let the user know we did something
+		char notify_buffer[BUFFER_SIZE];
 		snprintf(notify_buffer,BUFFER_SIZE,"accirc: Saving post-%s command \"%c%s\" for later",servers[current_server]->post_type,server_escape,input_buffer);
 		scrollback_output(current_server,0,notify_buffer,TRUE);
 		
-		//stop, wait for "hammertime" before we do anything else
-		post_listen_cnt++;
 		return;
 	//the user manually entered /post into the client, rather than putting it in an rc file
 	}else if(server_command && (current_server>=0) && post_listen){
@@ -4332,37 +4327,23 @@ void parse_server(int server_index){
 					//remember what server the user was on, because we need to hop over to the one that just sent us a message
 					int old_server=current_server;
 					current_server=server_index;
+
+					//let the user know we are going to do something
+					char notify_buffer[BUFFER_SIZE];
+					snprintf(notify_buffer,BUFFER_SIZE,"accirc: Sending %i post-%s commands now...",dlist_length(servers[current_server]->post_commands),servers[current_server]->post_type);
+					scrollback_output(current_server,0,notify_buffer,TRUE);
 					
-					//send the post commands (which are newline-separated)
+					//send the post commands (which are stored in a doubly-linekd list)
 					char tmp_command_buffer[BUFFER_SIZE];
-					int first_newline=strfind("\n",servers[server_index]->post_commands);
-					if(first_newline>=0){
-						int start_index=0;
-						int length=first_newline;
-						//loop through the post commands
-						while(start_index+length<strlen(servers[server_index]->post_commands)){
-							//send one
-							substr(tmp_command_buffer,servers[server_index]->post_commands,start_index,length);
-							parse_input(tmp_command_buffer,FALSE);
-							
-							//find the next one, if there is one
-							//the +1 here skips the newline itself
-							start_index=start_index+length+1;
-							length=0;
-							while(((start_index+length)<strlen(servers[server_index]->post_commands)) && (servers[server_index]->post_commands[start_index+length]!='\n')){
-								length++;
-							}
-						}
+					dlist_entry *post_command_entry=servers[server_index]->post_commands;
+					
+					//loop through the post commands
+					while(post_command_entry!=NULL){
+						//send one at a time
+						strncpy(tmp_command_buffer,(char *)(post_command_entry->data),BUFFER_SIZE+2);
+						parse_input(tmp_command_buffer,FALSE);
 						
-						//NOTE: there should be a trailing newline so this actually shouldn't need to be here
-						//(we build this data structure internally so this rule won't be violated by the user)
-						
-						//parse everything up to the end
-//						substr(tmp_command_buffer,servers[server_index]->post_commands,start_index,strlen(servers[server_index]->post_commands)-start_index);
-//						parse_input(tmp_command_buffer,FALSE);
-					//there was only one post command, just send that
-					}else{
-						parse_input(servers[server_index]->post_commands,FALSE);
+						post_command_entry=post_command_entry->next;
 					}
 					
 					//go back to the user-specified server now that we're done parsing
