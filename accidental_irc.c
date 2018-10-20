@@ -1084,7 +1084,7 @@ void properly_close(int server_index){
 	}
 	
 	//free memory that was for a reconnect buffer
-	//if we needed it then we made a deep copy already in the serve structure
+	//if we needed it then we made a deep copy already in the server structure
 	dlist_free(reconnect_post_commands,TRUE);
 	
 	//output
