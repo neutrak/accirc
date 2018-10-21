@@ -937,7 +937,7 @@ void properly_close(int server_index){
 		
 		//we'll automatically rejoin the channels we had on auto-join anyway, using the post command
 		strncpy(reconnect_post_type,servers[server_index]->post_type,BUFFER_SIZE);
-		reconnect_post_commands=dlist_deep_copy(servers[server_index]->post_commands,sizeof(char)*(BUFFER_SIZE+2));
+		reconnect_post_commands=dlist_deep_copy(servers[server_index]->post_commands,sizeof(char)*(BUFFER_SIZE+1));
 		
 		strncpy(reconnect_nick,servers[server_index]->nick,BUFFER_SIZE);
 		
@@ -1069,7 +1069,7 @@ void properly_close(int server_index){
 				//because on bouncer connections join may happen before the post_type message,
 				//and the commands might get leaked to a channel if they don't start with server_escape
 				strncpy(servers[current_server]->post_type,reconnect_post_type,BUFFER_SIZE);
-				servers[current_server]->post_commands=dlist_deep_copy(reconnect_post_commands,(sizeof(char)*(BUFFER_SIZE+2)));
+				servers[current_server]->post_commands=dlist_deep_copy(reconnect_post_commands,(sizeof(char)*(BUFFER_SIZE+1)));
 				
 				//if you wanted to reconnect before you probably still want to
 				//this segfaults with parse_input but doesn't fail at all with just setting the value, not sure why that is
@@ -3122,8 +3122,8 @@ void parse_input(char *input_buffer, char keep_history){
 		//NOTE: we used a linked list so there is no maximum number of commands we can store
 		
 		//append this command to the current server's post_commands
-		char *post_cmd_buffer=malloc(sizeof(char)*(BUFFER_SIZE+2));
-		snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE+2)),"%c%s\n",server_escape,input_buffer);
+		char *post_cmd_buffer=malloc(sizeof(char)*(BUFFER_SIZE+1));
+		snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE+1)),"%c%s\n",server_escape,input_buffer);
 		servers[current_server]->post_commands=dlist_append(servers[current_server]->post_commands,post_cmd_buffer);
 		
 		//let the user know we did something
@@ -4340,7 +4340,7 @@ void parse_server(int server_index){
 					//loop through the post commands
 					while(post_command_entry!=NULL){
 						//send one at a time
-						strncpy(tmp_command_buffer,(char *)(post_command_entry->data),BUFFER_SIZE+2);
+						strncpy(tmp_command_buffer,(char *)(post_command_entry->data),BUFFER_SIZE+1);
 						parse_input(tmp_command_buffer,FALSE);
 						
 						post_command_entry=post_command_entry->next;
