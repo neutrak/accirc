@@ -71,8 +71,6 @@
 #define MAX_SCROLLBACK 512
 //maximum number of users in a channel
 #define MAX_NAMES 2048
-//maximum number of phrases which a user can be pingged on
-#define MAX_PING_PHRASES 64
 
 //for MIRC colors (these are indexes in an array)
 #define FOREGROUND 0
@@ -382,7 +380,7 @@ int prev_scrollback_end;
 //any aliases the user has registered, stored in a doubly-linked list
 dlist_entry *alias_list;
 //ping phrases
-char *ping_phrases[MAX_PING_PHRASES];
+dlist_entry *ping_phrases;
 //format to output time in (used for scrollback_output and the clock)
 char time_format[BUFFER_SIZE];
 //a custom string for CTCP VERSION responses (leave blank for default, we'll just check strlen is 0)
@@ -1909,20 +1907,17 @@ void del_name(int server_index, int channel_index, char *name){
 
 //check if the user was pingged in the given text
 //returns earliest index >=0 of ping phrase found; -1 if no ping occurred
-int ping_phrase_check(char *lwr_nick, char *ping_phrase_ar[MAX_PING_PHRASES], char *chk_text){
+int ping_phrase_check(char *lwr_nick, dlist_entry *ping_phrases, char *chk_text){
 	//first check for the user's nick; this is always a ping, no matter what
 	int ping_idx=strfind(lwr_nick,chk_text);
 	int min_ping_idx=ping_idx;
 	
-	int n;
-	for(n=0;n<MAX_PING_PHRASES;n++){
-		//skip nulls in ping phrases; they're ignored
-		if(ping_phrase_ar[n]==NULL){
-			continue;
-		}
+	dlist_entry *ping_phrase_entry=ping_phrases;
+	while(ping_phrase_entry!=NULL){
+		char *ping_phrase=(char *)(ping_phrase_entry->data);
 		
 		//look for the ping phrase in the text string
-		ping_idx=strfind(ping_phrase_ar[n],chk_text);
+		ping_idx=strfind(ping_phrase,chk_text);
 		
 		//if the ping phrase was found
 		if(ping_idx>=0){
@@ -1932,6 +1927,8 @@ int ping_phrase_check(char *lwr_nick, char *ping_phrase_ar[MAX_PING_PHRASES], ch
 				min_ping_idx=ping_idx;
 			}
 		}
+		
+		ping_phrase_entry=ping_phrase_entry->next;
 	}
 	
 	//return first index of a ping phrase
@@ -2554,33 +2551,39 @@ char ping_toggle_command(char *parameters){
 	char lower_case_parameters[BUFFER_SIZE];
 	strncpy(lower_case_parameters,parameters,BUFFER_SIZE);
 	strtolower(lower_case_parameters,BUFFER_SIZE);
+
+	char *ping_phrase=NULL;
+
+	//until we find a phrase assume it's new
+	int found_ping_idx=-1;
 	
 	//look through the ping list to see if this phrase was already there
-	int n;
-	for(n=0;n<MAX_PING_PHRASES;n++){
-		//this phrase already existed in the ping list
-		//remove it and return as such
-		if((ping_phrases[n]!=NULL) && (strncmp(ping_phrases[n],parameters,BUFFER_SIZE)==0)){
-			free(ping_phrases[n]);
-			ping_phrases[n]=NULL;
-			return FALSE;
+	dlist_entry *ping_phrase_entry=ping_phrases;
+	int idx=0;
+	while(ping_phrase_entry!=NULL){
+		ping_phrase=(char *)(ping_phrase_entry->data);
+		if(strncmp(ping_phrase,parameters,BUFFER_SIZE)==0){
+			found_ping_idx=idx;
+			break;
 		}
+		
+		idx++;
+		ping_phrase_entry=ping_phrase_entry->next;
 	}
+	
+	if(found_ping_idx>=0){
+		//NOTE: we don't call dlist_free_entry directly because if the 0th item got deleted then our stored pointer needs to be updated
+		ping_phrases=dlist_delete_entry(ping_phrases,found_ping_idx,TRUE);
+		return FALSE;
+	}
+	
 	
 	//if we got here and didn't return, then the phrase was new
 	//add it, and return TRUE
-	for(n=0;n<MAX_PING_PHRASES;n++){
-		if(ping_phrases[n]==NULL){
-			ping_phrases[n]=(char*)malloc(sizeof(char)*BUFFER_SIZE);
-			strncpy(ping_phrases[n],lower_case_parameters,BUFFER_SIZE);
-			return TRUE;
-		}
-	}
-	
-	//in this case we've hit the maximum for ping phrases so we couldn't add another one
-	//so let the user know we failed, at least
-	// :(
-	return FALSE;
+	ping_phrase=malloc(sizeof(char)*BUFFER_SIZE);
+	strncpy(ping_phrase,lower_case_parameters,BUFFER_SIZE);
+	ping_phrases=dlist_append(ping_phrases,ping_phrase);
+	return TRUE;
 }
 
 //the "sl" client command (moves a server to the left)
@@ -5396,16 +5399,14 @@ int main(int argc, char *argv[]){
 		servers[n]=NULL;
 	}
 	
-	alias_list=NULL;
-	
 	//by default the time format is unix time, this can be changed with the "time_format" client command
 	snprintf(time_format,BUFFER_SIZE,"%%s");
 	//by default the software CTCP version string is the real version of the software
 	snprintf(custom_version,BUFFER_SIZE,"accidental_irc v%s compiled %s %s",VERSION,__DATE__,__TIME__);
 	//clear out ping phrase list (the in-use nickname is always considered a ping though)
-	for(n=0;n<MAX_PING_PHRASES;n++){
-		ping_phrases[n]=NULL;
-	}
+	ping_phrases=NULL;
+	//and clear out the alias list
+	alias_list=NULL;
 	
 	//location in input history, starting at "not looking at history" state
 	input_line=-1;
@@ -5539,12 +5540,8 @@ int main(int argc, char *argv[]){
 		}
 	}
 	//free the ping phrase list
-	for(n=0;n<MAX_PING_PHRASES;n++){
-		if(ping_phrases[n]!=NULL){
-			free(ping_phrases[n]);
-			ping_phrases[n]=NULL;
-		}
-	}
+	dlist_free(ping_phrases,TRUE);
+	ping_phrases=NULL;
 	
 	//end ncurses cleanly
 	endwin();
