@@ -71,8 +71,6 @@
 #define MAX_SCROLLBACK 512
 //maximum number of users in a channel
 #define MAX_NAMES 2048
-//maximum number of aliases that can be registered
-#define MAX_ALIASES 64
 //maximum number of phrases which a user can be pingged on
 #define MAX_PING_PHRASES 64
 
@@ -381,8 +379,8 @@ int input_line;
 int scrollback_end;
 //where the previous scrollback was, so we know if it changed
 int prev_scrollback_end;
-//any aliases the user has registered (initialized to all NULL)
-alias *alias_array[MAX_ALIASES];
+//any aliases the user has registered, stored in a doubly-linked list
+dlist_entry *alias_list;
 //ping phrases
 char *ping_phrases[MAX_PING_PHRASES];
 //format to output time in (used for scrollback_output and the clock)
@@ -2472,6 +2470,9 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 
 //the "alias" client command (registers a new alias in the substitution array)
 void alias_command(char *input_buffer, char *command, char *parameters){
+	//make a buffer in case we want to do output
+	char output_buffer[BUFFER_SIZE];
+	
 	//the first space-delimited item in parameters is the trigger to check
 	char trigger[BUFFER_SIZE];
 	char substitution[BUFFER_SIZE];
@@ -2481,6 +2482,10 @@ void alias_command(char *input_buffer, char *command, char *parameters){
 	if(first_space<0){
 		//write this to the error log, so the user can view it if they choose
 		fprintf(error_file,"Err: too few arguments given to \"%s\"\n",command);
+		if(current_server>=0){
+			snprintf(output_buffer,BUFFER_SIZE,"accirc: Err: too few arguments given to \"%s\" (put a space at the end if you meant to delete this alias)",command);
+			scrollback_output(current_server,0,output_buffer,TRUE);
+		}
 		return;
 	}
 	
@@ -2489,42 +2494,46 @@ void alias_command(char *input_buffer, char *command, char *parameters){
 	substr(substitution,parameters,first_space+strlen(" "),strlen(parameters)-first_space-strlen(" "));
 	
 	//until we find an alias we say it's new
-	char found_alias=FALSE;
+	int found_alias_idx=-1;
 	
 	//go through all aliased commands, see if this alias already exists
-	int n;
-	for(n=0;n<MAX_ALIASES;n++){
-		if(alias_array[n]!=NULL){
-			//NOTE: aliases are case-sensitive (intentionally)
-			if(!strncmp(trigger,alias_array[n]->trigger,BUFFER_SIZE)){
-				found_alias=TRUE;
-				break;
-			}
+	dlist_entry *alias_list_entry=alias_list;
+	alias *alias_item=NULL;
+	int idx=0;
+	while(alias_list_entry!=NULL){
+		alias_item=(alias *)(alias_list_entry->data);
+		//NOTE: aliases are case-sensitive (intentionally)
+		if(!strncmp(trigger,alias_item->trigger,BUFFER_SIZE)){
+			found_alias_idx=idx;
+			break;
 		}
+		
+		idx++;
+		alias_list_entry=alias_list_entry->next;
 	}
 	
 	//if we already had an alias for this, just change that one
-	if(found_alias){
+	if(found_alias_idx>=0){
 		if(!strcmp(substitution,"")){
-			free(alias_array[n]);
-			alias_array[n]=NULL;
+			//NOTE: we don't call dlist_free_entry directly because it might be the 0th item that gets deleted
+			//and in that case we need to get updated pointers
+			alias_list=dlist_delete_entry(alias_list,found_alias_idx,TRUE);
 		}else{
-			strncpy(alias_array[n]->substitution,substitution,BUFFER_SIZE);
+			//NOTE: because we did a break in the above loop, alias_item is still set to the list item at found_alias_idx
+			//so we don't need to find it again
+			strncpy(alias_item->substitution,substitution,BUFFER_SIZE);
 		}
-	//if it's a new alias look for the first NULL entry in the alias_array and slide it on in
+	//if it's a new alias then append it to the alias list
 	}else{
-		int n;
-		for(n=0;(n<MAX_ALIASES) && (alias_array[n]!=NULL);n++);
-		if((n<MAX_ALIASES) && (alias_array[n]==NULL)){
-			alias_array[n]=(alias*)(malloc(sizeof(alias)));
-			strncpy(alias_array[n]->trigger,trigger,BUFFER_SIZE);
-			strncpy(alias_array[n]->substitution,substitution,BUFFER_SIZE);
-		}
+		alias_item=(alias*)(malloc(sizeof(alias)));
+		strncpy(alias_item->trigger,trigger,BUFFER_SIZE);
+		strncpy(alias_item->substitution,substitution,BUFFER_SIZE);
+		
+		alias_list=dlist_append(alias_list,alias_item);
 	}
 	
-	//if possible, tell the user what's going on (if not possible, still do it, just be silent)
+	//if possible, tell the user what's going on (if it's not possible to output, still set the alias, just be silent)
 	if(current_server>=0){
-		char output_buffer[BUFFER_SIZE];
 		if(!strcmp(substitution,"")){
 			snprintf(output_buffer,BUFFER_SIZE,"accirc: deleted alias for \"%s\"",trigger);
 		}else{
@@ -2993,19 +3002,21 @@ void privmsg_command(char *input_buffer){
 //check for aliased commands, if one is found do the substitution and feed it back into parse_input without using history
 //returns TRUE if an alised substitution was made, else FALSE
 char handle_aliased_command(char *command, char *parameters){
-	int n;
-	for(n=0;n<MAX_ALIASES;n++){
-		if(alias_array[n]!=NULL){
-			//NOTE: aliases are not case-sensitive; this is intentional
-			//if a command is found to match, do the substitution and parse it again
-			if(!strncmp(alias_array[n]->trigger,command,BUFFER_SIZE)){
-				char new_command_buffer[BUFFER_SIZE];
-				snprintf(new_command_buffer,BUFFER_SIZE,"%s %s",alias_array[n]->substitution,parameters);
-				parse_input(new_command_buffer,FALSE);
-				
-				return TRUE;
-			}
+	dlist_entry *alias_list_entry=alias_list;
+	while(alias_list_entry!=NULL){
+		alias *alias_item=(alias *)(alias_list_entry->data);
+		
+		//NOTE: aliases are not case-sensitive; this is intentional
+		//if a command is found to match, do the substitution and parse it again
+		if(!strncmp(alias_item->trigger,command,BUFFER_SIZE)){
+			char new_command_buffer[BUFFER_SIZE];
+			snprintf(new_command_buffer,BUFFER_SIZE,"%s %s",alias_item->substitution,parameters);
+			parse_input(new_command_buffer,FALSE);
+			
+			return TRUE;
 		}
+		
+		alias_list_entry=alias_list_entry->next;
 	}
 	
 	//if we got here and didn't handle a command, there was no alias for that
@@ -5385,9 +5396,7 @@ int main(int argc, char *argv[]){
 		servers[n]=NULL;
 	}
 	
-	for(n=0;n<MAX_ALIASES;n++){
-		alias_array[n]=NULL;
-	}
+	alias_list=NULL;
 	
 	//by default the time format is unix time, this can be changed with the "time_format" client command
 	snprintf(time_format,BUFFER_SIZE,"%%s");
