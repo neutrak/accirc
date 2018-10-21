@@ -1912,6 +1912,7 @@ int ping_phrase_check(char *lwr_nick, dlist_entry *ping_phrases, char *chk_text)
 	int ping_idx=strfind(lwr_nick,chk_text);
 	int min_ping_idx=ping_idx;
 	
+	//then check for anything that user explicity set as a ping
 	dlist_entry *ping_phrase_entry=ping_phrases;
 	while(ping_phrase_entry!=NULL){
 		char *ping_phrase=(char *)(ping_phrase_entry->data);
