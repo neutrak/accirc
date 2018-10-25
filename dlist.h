@@ -158,3 +158,59 @@ dlist_entry *dlist_deep_copy(dlist_entry *old_list, unsigned int data_size){
 	return new_list;
 }
 
+//move a node from the old index to the new index
+//this performs a right-shift on the nodes after old_idx; it is NOT a swap operation!
+//NOTE: an insertion operation can be implemented as an append followed by a move
+//NOTE: list is passed as a pointer to a list because we're going to update it if old_idx=0 or new_idx=0,
+//which invalidates the previous start pointer
+int dlist_move_node(dlist_entry **list, int old_idx, int new_idx){
+	//if the source and destination were the same
+	//or if this is moving to a location that would, after the move, be shifted back
+	//then this is a no-op
+	if((old_idx==new_idx)||((old_idx+1)==new_idx)){
+		//do nothing and return the existing index
+		return old_idx;
+	}
+	
+	dlist_entry *prev=dlist_get_entry(*list,new_idx-1);
+	dlist_entry *next=dlist_get_entry(*list,new_idx);
+	
+	//NOTE: reconnection is known to be the last node in the list, by definition
+	dlist_entry *node_to_move=dlist_get_entry(*list,old_idx);
+	if(node_to_move!=NULL){
+		//decouple this node from its current index by re-setting the pointers
+		//for the nodes surrounding it to skip it
+		if(node_to_move->prev!=NULL){
+			node_to_move->prev->next=node_to_move->next;
+		//if prev was null then this node to move was previously the start of the list but will no longer be
+		//and the list pointer should be updated
+		}else{
+			*list=node_to_move->next;
+		}
+
+		if(node_to_move->next!=NULL){
+			node_to_move->next->prev=node_to_move->prev;
+		}
+		
+		//insert this node at the desired index, implicitly pushing the "next" node over one index
+		node_to_move->prev=prev;
+		node_to_move->next=next;
+		if(prev!=NULL){
+			prev->next=node_to_move;
+		//if prev was null then this moved node is now the start of the list and the list pointer should be updated
+		}else{
+			*list=node_to_move;
+		}
+		if(next!=NULL){
+			next->prev=node_to_move;
+		}
+		
+		//if the node was moved successfully then return the new index where it can be found
+		//correcting for the relevant shifts
+		return (new_idx>old_idx)?(new_idx-1):new_idx;
+	}
+	
+	//if the node was null then no index is valid so return -1 (garbage in, garbage out)
+	return -1;
+}
+

@@ -113,7 +113,7 @@
 //how much time (in seconds) to wait on a server to say something
 //before we just figure it's dead and disconnect
 //(and perhaps try to reconnect, depending on runtime state)
-#define SERVER_TIMEOUT 1200
+#define SERVER_TIMEOUT 600
 
 //how many lines are reserved for something other than the channel text
 //one for server list
@@ -935,6 +935,9 @@ int properly_close(int server_index){
 	if((server_index<0) || (server_index>=dlist_length(servers))){
 		return -1;
 	}
+	//remember where this server was in the list in case we reconnect
+	//in which case we want to preserve the server order
+	int reconnect_server_index=server_index;
 	
 	dlist_entry *server_entry=dlist_get_entry(servers,server_index);
 	irc_connection *server=(irc_connection *)(server_entry->data);
@@ -1024,8 +1027,12 @@ int properly_close(int server_index){
 	//delete this item from the global list of servers
 	servers=dlist_delete_entry(servers,server_index,TRUE);
 	
+	//if we were on a server after that one, then decrement current_server to stay on the same previously-active server
+	//as the index will change due to the list getting shorter
+	if(current_server>server_index){
+		current_server--;
 	//set a new current_server if we were on that one
-	if(current_server==server_index){
+	}else if(current_server==server_index){
 		current_server=(dlist_length(servers)>0)?0:-1;
 	}
 
@@ -1105,6 +1112,15 @@ int properly_close(int server_index){
 			//set the new server index as the return value of this function
 			server_index=next_server;
 			
+			//if the connection made was not at the same place as the previous connection
+			//then perform an insert at that location
+			if(next_server!=reconnect_server_index){
+				//set the updated (post-move) server index as the return value of this function
+				server_index=dlist_move_node(&servers,next_server,reconnect_server_index);
+				if(old_server>reconnect_server_index){
+					current_server=old_server-1;
+				}
+			}
 		}
 		//else it was a timeout, so sorry, can't do anything, give up
 	}
@@ -1112,7 +1128,7 @@ int properly_close(int server_index){
 	//free memory that was for a reconnect buffer
 	//if we needed it then we made a deep copy already in the server structure
 	dlist_free(reconnect_post_commands,TRUE);
-	
+
 	//output
 	if(current_server<0){
 		wblank(server_list,width,1);
@@ -1135,7 +1151,9 @@ int properly_close(int server_index){
 		refresh_channel_topic();
 		refresh_channel_text();
 	}
-	
+
+	//TODO: fix the segfault that occurs when any server is closed without being reconnected
+
 	return server_index;
 }
 
@@ -3398,6 +3416,7 @@ void parse_input(char *input_buffer, char keep_history){
 		//this set of command depends on being connected to a server, so first check that we are
 		}else if(current_server>=0){
 			irc_connection *server=get_server(current_server);
+			//TODO: update helper functions to take the server object instead of or in addition to current_server where appropriate
 			
 			//move a server to the left
 			if(!strcmp(command,"sl")){
@@ -4724,98 +4743,106 @@ void read_server_data(){
 	for(server_index=0;server_index<server_count;server_index++){
 		//if this is a valid server connection we have a buffer allocated
 		irc_connection *server=get_server(server_index);
-		if(server!=NULL){
-			//read a buffer_size at a time for speed (if you read a character at a time the kernel re-schedules that each operation)
-			char server_in_buffer[BUFFER_SIZE];
-			int bytes_transferred;
-			//the -1 here is so we always have a byte for null-termination
+		
+		//if this is not a valid server then stop
+		//valid servers are always in sequence because that's how the lists work,
+		//so one invalid server indicates we're done for this read loop
+		if(server==NULL){
+			break;
+		}
+		
+		//read a buffer_size at a time for speed (if you read a character at a time the kernel re-schedules that each operation)
+		char server_in_buffer[BUFFER_SIZE];
+		int bytes_transferred;
+		//the -1 here is so we always have a byte for null-termination
 #ifdef _OPENSSL
-			if(server->use_ssl){
-				bytes_transferred=SSL_read(server->ssl_handle,server_in_buffer,BUFFER_SIZE-1);
-			}else{
+		if(server->use_ssl){
+			bytes_transferred=SSL_read(server->ssl_handle,server_in_buffer,BUFFER_SIZE-1);
+		}else{
 #endif
-			bytes_transferred=read(server->socket_fd,server_in_buffer,BUFFER_SIZE-1);
+		bytes_transferred=read(server->socket_fd,server_in_buffer,BUFFER_SIZE-1);
 #ifdef _OPENSSL
+		}
+#endif
+		
+		if((bytes_transferred<=0)&&(errno!=EAGAIN)){
+			//handle connection errors gracefully here (as much as possible)
+			fprintf(error_file,"Err: connection error with server %i, host %s\n",server_index,server->server_name);
+			//if this server wasn't automatically reconnected
+			if(properly_close(server_index)<0){
+				//then cancel this read operation (we'll read buffers from other servers on the next cycle)
+				break;
 			}
-#endif
+		//if this server hasn't sent anything in a while, then assume it's dead and close it properly
+		//note if reconnect was set, a reconnection will be attempted
+		}else if((bytes_transferred<=0)&&(errno==EAGAIN)&&((time(NULL)-(server->last_msg_time))>=SERVER_TIMEOUT)){
+			//handle connection timeouts gracefully here (as much as possible)
+			fprintf(error_file,"Err: connection timed out with server %i, host %s\n",server_index,server->server_name);
+			if(properly_close(server_index)<0){
+				//then cancel this read operation (we'll read buffers from other servers on the next cycle)
+				break;
+			}
+		}else if(bytes_transferred>0){
+			//null-terminate the C string
+			server_in_buffer[bytes_transferred]='\0';
 			
-			if((bytes_transferred<=0)&&(errno!=EAGAIN)){
-				//handle connection errors gracefully here (as much as possible)
-				fprintf(error_file,"Err: connection error with server %i, host %s\n",server_index,server->server_name);
-				//if this server wasn't automatically reconnected
-				if(properly_close(server_index)<0){
-					//then decrement server index as the items after this will have shifted their indices down one to compensate
-					server_index--;
-				}
-			//if this server hasn't sent anything in a while, then assume it's dead and close it properly
-			//note if reconnect was set, a reconnection will be attempted
-			}else if((bytes_transferred<=0)&&(errno==EAGAIN)&&((time(NULL)-(server->last_msg_time))>=SERVER_TIMEOUT)){
-				//handle connection timeouts gracefully here (as much as possible)
-				fprintf(error_file,"Err: connection timed out with server %i, host %s\n",server_index,server->server_name);
-				if(properly_close(server_index)<0){
-					//then decrement server index as the items after this will have shifted their indices down one to compensate
-					server_index--;
-				}
-			}else if(bytes_transferred>0){
-				//null-terminate the C string
-				server_in_buffer[bytes_transferred]='\0';
-				
-				//note: if there's nothing in the parse_queue waiting then this does nothing but a copy from server_in_buffer
-				char tmp_buffer[2*BUFFER_SIZE];
-				snprintf(tmp_buffer,2*BUFFER_SIZE,"%s%s",server->parse_queue,server_in_buffer);
-				strncpy(server->parse_queue,tmp_buffer,2*BUFFER_SIZE);
-				
-				int queue_index;
-				char accumulator[BUFFER_SIZE];
-				
-				//clear the accumulator to initialize it
-				int n;
-				for(n=0;n<BUFFER_SIZE;n++){
-					accumulator[n]='\0';
-				}
-				
-				for(queue_index=0;server->parse_queue[queue_index]!='\0';queue_index++){
-					if(strinsert(accumulator,server->parse_queue[queue_index],strlen(accumulator),BUFFER_SIZE)){
-						if(server->parse_queue[queue_index]=='\n'){
-							//clear the existing read buffer
-							int n;
-							for(n=0;n<BUFFER_SIZE;n++){
-								server->read_buffer[n]='\0';
-							}
-							
-							strncpy(server->read_buffer,accumulator,BUFFER_SIZE);
-							server_index=parse_server(server_index);
-							strncpy(accumulator,"",BUFFER_SIZE);
-							
-							//if we just lost connection and cleaned up, stop
-							if(server_index<0){
-								break;
-							}
-						}
-					//oh shit, we overflowed the buffer
-					}else{
-						//tell the user this happened
-						char error_buffer[BUFFER_SIZE];
-						snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: read queue has overflowed (nothing we can do), clearing");
-						scrollback_output(server_index,0,error_buffer,TRUE);
-						
-						//we can't do anything but clear this and ignore it, since we could end up reading garbage data
+			//note: if there's nothing in the parse_queue waiting then this does nothing but a copy from server_in_buffer
+			char tmp_buffer[2*BUFFER_SIZE];
+			snprintf(tmp_buffer,2*BUFFER_SIZE,"%s%s",server->parse_queue,server_in_buffer);
+			strncpy(server->parse_queue,tmp_buffer,2*BUFFER_SIZE);
+			
+			int queue_index;
+			char accumulator[BUFFER_SIZE];
+			
+			//clear the accumulator to initialize it
+			int n;
+			for(n=0;n<BUFFER_SIZE;n++){
+				accumulator[n]='\0';
+			}
+			
+			for(queue_index=0;server->parse_queue[queue_index]!='\0';queue_index++){
+				if(strinsert(accumulator,server->parse_queue[queue_index],strlen(accumulator),BUFFER_SIZE)){
+					if(server->parse_queue[queue_index]=='\n'){
+						//clear the existing read buffer
 						int n;
 						for(n=0;n<BUFFER_SIZE;n++){
 							server->read_buffer[n]='\0';
 						}
 						
-						//treat this as a lost connection
-						server_index=properly_close(server_index);
-						break;
+						strncpy(server->read_buffer,accumulator,BUFFER_SIZE);
+						server_index=parse_server(server_index);
+						strncpy(accumulator,"",BUFFER_SIZE);
+						
+						//if we just lost connection and cleaned up, stop
+						if(server_index<0){
+							break;
+						}
 					}
+				//oh shit, we overflowed the buffer
+				}else{
+					//tell the user this happened
+					char error_buffer[BUFFER_SIZE];
+					snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: read queue has overflowed (nothing we can do), clearing");
+					scrollback_output(server_index,0,error_buffer,TRUE);
+					
+					//we can't do anything but clear this and ignore it, since we could end up reading garbage data
+					int n;
+					for(n=0;n<BUFFER_SIZE;n++){
+						server->read_buffer[n]='\0';
+					}
+					
+					//treat this as a lost connection
+					server_index=properly_close(server_index);
+					break;
 				}
-				
-				//if we didn't lose connection and clean up after parsing what we already got
-				if(server_index>=0){
-					//the parse queue is everything between the last newline and the end of the string
-					strncpy(server->parse_queue,accumulator,BUFFER_SIZE);
-				}
+			}
+			
+			//if we didn't lose connection and clean up after parsing what we already got
+			if(server_index>=0){
+				//the parse queue is everything between the last newline and the end of the string
+				strncpy(server->parse_queue,accumulator,BUFFER_SIZE);
+			}else{
+				break;
 			}
 		}
 	}

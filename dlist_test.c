@@ -85,6 +85,24 @@ int dlist_test(char be_verbose){
 		failure_count++;
 	}
 	
+	//perform a bunch of moves on the test list
+	for(n=0;(n<(TEST_DELETE_COUNT))&&(n<length);n++){
+		int old_idx=(rand()%length);
+		int ins_idx=(rand()%length);
+		int new_idx=dlist_move_node(&test_list,old_idx,ins_idx);
+		
+		//if the new index is higher than the old index then subtract one
+		//because it means the old index included a pass over the node which has now moved
+		if(ins_idx>old_idx){
+			ins_idx--;
+		}
+		
+		if(new_idx!=ins_idx){
+			printf("move node error; new_idx should be %i but is %i instead\n",ins_idx,new_idx);
+			failure_count++;
+		}
+	}
+	
 	//free the dlists
 	dlist_free(test_list,TRUE);
 	dlist_free(test_list_copy,TRUE);
