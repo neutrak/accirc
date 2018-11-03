@@ -69,8 +69,6 @@
 #define MAX_CHANNELS 32
 //the number of lines of scrollback to store (per channel, and for input history) (each line being BUFFER_SIZE chars long)
 #define MAX_SCROLLBACK 512
-//maximum number of users in a channel
-#define MAX_NAMES 2048
 
 //for MIRC colors (these are indexes in an array)
 #define FOREGROUND 0
@@ -245,6 +243,14 @@ char *morse_nums[]={
 
 //structures
 
+
+//a NICK struct that includes both user name and mode string so we don't have a weird parallel array setup
+typedef struct nick_info nick_info;
+struct nick_info {
+	char user_name[BUFFER_SIZE];
+	char mode_str[BUFFER_SIZE];
+};
+
 //this holds information for a single channel on a server
 typedef struct channel_info channel_info;
 struct channel_info {
@@ -260,12 +266,8 @@ struct channel_info {
 	//text in this channel
 	char *content[MAX_SCROLLBACK];
 	
-	//TODO: create a NICK struct that includes both user name and mode string so we don't have this weird parallel array setup
-	
-	//users in this channel
-	char *user_names[MAX_NAMES];
-	//mode strings for each user
-	char *mode_str[MAX_NAMES];
+	//users in this channel (data in nick_info structs)
+	dlist_entry *user_names;
 	
 	//store user count separately so we don't have to count it by iterating for non-nulls in the user_names array
 	unsigned int nick_count;
@@ -711,16 +713,18 @@ int nick_idx(channel_info *ch, const char *nick, int start_idx){
 	strtolower(lower_nick,BUFFER_SIZE);
 	
 	int idx=start_idx;
-	for(;idx<MAX_NAMES;idx++){
-		if(ch->user_names[idx]!=NULL){
-			char matching_name[BUFFER_SIZE];
-			strncpy(matching_name,ch->user_names[idx],BUFFER_SIZE);
-			strtolower(matching_name,BUFFER_SIZE);
-			
-			if(strncmp(matching_name,lower_nick,BUFFER_SIZE)==0){
-				return idx;
-			}
+	dlist_entry *nick_entry=dlist_get_entry(ch->user_names,start_idx);
+	while(nick_entry!=NULL){
+		nick_info *nick_content=(nick_info*)(nick_entry->data);
+		char matching_name[BUFFER_SIZE];
+		strncpy(matching_name,nick_content->user_name,BUFFER_SIZE);
+		strtolower(matching_name,BUFFER_SIZE);
+		if(strncmp(matching_name,lower_nick,BUFFER_SIZE)==0){
+			return idx;
 		}
+		
+		nick_entry=nick_entry->next;
+		idx++;
 	}
 	return -1;
 }
@@ -1009,14 +1013,7 @@ int properly_close(int server_index){
 				fclose(server->ch[n].log_file);
 			}
 			
-			for(n1=0;n1<MAX_NAMES;n1++){
-				if(server->ch[n].user_names[n1]!=NULL){
-					free(server->ch[n].user_names[n1]);
-				}
-				if(server->ch[n].mode_str[n1]!=NULL){
-					free(server->ch[n].mode_str[n1]);
-				}
-			}
+			dlist_free(server->ch[n].user_names,TRUE);
 			
 			server->ch[n].actv=FALSE;
 		}
@@ -1903,43 +1900,31 @@ void add_name(int server_index, int channel_index, char *name, const char *mode_
 	
 	int idx=0;
 	while(idx>=0){
-		idx=nick_idx(&(server->ch[channel_index]),name,idx);
+		idx=nick_idx(&(server->ch[channel_index]),name,0);
 		
 		//found this nick
 		if(idx>=0){
 			matches++;
-			//if it was a duplicate remove this copy
+			//if it was a duplicate
 			if(matches>1){
-				free(server->ch[channel_index].user_names[idx]);
-				server->ch[channel_index].user_names[idx]=NULL;
-				
-				free(server->ch[channel_index].mode_str[idx]);
-				server->ch[channel_index].mode_str[idx]=NULL;
+				//then remove this copy
+				//NOTE: this changes indexes so our next search must start at 0 to ensure we don't miss anything
+				server->ch[channel_index].user_names=dlist_delete_entry(server->ch[channel_index].user_names,idx,TRUE);
 				
 				server->ch[channel_index].nick_count--;
-				
 				matches--;
 			}
-			
-			//start the next search after this match
-			idx++;
 		}
 	}		
 	
 	//if the user wasn't already there
 	if(matches==0){
 		//find a spot for a new user
-		int n;
-		for(n=0;((server->ch[channel_index].user_names[n]!=NULL)&&(n<MAX_NAMES));n++);
-		if(n<MAX_NAMES){
-			server->ch[channel_index].user_names[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-			strncpy(server->ch[channel_index].user_names[n],name,BUFFER_SIZE);
-			
-			server->ch[channel_index].mode_str[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-			strncpy(server->ch[channel_index].mode_str[n],mode_str,BUFFER_SIZE);
-
-			server->ch[channel_index].nick_count++;
-		}
+		nick_info *nick_content=(nick_info *)(malloc(sizeof(nick_info)));
+		strncpy(nick_content->user_name,name,BUFFER_SIZE);
+		strncpy(nick_content->mode_str,mode_str,BUFFER_SIZE);
+		server->ch[channel_index].user_names=dlist_append(server->ch[channel_index].user_names,nick_content);
+		server->ch[channel_index].nick_count++;
 	}
 }
 
@@ -1954,22 +1939,15 @@ void del_name(int server_index, int channel_index, char *name){
 	if(server->ch[channel_index].actv){
 		int idx=0;
 		while(idx>=0){
-			idx=nick_idx(&(server->ch[channel_index]),name,idx);
+			idx=nick_idx(&(server->ch[channel_index]),name,0);
 			
 			//found this nick
 			if(idx>=0){
 				//remove this user from that channel's names array
-				free(server->ch[channel_index].user_names[idx]);
-				server->ch[channel_index].user_names[idx]=NULL;
-				
-				//and the mode string too
-				free(server->ch[channel_index].mode_str[idx]);
-				server->ch[channel_index].mode_str[idx]=NULL;
+				server->ch[channel_index].user_names=dlist_delete_entry(server->ch[channel_index].user_names,idx,TRUE);
 
 				//update the user count to note that we just lost a user
 				server->ch[channel_index].nick_count--;
-				
-				idx++;
 			}
 		}
 	}
@@ -2104,11 +2082,8 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	strncpy(server->fallback_nick,"",BUFFER_SIZE);
 	
 	//there are no users in the SERVER channel
-	for(n=0;n<MAX_NAMES;n++){
-		server->ch[0].user_names[n]=NULL;
-		server->ch[0].mode_str[n]=NULL;
-		server->ch[0].nick_count=0;
-	}
+	server->ch[0].user_names=NULL;
+	server->ch[0].nick_count=0;
 	
 	//channel content for server is empty, as is ping state
 	server->ch[0].new_content=FALSE;
@@ -2128,10 +2103,7 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 		for(n1=0;n1<MAX_SCROLLBACK;n1++){
 			server->ch[n].content[n1]=NULL;
 		}
-		for(n1=0;n1<MAX_NAMES;n1++){
-			server->ch[n].user_names[n1]=NULL;
-			server->ch[n].mode_str[n1]=NULL;
-		}
+		server->ch[n].user_names=NULL;
 		server->ch[n].nick_count=0;
 		server->ch[n].log_file=NULL;
 	}
@@ -2263,10 +2235,7 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 			server->ch[channel_index].content[n]=NULL;
 		}
 		
-		for(n=0;n<MAX_NAMES;n++){
-			server->ch[channel_index].user_names[n]=NULL;
-			server->ch[channel_index].mode_str[n]=NULL;
-		}
+		server->ch[channel_index].user_names=NULL;
 		server->ch[channel_index].nick_count=0;
 		
 		//if we should be keeping logs make sure we are
@@ -3053,7 +3022,9 @@ void privmsg_command(char *input_buffer){
 				//display channel modes with the nick if possible
 				int nick_ch_idx=nick_idx(&(server->ch[server->current_channel]),server->nick,0);
 				if((nick_ch_idx>=0) && (server->use_mode_str)){
-					strncpy(nick_mode_str,server->ch[server->current_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
+					dlist_entry *nick_entry=dlist_get_entry(server->ch[server->current_channel].user_names,nick_ch_idx);
+					nick_info *nick_content=(nick_info*)(nick_entry->data);
+					strncpy(nick_mode_str,nick_content->mode_str,BUFFER_SIZE);
 				}
 				
 				snprintf(output_buffer,BUFFER_SIZE,">> <%s%s> %s",nick_mode_str,server->nick,input_buffer);
@@ -3865,7 +3836,9 @@ void server_privmsg_command(irc_connection *server, int server_index, char *tmp_
 	//display channel modes with the nick if possible
 	int nick_ch_idx=nick_idx(&(server->ch[*output_channel]),nick,0);
 	if((nick_ch_idx>=0) && (server->use_mode_str)){
-		strncpy(nick_mode_str,server->ch[*output_channel].mode_str[nick_ch_idx],BUFFER_SIZE);
+		dlist_entry *nick_entry=dlist_get_entry(server->ch[*output_channel].user_names,nick_ch_idx);
+		nick_info *nick_content=(nick_info *)(nick_entry->data);
+		strncpy(nick_mode_str,nick_content->mode_str,BUFFER_SIZE);
 	}
 	
 	//this is so pings can be case-insensitive
@@ -4027,21 +4000,17 @@ void server_join_command(irc_connection *server, int server_index, char *tmp_buf
 				strncpy(lower_case_channel,server->ch[channel_index].name,BUFFER_SIZE);
 				strtolower(lower_case_channel,BUFFER_SIZE);
 				
+				//someone else joined a channel that we were in, and we just found that channel (case-insensitive)
 				if(!strncmp(lower_case_channel,channel,BUFFER_SIZE)){
-					//add this user to that channel's names array
-					int n;
-					for(n=0;(server->ch[channel_index].user_names[n]!=NULL)&&(n<MAX_NAMES);n++);
-					if(n<MAX_NAMES){
-						server->ch[channel_index].user_names[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-						strncpy(server->ch[channel_index].user_names[n],nick,BUFFER_SIZE);
-						
-						server->ch[channel_index].mode_str[n]=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
-						strncpy(server->ch[channel_index].mode_str[n],"",BUFFER_SIZE);
-
-						server->ch[channel_index].nick_count++;
-					}
+					//so add this user to that channel's names array
+					nick_info *nick_content=(nick_info *)(malloc(sizeof(nick_info)));
+					strncpy(nick_content->user_name,nick,BUFFER_SIZE);
+					strncpy(nick_content->mode_str,"",BUFFER_SIZE);
+					server->ch[channel_index].user_names=dlist_append(server->ch[channel_index].user_names,nick_content);
+					server->ch[channel_index].nick_count++;
 					
 					*output_channel=channel_index;
+					//break the loop since channels can't be duplicated
 					channel_index=MAX_CHANNELS;
 				}
 			}
@@ -4166,6 +4135,9 @@ void server_nick_command(irc_connection *server, int server_index, char *tmp_buf
 			int name_index=nick_idx(&(server->ch[channel_index]),nick,0);
 			//found it!
 			if(name_index>=0){
+				dlist_entry *nick_entry=dlist_get_entry(server->ch[channel_index].user_names,name_index);
+				nick_info *nick_content=(nick_info *)(nick_entry->data);
+				
 				//output to the appropriate channel
 				scrollback_output(server_index,channel_index,output_buffer,TRUE);
 				
@@ -4189,10 +4161,10 @@ void server_nick_command(irc_connection *server, int server_index, char *tmp_buf
 				//and so shouldn't be changed
 				if(server->ch[channel_index].is_pm==FALSE){
 					//update this user's entry in that channel's names array
-					strncpy(server->ch[channel_index].user_names[name_index],new_nick,BUFFER_SIZE);
+					strncpy(nick_content->user_name,new_nick,BUFFER_SIZE);
+					
+					//note modes do not change in the case of a nick change
 				}
-				
-				//note modes do not change in the case of a nick change
 				
 				//we found a channel with this nick, so we've already done special output
 				//no need to output again to server area
@@ -4288,7 +4260,7 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 		
 		int name_index=nick_idx(&(server->ch[*output_channel]),nick,0);
 		if(name_index>=0){
-			strncpy(server->ch[*output_channel].mode_str[name_index],new_mode_str,BUFFER_SIZE);
+			strncpy(((nick_info *)(dlist_get_entry(server->ch[*output_channel].user_names,name_index)->data))->mode_str,new_mode_str,BUFFER_SIZE);
 		}
 	}
 	
@@ -4314,13 +4286,7 @@ void server_quit_command(irc_connection *server, int server_index, char *tmp_buf
 				//since PMs aren't channels and you can't part from them
 				if(server->ch[channel_index].is_pm==FALSE){
 					//remove this user from that channel's names array
-					free(server->ch[channel_index].user_names[name_index]);
-					server->ch[channel_index].user_names[name_index]=NULL;
-					
-					//and the mode string
-					free(server->ch[channel_index].mode_str[name_index]);
-					server->ch[channel_index].mode_str[name_index]=NULL;
-
+					server->ch[channel_index].user_names=dlist_delete_entry(server->ch[channel_index].user_names,name_index,TRUE);
 					//and update the user count
 					server->ch[channel_index].nick_count--;
 				}
@@ -4882,41 +4848,33 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 		//lower case for case-insensitive matching
 		strtolower(partial_nick,BUFFER_SIZE);
 		
-		//count the number of nicks in the current channel
-		int nick_count=server->ch[server->current_channel].nick_count;
-		
 		//create a structure to hold ALL matching nicks, so we can do aggregate operations
-		char *all_matching_nicks[MAX_NAMES];
-		int matching_nicks_index=0;
+		dlist_entry *all_matching_nicks=NULL;
 		
 		//this counts the number of matches we got, we only want to complete on UNIQUE matches
 		int matching_nicks=0;
 		char last_matching_nick[BUFFER_SIZE];
 		//iterate through all tne nicks in this channel, if we find a unique match, complete it
-		for(n=0;n<MAX_NAMES;n++){
-			if(server->ch[server->current_channel].user_names[n]!=NULL){
-				char nick_to_match[BUFFER_SIZE];
-				strncpy(nick_to_match,server->ch[server->current_channel].user_names[n],BUFFER_SIZE);
-				strtolower(nick_to_match,BUFFER_SIZE);
+		dlist_entry *nick_entry=server->ch[server->current_channel].user_names;
+		for(;nick_entry!=NULL;nick_entry=nick_entry->next){
+			nick_info *nick_content=(nick_info *)(nick_entry->data);
+			
+			char nick_to_match[BUFFER_SIZE];
+			strncpy(nick_to_match,nick_content->user_name,BUFFER_SIZE);
+			strtolower(nick_to_match,BUFFER_SIZE);
+			
+			//if this nick started with the partial_nick
+			if(strfind(partial_nick,nick_to_match)==0){
+				//store in last matching nick
+				matching_nicks++;
+				strncpy(last_matching_nick,nick_content->user_name,BUFFER_SIZE);
 				
-				//if this nick started with the partial_nick
-				if(strfind(partial_nick,nick_to_match)==0){
-					//store in last matching nick
-					matching_nicks++;
-					strncpy(last_matching_nick,server->ch[server->current_channel].user_names[n],BUFFER_SIZE);
-					
-					//store in aggregate along with other matching nicks
-					all_matching_nicks[matching_nicks_index]=(char*)malloc(sizeof(char)*BUFFER_SIZE);
-					strncpy(all_matching_nicks[matching_nicks_index],last_matching_nick,BUFFER_SIZE);
-					matching_nicks_index++;
-				}
+				//store in aggregate along with other matching nicks
+				nick_info *matching_nick=(nick_info *)(malloc(sizeof(nick_info)));
+				strncpy(matching_nick->user_name,nick_content->user_name,BUFFER_SIZE);
+				strncpy(matching_nick->mode_str,nick_content->mode_str,BUFFER_SIZE);
+				all_matching_nicks=dlist_append(all_matching_nicks,matching_nick);
 			}
-		}
-		
-		//null out any spaces we didn't use in the matching nicks array
-		while(matching_nicks_index<nick_count){
-			all_matching_nicks[matching_nicks_index]=NULL;
-			matching_nicks_index++;
 		}
 		
 		//if this was a unique match
@@ -4954,30 +4912,31 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 			do{
 				agreement=FALSE;
 				//look through all the possible matches to see what they want to complete to
-				int n;
-				for(n=0;n<nick_count;n++){
-					if(all_matching_nicks[n]!=NULL){
-						//if this nick is longer than what the user typed so far
-						int nick_idx=(strlen(partial_nick)+chars_inserted);
-						if(strlen(all_matching_nicks[n])>nick_idx){
-							//if this is the first nick we checked then it gets to say what the next char should be
-							if(!next_char_set){
-								next_char=all_matching_nicks[n][nick_idx];
-								next_char_set=TRUE;
-								agreement=TRUE;
-							//if this isn't the first nick and we found a different (competing) completion then disagreement!!!
-							}else if(next_char!=all_matching_nicks[n][nick_idx]){
-								agreement=FALSE;
-								//break out of the loop
-								n=nick_count;
-							}
-						//if this nick is NOT longer than what the user already has completed then stop. right. now.
-						}else{
-							//if there was agreement and the partial completion was as long as the nick two users would have the same name!
+				dlist_entry *matching_nick_entry=all_matching_nicks;
+				for(;matching_nick_entry!=NULL;matching_nick_entry=matching_nick_entry->next){
+					//if this nick is longer than what the user typed so far
+					int nick_idx=(strlen(partial_nick)+chars_inserted);
+					char *matching_nick=(((nick_info *)(matching_nick_entry->data))->user_name);
+					
+					if(strlen(matching_nick)>nick_idx){
+						//if this is the first nick we checked then it gets to say what the next char should be
+						if(!next_char_set){
+							next_char=matching_nick[nick_idx];
+							next_char_set=TRUE;
+							agreement=TRUE;
+						//if this isn't the first nick and we found a different (competing) completion
+						//then there is disagreement!!!
+						}else if(next_char!=matching_nick[nick_idx]){
 							agreement=FALSE;
 							//break out of the loop
-							n=nick_count;
+							break;
 						}
+					//if this nick is NOT longer than what the user already has completed then stop. right. now.
+					}else{
+						//if there was agreement and the partial completion was as long as the nick then two users would have the same name!
+						agreement=FALSE;
+						//break out of the loop
+						break;
 					}
 				}
 				//if everybody agreed then go ahead and type the next character out
@@ -5008,20 +4967,20 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 			
 			//output the array we just made of nicks that are acceptable (but non-unique) completions
 			int output_nicks=0;
-			int n;
-			for(n=0;n<nick_count;n++){
-				if(all_matching_nicks[n]!=NULL){
-					//NOTE: source and destination strings cannot be the same for snprintf, which is why a separate temporary buffer is needed
-					char tmp_buffer[BUFFER_SIZE];
-					if(output_nicks<MAX_OUTPUT_NICKS){
-						snprintf(tmp_buffer,BUFFER_SIZE,"%s%s ",output_text,all_matching_nicks[n]);
-						strncpy(output_text,tmp_buffer,BUFFER_SIZE);
-					}else if(output_nicks==MAX_OUTPUT_NICKS){
-						snprintf(tmp_buffer,BUFFER_SIZE,"%s%s",output_text,LINE_OVERFLOW_ERROR);
-						strncpy(output_text,tmp_buffer,BUFFER_SIZE);
-					}
-					output_nicks++;
+			dlist_entry *nick_entry=all_matching_nicks;
+			for(;nick_entry!=NULL;nick_entry=nick_entry->next){
+				nick_info *nick_content=(nick_info *)(nick_entry->data);
+				
+				//NOTE: source and destination strings cannot be the same for snprintf, which is why a separate temporary buffer is needed
+				char tmp_buffer[BUFFER_SIZE];
+				if(output_nicks<MAX_OUTPUT_NICKS){
+					snprintf(tmp_buffer,BUFFER_SIZE,"%s%s ",output_text,nick_content->user_name);
+					strncpy(output_text,tmp_buffer,BUFFER_SIZE);
+				}else if(output_nicks==MAX_OUTPUT_NICKS){
+					snprintf(tmp_buffer,BUFFER_SIZE,"%s%s",output_text,LINE_OVERFLOW_ERROR);
+					strncpy(output_text,tmp_buffer,BUFFER_SIZE);
 				}
+				output_nicks++;
 			}
 			scrollback_output(current_server,server->current_channel,output_text,TRUE);
 			
@@ -5035,11 +4994,8 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 		}
 		
 		//free the matching nicks array, we're done with it now
-		for(n=0;n<nick_count;n++){
-			if(all_matching_nicks[n]!=NULL){
-				free(all_matching_nicks[n]);
-			}
-		}
+		dlist_free(all_matching_nicks,TRUE);
+		all_matching_nicks=NULL;
 	}
 	
 	return tab_completions;
