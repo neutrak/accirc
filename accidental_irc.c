@@ -57,7 +57,7 @@
 //(I know the IRC spec limits it to 512 but I'd like to have some extra room in case of client commands or something)
 #define BUFFER_SIZE 1024
 
-//NOTE: dlist is a linked list library that operates on void* and is used for servers, channels (coming soon!), name lists (coming soon!), aliases, ping phrases, and post lines
+//NOTE: dlist is a linked list library that operates on void* and is used for servers, channels (coming soon!), name lists, aliases, ping phrases, and post lines
 //so that we don't have to set a fixed limit and so that when we're not using a large number of those we use less memory
 
 //TODO: 
