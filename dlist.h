@@ -129,7 +129,6 @@ dlist_entry *dlist_delete_entry(dlist_entry *list, int idx, char free_data) {
 			//NOTE: a 0-length list and a NULL pointer are the same thing
 			ret=ret->next;
 		}
-//		printf("[dbg] dlist_free_entry being called on index %i, item=%p\n",idx,item);
 		dlist_free_entry(item,free_data);
 	}
 	return ret;
@@ -212,5 +211,93 @@ int dlist_move_node(dlist_entry **list, int old_idx, int new_idx){
 	
 	//if the node was null then no index is valid so return -1 (garbage in, garbage out)
 	return -1;
+}
+
+//swap two nodes within the list and return the updated list with those items swapped
+dlist_entry *dlist_swap(dlist_entry *list, int a_idx, int b_idx){
+	//swapping an item with itself is a no-op
+	if(a_idx==b_idx){
+		return list;
+	}
+	
+	dlist_entry *a_item=dlist_get_entry(list,a_idx);
+	dlist_entry *b_item=dlist_get_entry(list,b_idx);
+	
+	//if either of the items to swap was null (e.g. an index >= the length of the list)
+	//then this is a no-op because we can't swap anything with nothing
+	if(a_item==NULL || b_item==NULL){
+		return list;
+	}
+	
+	//get references to the items/nodes/entries immediately surrounding a_item and b_item
+	
+	dlist_entry *a_prev=a_item->prev;
+	dlist_entry *a_next=a_item->next;
+	
+	dlist_entry *b_prev=b_item->prev;
+	dlist_entry *b_next=b_item->next;
+	
+	//if a and b are next to each other then we have to handle that specially
+	//to prevent pointer loops that would be caused by the more generic handling
+	if(b_prev==a_item){
+		//update nodes locally
+		//since they are next to each other and a->b
+		//we can change that to be next to each other with b->a without effecting surrounding nodes
+		
+		a_item->next=b_next;
+		a_item->prev=b_item;
+		b_item->next=a_item;
+		b_item->prev=a_prev;
+		
+		//update surrounding nodes if needed in order to reference the updated two-node chain
+		if(a_prev!=NULL){
+			a_prev->next=b_item;
+		}
+		if(b_next!=NULL){
+			b_next->prev=a_item;
+		}
+	//if a and b are next to each other but in the other order (b->a)
+	}else if(a_prev==b_item){
+		//recurse to swap indices and prevent code duplication
+		//because swap doesn't inherently depend on argument order
+		return dlist_swap(list,b_idx,a_idx);
+	}else{
+		//update any non-null surrounding nodes to point to the new item
+		
+		if(a_prev!=NULL){
+			a_prev->next=b_item;
+		}
+		if(a_next!=NULL){
+			a_next->prev=b_item;
+		}
+		
+		if(b_prev!=NULL){
+			b_prev->next=a_item;
+		}
+		if(b_next!=NULL){
+			b_next->prev=a_item;
+		}
+
+		//update the pointers within the nodes to maintain the chain
+		
+		a_item->prev=b_prev;
+		a_item->next=b_next;
+		
+		b_item->prev=a_prev;
+		b_item->next=a_next;
+	}
+
+	//if one of these items is at the start of the list, then return that item
+	//since the start of the list might have changed due to this operation
+	
+	if(a_item->prev==NULL){
+		return a_item;
+	}
+	if(b_item->prev==NULL){
+		return b_item;
+	}
+	
+	//otherwise return the same list start pointer as before
+	return list;
 }
 

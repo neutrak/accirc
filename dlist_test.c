@@ -102,6 +102,26 @@ int dlist_test(char be_verbose){
 			failure_count++;
 		}
 	}
+
+	//peform a bunch of swaps on the test list
+	for(n=0;n<(length*4);n++){
+		int a_idx=(rand()%length);
+		int b_idx=(rand()%length);
+		
+		int a_data=(*(int *)(dlist_get_entry(test_list,a_idx)->data));
+		int b_data=(*(int *)(dlist_get_entry(test_list,b_idx)->data));
+		
+		test_list=dlist_swap(test_list,a_idx,b_idx);
+		
+		if((*(int *)(dlist_get_entry(test_list,a_idx)->data))!=b_data){
+			printf("swap failed; item at index %i was not %i\n",a_idx,b_data);
+			failure_count++;
+		}
+		if((*(int *)(dlist_get_entry(test_list,b_idx)->data))!=a_data){
+			printf("swap failed; item at index %i was not %i\n",b_idx,a_data);
+			failure_count++;
+		}
+	}
 	
 	//free the dlists
 	dlist_free(test_list,TRUE);
