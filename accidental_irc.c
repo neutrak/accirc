@@ -151,6 +151,10 @@ char *command_list[]={
 	"/down -> scrolls down one line",
 	"/head -> scrolls to first line in buffer",
 	"/tail -> scrolls to last line in buffer",
+	"/swcl -> swap current channel for channel to the left of it in the channel list",
+	"/swcr -> swap current channel for channel to the right of it in the channel list",
+	"/swsl -> swap current server for server to the left of it in the server list",
+	"/swsr -> swap current server for server to the left of it in the server list",
 	"/hi <nick> -> opens a faux channel for PM-ing with the user named <nick>",
 	"/bye -> closes the actively selected faux-pm channel",
 	"/sl -> server left",
@@ -3118,6 +3122,52 @@ void swap_channel(int server_idx, int delta){
 	refresh_channel_list();
 }
 
+//swap server with a nearby server
+//the delta determines the direction to move in
+void swap_server(int server_idx, int delta){
+	int srvr_count=dlist_length(servers);
+	
+	//if there are fewer than two channels, then swapping doesn't do anything
+	//so this is a no-op
+	if(srvr_count<2){
+		return;
+	}
+	
+	int cur_idx=server_idx;
+	
+	//find the index to swap with based on the delta
+	int swap_idx=cur_idx+delta;
+	
+	//if we hit either end, wrap around
+	if(swap_idx<0){
+		swap_idx=srvr_count-1;
+	}else if(swap_idx>(srvr_count-1)){
+		swap_idx=0;
+	}
+	if(cur_idx==swap_idx){
+		scrollback_output(current_server,0,"accirc: Warn: Ignoring swap_server call because it would swap a server with itself, which is meaningless...",TRUE);
+		return;
+	}
+	
+	irc_connection *cur_srvr=get_server(cur_idx);
+	irc_connection *swap_srvr=get_server(swap_idx);
+	
+	servers=dlist_swap(servers,cur_idx,swap_idx);
+
+	//set the swap point to be the current server
+	//since at the time of command issue it was the current server
+	current_server=swap_idx;
+	
+	//let the user know we swapped servers
+	char notify_buffer[BUFFER_SIZE];
+	snprintf(notify_buffer,BUFFER_SIZE,"accirc: Swapped server %s and server %s in server list",cur_srvr->server_name,swap_srvr->server_name);
+	scrollback_output(current_server,0,notify_buffer,TRUE);
+	
+	//and lastly update the channel list
+	refresh_channel_list();
+}
+
+
 //END parse_input HELPER FUNCTIONS
 
 //parse user's input (note this is conextual based on current server and channel)
@@ -3488,13 +3538,17 @@ void parse_input(char *input_buffer, char keep_history){
 			}else if(!strcmp(command,"tail")){
 				tail_command();
 			//swap channel with the channel one index left
-			}else if(!strcmp(command,"scl")){
+			}else if((!strcmp(command,"scl"))||(!strcmp(command,"swcl"))){
 				swap_channel(current_server,-1);
 			//swap channel with the channel one index right
-			}else if(!strcmp(command,"scr")){
+			}else if((!strcmp(command,"scr"))||(!strcmp(command,"swcr"))){
 				swap_channel(current_server,1);
-			//TODO: add swap server left and swap server right commands
-			
+			//swap server with the server one index left
+			}else if(!strcmp(command,"swsl")){
+				swap_server(current_server,-1);
+			//swap server with the server one index right
+			}else if(!strcmp(command,"swsr")){
+				swap_server(current_server,1);
 			//the "hi" and "bye" commands handle PMs as a channel
 			}else if(!strcmp(command,"hi")){
 				hi_command(input_buffer,command,parameters);
