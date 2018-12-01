@@ -771,6 +771,59 @@ int ch_idx_from_name(irc_connection *server, const char *ch_name){
 	return -1;
 }
 
+//determine the total length of characters in the server list
+int calc_server_list_chars(){
+	//if no server is available then return the character count for the error message
+	//as that is what will be displayed
+	if((servers==NULL)||(current_server<0)){
+		return strlen("(no servers)");
+	}
+	
+	int chr_count=0;
+	dlist_entry *server_entry=servers;
+	irc_connection *server=NULL;
+	
+	//for each server in the list
+	while(server_entry!=NULL){
+		server=(irc_connection *)(server_entry->data);
+		
+#ifdef _OPENSSL
+		//a + is displayed in front of ssl-using server names
+		if(server->use_ssl){
+			chr_count+=strlen("+");
+		}
+#endif
+		//the server name is the primary content
+		//along with an associated delimiter string
+		chr_count+=strlen(server->server_name)+strlen(" | ");
+
+		//if the nick isn't empty, we will be ouptutting that as well, in parens
+		if(strncmp(server->nick,"",BUFFER_SIZE)!=0){
+			chr_count+=strlen(server->nick)+strlen(" ()");
+		}
+		
+		server_entry=server_entry->next;
+	}
+	return chr_count;
+}
+
+//get information about whether the server passed in was pingged and/or has new (unread) content
+void get_server_ping_state(irc_connection *server,char *was_pingged, char *new_server_content){
+	*was_pingged=FALSE;
+	*new_server_content=FALSE;
+	
+	//set the new server content to be the OR of all channels on that server
+	dlist_entry *ch_entry=server->ch;
+	while(ch_entry!=NULL){
+		channel_info *ch=(channel_info *)(ch_entry->data);
+		*new_server_content=((*new_server_content)||(ch->new_content));
+		*was_pingged=((*was_pingged)||(ch->was_pingged));
+		
+		ch_entry=ch_entry->next;
+	}
+	//return nothing because new_server_content and was_pingged were set already by reference
+}
+
 //log a "ping" to a seperate file
 //line starts with given ping_time (usually PING or PM), and is server-local, but not channel-local (although channel is logged)
 void ping_log(int server_index, const char *ping_type, const char *nick, const char *channel, const char *text){
@@ -1201,10 +1254,160 @@ int properly_close(int server_index){
 	return server_index;
 }
 
+void wprintw_ping_effects(WINDOW *ncurses_win, const char *outstr, char was_pingged, char new_server_content){
+	//if there was new data
+	if(new_server_content==TRUE){
+		//if there was also a ping, show bold AND underline
+		if(was_pingged==TRUE){
+			wattron(ncurses_win,A_BOLD);
+		}
+		
+		wattron(ncurses_win,A_UNDERLINE);
+		wprintw(ncurses_win,outstr);
+		wattroff(ncurses_win,A_UNDERLINE);
+		
+		if(was_pingged==TRUE){
+			wattroff(ncurses_win,A_BOLD);
+		}
+	//otherwise just display it regularly
+	}else{
+		wprintw(ncurses_win,outstr);
+	}
+}
+
+//refresh the title for a SINGLE server
+//NOTE: the calling code is expected to wmove() to where it wants this
+//(within the server_list window)
+//prior to calling this function
+void refresh_server_title(irc_connection *server, char is_active, char add_delimiter){
+	if(server==NULL){
+		return;
+	}
+
+	//tells us if there is new content on this server since the user last viewed it
+	char new_server_content=FALSE;
+	char was_pingged=FALSE;
+	get_server_ping_state(server,&was_pingged,&new_server_content);
+	
+#ifdef _OPENSSL
+	//if this server is using encryption for our connection display that with a "+"
+	if(server->use_ssl){
+		wprintw(server_list,"+");
+	}
+#endif
+	
+	//if it's the active server bold it
+	if(is_active==TRUE){
+		wattron(server_list,A_BOLD);
+		wprintw(server_list,server->server_name);
+		wattroff(server_list,A_BOLD);
+		
+		//if we're viewing this server any content that would be considered "new" is no longer there
+		new_server_content=FALSE;
+	}else{
+		//if there is new data on this server we're currently iterating on, display differently to show that to the user
+		//otherwise just display it regularly
+		wprintw_ping_effects(server_list,server->server_name,was_pingged,new_server_content);
+	}
+	
+	//and display the nickname we're using for that server
+	if(strcmp(server->nick,"")!=0){
+		wprintw(server_list," (");
+		wprintw(server_list,server->nick);
+		wprintw(server_list,")");
+	}
+	
+	if(add_delimiter==TRUE){
+		//add a delimiter for formatting purposes
+		wprintw(server_list," | ");
+	}
+}
+
+//display server list updates as needed when we don't have room to display the full list
+//bolding the current server
+void refresh_server_list_centered(){
+	//if we're not connected to anything don't bother
+	if((servers==NULL)||(current_server<0)){
+		return;
+	}
+	
+	//update the display of the server list
+	wblank(server_list,width,1);
+	
+	//start by outputting the selected server only
+	//so move to where we want that
+	irc_connection *server=get_server(current_server);
+	int sel_x_coord=((width)-strlen(server->server_name)-strlen(server->nick)-strlen(" ()"))/2;
+	wmove(server_list,0,sel_x_coord);
+	
+	//and output just that
+	refresh_server_title(server,TRUE,FALSE);
+
+	//save ping and new data states for servers prior to this one (OR-d)
+	//and servers after this one (OR-d)
+	char was_pingged_prev=FALSE;
+	char new_content_prev=FALSE;
+	char was_pingged_next=FALSE;
+	char new_content_next=FALSE;
+
+	//iterate through servers to determine their ping/new data states
+	int n=0;
+	dlist_entry *server_entry=servers;
+	
+	//for each server in the list
+	while(server_entry!=NULL){
+		//NOTE: on the first iteration of this loop
+		//this over-writes the variable that previously stored
+		//the current server state
+		server=(irc_connection *)(server_entry->data);
+		
+		char was_pingged=FALSE;
+		char new_server_content=FALSE;
+		get_server_ping_state(server,&was_pingged,&new_server_content);
+		
+		if(n<current_server){
+			was_pingged_prev=((was_pingged_prev)||(was_pingged));
+			new_content_prev=((new_content_prev)||(new_server_content));
+		}else if(n==current_server){
+			//we already did output for the current server so just skip this
+		}else{ //n>current_server
+			was_pingged_next=((was_pingged_next)||(was_pingged));
+			new_content_next=((new_content_next)||(new_server_content));
+		}
+
+		server_entry=server_entry->next;
+		n++;
+	}
+
+	//output arrows as needed
+	
+	//left arrow shows that other servers exist prior to this one
+	if(current_server>0){
+		wmove(server_list,0,0);
+		wprintw_ping_effects(server_list,"<(F3) ",was_pingged_prev,new_content_prev);
+	}
+	//right arrow shows that other servers exist after this one
+	if(current_server<(dlist_length(servers)-1)){
+		wmove(server_list,0,width-strlen(" (F4)>"));
+		wprintw_ping_effects(server_list," (F4)>",was_pingged_next,new_content_next);
+	}
+	
+	wrefresh(server_list);
+}
+
+
 //display server list updates as needed; bolding the current server
 void refresh_server_list(){
 	//if we're not connected to anything don't bother
-	if(current_server<0){
+	if((servers==NULL)||(current_server<0)){
+		return;
+	}
+
+	//if we can't display everything
+	if(calc_server_list_chars()>width){
+		//then center the current item and show arrows
+		refresh_server_list_centered();
+		//and cease and desist all further output (which would over-write that)
 		return;
 	}
 	
@@ -1222,63 +1425,7 @@ void refresh_server_list(){
 	while(server_entry!=NULL){
 		server=(irc_connection *)(server_entry->data);
 		
-		//tells us if there is new content on this server since the user last viewed it
-		char new_server_content=FALSE;
-		char was_pingged=FALSE;
-		
-		//set the new server content to be the OR of all channels on that server
-		dlist_entry *ch_entry=server->ch;
-		while(ch_entry!=NULL){
-			channel_info *ch=(channel_info *)(ch_entry->data);
-			new_server_content=((new_server_content)||(ch->new_content));
-			was_pingged=((was_pingged)||(ch->was_pingged));
-			
-			ch_entry=ch_entry->next;
-		}
-		
-#ifdef _OPENSSL
-		//if this server is using encryption for our connection display that with a "+"
-		if(server->use_ssl){
-			wprintw(server_list,"+");
-		}
-#endif
-		
-		//if it's the active server bold it
-		if(current_server==n){
-			wattron(server_list,A_BOLD);
-			wprintw(server_list,server->server_name);
-			wattroff(server_list,A_BOLD);
-			
-			//if we're viewing this server any content that would be considered "new" is no longer there
-			new_server_content=FALSE;
-		//else if there is new data on this server we're currently iterating on, display differently to show that to the user
-		}else if(new_server_content==TRUE){
-			//if there was also a ping, show bold AND underline
-			if(was_pingged==TRUE){
-				wattron(server_list,A_BOLD);
-			}
-			
-			wattron(server_list,A_UNDERLINE);
-			wprintw(server_list,server->server_name);
-			wattroff(server_list,A_UNDERLINE);
-			
-			if(was_pingged==TRUE){
-				wattroff(server_list,A_BOLD);
-			}
-		//otherwise just display it regularly
-		}else{
-			wprintw(server_list,server->server_name);
-		}
-		
-		//and display the nickname we're using for that server
-		if(strcmp(server->nick,"")!=0){
-			wprintw(server_list," (");
-			wprintw(server_list,server->nick);
-			wprintw(server_list,")");
-		}
-		
-		//add a delimiter for formatting purposes
-		wprintw(server_list," | ");
+		refresh_server_title(server,(current_server==n)?TRUE:FALSE,TRUE);
 
 		server_entry=server_entry->next;
 		n++;
