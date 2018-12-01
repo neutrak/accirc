@@ -60,11 +60,9 @@
 //NOTE: dlist is a linked list library that operates on void* and is used for servers, channels, name lists, aliases, ping phrases, and post lines
 //so that we don't have to set a fixed limit and so that when we're not using a large number of those we use less memory
 
-//TODO: 
-//because we now allow arbitrary-length server lists and channel lists, we will need to alter the display of the server list and channel list
-//when an overflow occurs where the entire list could not fit in one line (but not before), the following display should be used:
+//because we now allow arbitrary-length server lists and channel lists,
+//when an overflow occurs where the entire list could not fit in one line (but not before), the following display is used:
 //	the active server or channel should be centered in the display
-//	the other servers to the left and right should be displayed to the extent possible
 //	in the case that there are more servers or channels that cannot be completely displayed, there will be arrows displayed, "<- " on the left and/or "->" on the right
 //		the arrows themselves will be highlighted based on the highest-priority alert/ping state from any server or channel that is out of view
 //		e.g. when a ping occurs on a server that is scrolled out of view, the arrow will be bold and underlined (just as the server or channel name would be)
@@ -807,6 +805,33 @@ int calc_server_list_chars(){
 	return chr_count;
 }
 
+//determine the total length of characters in the channel list
+int calc_channel_list_chars(irc_connection *server){
+	//if no server is available then return the character count for the error message
+	//as that is what will be displayed
+	if(server==NULL){
+		return strlen("(no channels)");
+	}
+	
+	int chr_count=0;
+	dlist_entry *ch_entry=server->ch;
+	channel_info *ch=NULL;
+	
+	//for each channel in the list
+	//NOTE: the reserved "SERVER" entry is output the same way as any other channel
+	while(ch_entry!=NULL){
+		ch=(channel_info *)(ch_entry->data);
+		
+		//the channel name is the primary content
+		//along with an associated delimiter string
+		chr_count+=strlen(ch->name)+strlen(" | ");
+		
+		ch_entry=ch_entry->next;
+	}
+	return chr_count;
+}
+
+
 //get information about whether the server passed in was pingged and/or has new (unread) content
 void get_server_ping_state(irc_connection *server,char *was_pingged, char *new_server_content){
 	*was_pingged=FALSE;
@@ -1254,9 +1279,9 @@ int properly_close(int server_index){
 	return server_index;
 }
 
-void wprintw_ping_effects(WINDOW *ncurses_win, const char *outstr, char was_pingged, char new_server_content){
+void wprintw_ping_effects(WINDOW *ncurses_win, const char *outstr, char was_pingged, char new_content){
 	//if there was new data
-	if(new_server_content==TRUE){
+	if(new_content==TRUE){
 		//if there was also a ping, show bold AND underline
 		if(was_pingged==TRUE){
 			wattron(ncurses_win,A_BOLD);
@@ -1326,10 +1351,8 @@ void refresh_server_title(irc_connection *server, char is_active, char add_delim
 //display server list updates as needed when we don't have room to display the full list
 //bolding the current server
 void refresh_server_list_centered(){
-	//if we're not connected to anything don't bother
-	if((servers==NULL)||(current_server<0)){
-		return;
-	}
+	//NOTE: we already checked that we were connected in refresh_server_list prior to this call
+	//so we can assume that current_server>=0 and servers!=NULL at this point
 	
 	//update the display of the server list
 	wblank(server_list,width,1);
@@ -1384,12 +1407,14 @@ void refresh_server_list_centered(){
 	//left arrow shows that other servers exist prior to this one
 	if(current_server>0){
 		wmove(server_list,0,0);
-		wprintw_ping_effects(server_list,"<(F3) ",was_pingged_prev,new_content_prev);
+		wprintw_ping_effects(server_list,"<(F3)",was_pingged_prev,new_content_prev);
+		wprintw(server_list," ");
 	}
 	//right arrow shows that other servers exist after this one
 	if(current_server<(dlist_length(servers)-1)){
 		wmove(server_list,0,width-strlen(" (F4)>"));
-		wprintw_ping_effects(server_list," (F4)>",was_pingged_next,new_content_next);
+		wprintw(server_list," ");
+		wprintw_ping_effects(server_list,"(F4)>",was_pingged_next,new_content_next);
 	}
 	
 	wrefresh(server_list);
@@ -1407,6 +1432,7 @@ void refresh_server_list(){
 	if(calc_server_list_chars()>width){
 		//then center the current item and show arrows
 		refresh_server_list_centered();
+		
 		//and cease and desist all further output (which would over-write that)
 		return;
 	}
@@ -1433,12 +1459,116 @@ void refresh_server_list(){
 	wrefresh(server_list);
 }
 
+//refresh the title for a SINGLE channel
+//NOTE: the calling code is expected to wmove() to where it wants this
+//(within the channel_list window)
+//prior to calling this function
+void refresh_channel_title(channel_info *ch, char is_active, char add_delimiter){
+	//if it's the active channel then bold it
+	if(is_active==TRUE){
+		wattron(channel_list,A_BOLD);
+		wprintw(channel_list,ch->name);
+		wattroff(channel_list,A_BOLD);
+		
+		//if we're viewing this channel any content that would be considered "new" is no longer there
+		ch->new_content=FALSE;
+		
+		//likewise a ping is now obsolete
+		ch->was_pingged=FALSE;
+	}else{
+		wprintw_ping_effects(channel_list,ch->name,ch->was_pingged,ch->new_content);
+	}
+	
+	if(add_delimiter==TRUE){
+		//add a delimiter for formatting purposes
+		wprintw(channel_list," | ");
+	}
+}
+
+//display channel list updates as needed when we don't have room to display the full list
+//bolding the current channel
+void refresh_channel_list_centered(irc_connection *server){
+	//NOTE: we already checked that we were connected in refresh_channel_list prior to this call
+	//so we can assume that current_server>=0 and servers!=NULL at this point
+	
+	//update the display of the channel list
+	wblank(channel_list,width,1);
+	
+	//start by outputting the selected channel only
+	//so move to where we want that
+	channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,server->current_channel)->data);
+	
+	int sel_x_coord=((width)-strlen(ch->name))/2;
+	wmove(channel_list,0,sel_x_coord);
+	
+	//and output just that
+	refresh_channel_title(ch,TRUE,FALSE);
+
+	//save ping and new data states for channels prior to this one (OR-d)
+	//and channels after this one (OR-d)
+	char was_pingged_prev=FALSE;
+	char new_content_prev=FALSE;
+	char was_pingged_next=FALSE;
+	char new_content_next=FALSE;
+
+	//iterate through channels to determine their ping/new data states
+	int n=0;
+	dlist_entry *ch_entry=server->ch;
+	
+	//for each channel in the list
+	while(ch_entry!=NULL){
+		//NOTE: on the first iteration of this loop
+		//this over-writes the variable that previously stored
+		//the current channel state
+		ch=(channel_info *)(ch_entry->data);
+		
+		if(n<server->current_channel){
+			was_pingged_prev=((was_pingged_prev)||(ch->was_pingged));
+			new_content_prev=((new_content_prev)||(ch->new_content));
+		}else if(n==server->current_channel){
+			//we already did output for the current server so just skip this
+		}else{ //n>server->current_channel
+			was_pingged_next=((was_pingged_next)||(ch->was_pingged));
+			new_content_next=((new_content_next)||(ch->new_content));
+		}
+
+		ch_entry=ch_entry->next;
+		n++;
+	}
+
+	//output arrows as needed
+	
+	//left arrow shows that other channels exist prior to this one
+	if(server->current_channel>0){
+		wmove(channel_list,0,0);
+		wprintw_ping_effects(channel_list,"<(F1)",was_pingged_prev,new_content_prev);
+		wprintw(channel_list," ");
+	}
+	//right arrow shows that other channels exist after this one
+	if(server->current_channel<(dlist_length(server->ch)-1)){
+		wmove(channel_list,0,width-strlen(" (F2)>"));
+		wprintw(channel_list," ");
+		wprintw_ping_effects(channel_list,"(F2)>",was_pingged_next,new_content_next);
+	}
+	
+	wrefresh(channel_list);
+}
+
 //display channel list updates as needed; bolding the current channel
 void refresh_channel_list(){
 	irc_connection *server=get_server(current_server);
 	
 	//if we're not connected to anything don't bother
 	if(server==NULL){
+		return;
+	}
+	
+	//if we can't display everything at once
+	if(calc_channel_list_chars(server)>width){
+		//then cneter the current channel and show arrows
+		refresh_channel_list_centered(server);
+		
+		//and don't do anything else
 		return;
 	}
 	
@@ -1452,39 +1582,8 @@ void refresh_channel_list(){
 	while(ch_entry!=NULL){
 		channel_info *ch=(channel_info *)(ch_entry->data);
 		
-		//if it's the active server bold it
-		if(server->current_channel==n){
-			wattron(channel_list,A_BOLD);
-			wprintw(channel_list,ch->name);
-			wattroff(channel_list,A_BOLD);
+		refresh_channel_title(ch,(server->current_channel==n)?TRUE:FALSE,TRUE);
 			
-			//if we're viewing this channel any content that would be considered "new" is no longer there
-			ch->new_content=FALSE;
-			
-			//likewise a ping is now obsolete
-			ch->was_pingged=FALSE;
-		//else if there is new data, display differently to show that to the user
-		}else if(ch->new_content==TRUE){
-			//if there was also a ping, show bold AND underline
-			if(ch->was_pingged==TRUE){
-				wattron(channel_list,A_BOLD);
-			}
-			
-			wattron(channel_list,A_UNDERLINE);
-			wprintw(channel_list,ch->name);
-			wattroff(channel_list,A_UNDERLINE);
-			
-			if(ch->was_pingged==TRUE){
-				wattroff(channel_list,A_BOLD);
-			}
-		//otherwise just display it regularly
-		}else{
-			wprintw(channel_list,ch->name);
-		}
-		
-		//add a delimiter for formatting purposes
-		wprintw(channel_list," | ");
-		
 		ch_entry=ch_entry->next;
 		n++;
 	}
