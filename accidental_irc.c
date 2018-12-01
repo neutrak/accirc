@@ -1362,6 +1362,8 @@ void refresh_server_list_centered(){
 	//so move to where we want that
 	irc_connection *server=get_server(current_server);
 	int sel_x_coord=((width)-strlen(server->server_name)-strlen(server->nick)-strlen(" ()"))/2;
+	//do not allow negatives; if we don't have room to output even one server then start at 0 and output what we can
+	sel_x_coord=(sel_x_coord<0)?0:sel_x_coord;
 	wmove(server_list,0,sel_x_coord);
 	
 	//and output just that
@@ -1501,6 +1503,8 @@ void refresh_channel_list_centered(irc_connection *server){
 	channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,server->current_channel)->data);
 	
 	int sel_x_coord=((width)-strlen(ch->name))/2;
+	//do not allow negatives; if we don't have room to output even one channel then start at 0 and output what we can
+	sel_x_coord=(sel_x_coord<0)?0:sel_x_coord;
 	wmove(channel_list,0,sel_x_coord);
 	
 	//and output just that
