@@ -1350,6 +1350,7 @@ void refresh_server_title(irc_connection *server, char is_active, char add_delim
 
 //display server list updates as needed when we don't have room to display the full list
 //bolding the current server
+//TODO: when outputting centered server, attempt to output the server immediately to the left and the server immediately to the right, if there's room
 void refresh_server_list_centered(){
 	//NOTE: we already checked that we were connected in refresh_server_list prior to this call
 	//so we can assume that current_server>=0 and servers!=NULL at this point
@@ -1487,6 +1488,7 @@ void refresh_channel_title(channel_info *ch, char is_active, char add_delimiter)
 
 //display channel list updates as needed when we don't have room to display the full list
 //bolding the current channel
+//TODO: when outputting centered channel, attempt to output the channel immediately to the left and the channel immediately to the right, if there's room
 void refresh_channel_list_centered(irc_connection *server){
 	//NOTE: we already checked that we were connected in refresh_channel_list prior to this call
 	//so we can assume that current_server>=0 and servers!=NULL at this point
