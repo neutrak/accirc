@@ -3496,6 +3496,8 @@ void parse_input(char *input_buffer, char keep_history){
 		scrollback_output(current_server,0,notify_buffer,TRUE);
 	}
 	
+	irc_connection *server=get_server(current_server);
+	
 	//if it's a client command handle that here
 	if(client_command){
 		char command[BUFFER_SIZE];
@@ -3680,8 +3682,7 @@ void parse_input(char *input_buffer, char keep_history){
 				scrollback_output(current_server,0,"accirc: will now NOT automatically create faux channel on new PM",TRUE);
 			}
 		//this set of command depends on being connected to a server, so first check that we are
-		}else if(current_server>=0){
-			irc_connection *server=get_server(current_server);
+		}else if((server!=NULL) && (current_server>=0)){
 			//TODO: update helper functions to take the server object instead of or in addition to current_server where appropriate
 			
 			//move a server to the left
