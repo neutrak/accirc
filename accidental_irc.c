@@ -100,7 +100,7 @@
 #define ERROR_FILE "error_log.txt"
 
 //the number of seconds to try to reconnect before giving up
-#define RECONNECT_TIMEOUT 2
+#define RECONNECT_TIMEOUT 5
 
 //how many completion attempts to give the user before telling them the possiblities
 #define COMPLETION_ATTEMPTS 2
@@ -2206,22 +2206,32 @@ void add_name(int server_index, int channel_index, char *name, const char *mode_
 	
 	int idx=0;
 	while(idx>=0){
-		idx=nick_idx(ch,name,0);
+		idx=nick_idx(ch,name,idx);
 		
 		//found this nick
 		if(idx>=0){
 			matches++;
+			
 			//if it was a duplicate
 			if(matches>1){
 				//then remove this copy
-				//NOTE: this changes indexes so our next search must start at 0 to ensure we don't miss anything
 				ch->user_names=dlist_delete_entry(ch->user_names,idx,TRUE);
 				
+				//NOTE: this changes indexes so our next search must start at 0 to ensure we don't miss anything
+				idx=0;
+				//any previous matches are void since we invalidated indices and are re-starting the search from the start of the list
+				matches=0;
+				
+				//now that we removed this entry there is one fewer nick
+				//so update the associated count
 				ch->nick_count--;
-				matches--;
+			}else{
+				//if this was NOT a duplicate then start the search from the next list index
+				//to avoid double-counting
+				idx++;
 			}
 		}
-	}		
+	}
 	
 	//if the user wasn't already there
 	if(matches==0){
@@ -4003,7 +4013,7 @@ void server_353_command(irc_connection *server, int server_index, char *tmp_buff
 			substr(this_name,names,0,space_index);
 			substr(names,names,space_index+1,strlen(names)-space_index-1);
 			
-			//trim this user's name
+			//trim this user's name to remove the mode modifier, if applicable
 			char mode_str[BUFFER_SIZE];
 			strncpy(mode_str,"",BUFFER_SIZE);
 			if((strfind("@",this_name)==0)||(strfind("~",this_name)==0)||(strfind("%",this_name)==0)||(strfind("&",this_name)==0)||(strfind("+",this_name)==0)){
@@ -5192,18 +5202,18 @@ int name_complete(char *input_buffer, int *cursor_pos, int input_display_start, 
 				dlist_entry *matching_nick_entry=all_matching_nicks;
 				for(;matching_nick_entry!=NULL;matching_nick_entry=matching_nick_entry->next){
 					//if this nick is longer than what the user typed so far
-					int nick_idx=(strlen(partial_nick)+chars_inserted);
+					int tab_nick_idx=(strlen(partial_nick)+chars_inserted);
 					char *matching_nick=(((nick_info *)(matching_nick_entry->data))->user_name);
 					
-					if(strlen(matching_nick)>nick_idx){
+					if(strlen(matching_nick)>tab_nick_idx){
 						//if this is the first nick we checked then it gets to say what the next char should be
 						if(!next_char_set){
-							next_char=matching_nick[nick_idx];
+							next_char=matching_nick[tab_nick_idx];
 							next_char_set=TRUE;
 							agreement=TRUE;
 						//if this isn't the first nick and we found a different (competing) completion
 						//then there is disagreement!!!
-						}else if(next_char!=matching_nick[nick_idx]){
+						}else if(next_char!=matching_nick[tab_nick_idx]){
 							agreement=FALSE;
 							//break out of the loop
 							break;
