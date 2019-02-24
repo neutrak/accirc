@@ -2372,6 +2372,9 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	}
 	
 	if(server->keep_logs){
+		//TODO: create a subdirectory for the user's nick so that multiple logs can be kept for simultaneous connections with different nicks
+		//the directory structure should then be ~/.local/share/accirc/logs/<server>/<nick>/ with all the #channel files under that
+		
 		//first make a directory for this server
 		char file_location[BUFFER_SIZE];
 		snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,server->server_name);
@@ -2521,6 +2524,9 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 	
 	//if we should be keeping logs make sure we are
 	if(server->keep_logs){
+		//TODO: use a subdirectory for the user's nick so that multiple logs can be kept for simultaneous connections with different nicks
+		//the directory structure should then be ~/.local/share/accirc/logs/<server>/<nick>/ with all the #channel files under that
+		
 		char file_location[BUFFER_SIZE];
 		snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,server->server_name,ch->name);
 		//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
@@ -3011,6 +3017,9 @@ void log_command(){
 			int channel_index;
 			dlist_entry *ch_entry=server->ch;
 			for(channel_index=0;ch_entry!=NULL;channel_index++){
+				//TODO: use a subdirectory for the user's nick so that multiple logs can be kept for simultaneous connections with different nicks
+				//the directory structure should then be ~/.local/share/accirc/logs/<server>/<nick>/ with all the #channel files under that
+				
 				//try to open a file for every channel
 				channel_info *ch=(channel_info *)(ch_entry->data);
 				
