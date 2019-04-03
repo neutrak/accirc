@@ -2631,22 +2631,48 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 				properly_close(current_server);
 				return;
 			}
+
+			//try to make an error log file, if that's impossible just use stderr
+			const char* ca_file_name="/etc/ssl/cert.pem";
+			const char* ca_path_name="/etc/ssl/certs";
+			int ssl_verify_state=SSL_VERIFY_PEER;
+			char ssl_error_buffer[BUFFER_SIZE];
 			
-			//set certificate checking settings prior to handshake
-//			SSL_set_verify(server->ssl_handle,SSL_VERIFY_PEER,NULL);
-			SSL_set_verify(server->ssl_handle,SSL_VERIFY_NONE,NULL);
-			SSL_set_verify_depth(server->ssl_handle,4);
+			//trust all the same cert authorities that are configured to be default-trusted by openssl at /etc/ssl/certs
+			if(SSL_CTX_load_verify_locations(server->ssl_context,NULL,ca_path_name)){
+#ifdef DEBUG
+				//set certificate checking settings prior to handshake
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Info: Checking SSL cert of %s using files at %s\n",host,ca_path_name);
+				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
+#endif
+			}else{
+				sprintf(ssl_error_buffer,BUFFER_SIZE,"Err: Could not open the cert authority directory at %s; not verifying SSL!\n",ca_path_name);
+				fprintf(error_file,"%s",ssl_error_buffer);
+				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
+				ssl_verify_state=SSL_VERIFY_NONE;
+			}
+			SSL_set_verify(server->ssl_handle,ssl_verify_state,NULL);
+			
+			SSL_set_verify_depth(server->ssl_handle,6);
 			
 			//do the SSL handshake
 			if(SSL_connect(server->ssl_handle)!=1){
-				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (handshake error)\n",host,port);
+				snprintf(error_file,BUFFER_SIZE,"Err: SSL connection to host %s on port %i failed (handshake error)\n",host,port);
+				fprintf(error_file,"%s",ssl_error_buffer);
 				properly_close(current_server);
 				return;
 			}
 			
-			if(SSL_get_verify_result(server->ssl_handle)!=X509_V_OK){
-				fprintf(error_file,"Warn: SSL cert check failed for host %s on port %i\n",host,port);
-				scrollback_output(current_server,0,"Warn: SSL cert check failed for this host!!!",TRUE);
+			int ssl_verify_result=SSL_get_verify_result(server->ssl_handle);
+			if(ssl_verify_result!=X509_V_OK){
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Warn: SSL cert check failed for host %s on port %i, ssl_verify_result=%i\n",host,port,ssl_verify_result);
+				fprintf(error_file,"%s",ssl_error_buffer);
+				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
+#ifdef DEBUG
+			}else{
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Info: SSL cert check SUCCEEDED for host %s on port %i, ssl_verify_result=%i\n",host,port,ssl_verify_result);
+				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
+#endif
 			}
 		}
 #endif
@@ -5668,8 +5694,8 @@ int main(int argc, char *argv[]){
 	strncpy(rc_file,"",BUFFER_SIZE);
 	
 	//support utf-8
-//	setlocale(LC_CTYPE,"C-UTF-8");
-	setlocale(LC_ALL, "");
+	setlocale(LC_CTYPE,"C-UTF-8");
+//	setlocale(LC_ALL, "");
 	
 	//handle special argument cases like --version, --help, etc.
 	if(argc>1){

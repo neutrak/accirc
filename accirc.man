@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "22 November 2018"
+.TH ACCIRC 1 "03 April 2019"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
