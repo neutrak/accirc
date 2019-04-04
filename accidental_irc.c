@@ -2633,7 +2633,6 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			}
 
 			//try to make an error log file, if that's impossible just use stderr
-			const char* ca_file_name="/etc/ssl/cert.pem";
 			const char* ca_path_name="/etc/ssl/certs";
 			int ssl_verify_state=SSL_VERIFY_PEER;
 			char ssl_error_buffer[BUFFER_SIZE];
@@ -2646,7 +2645,7 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
 #endif
 			}else{
-				sprintf(ssl_error_buffer,BUFFER_SIZE,"Err: Could not open the cert authority directory at %s; not verifying SSL!\n",ca_path_name);
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: Could not open the cert authority directory at %s; not verifying SSL!\n",ca_path_name);
 				fprintf(error_file,"%s",ssl_error_buffer);
 				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
 				ssl_verify_state=SSL_VERIFY_NONE;
@@ -2657,7 +2656,7 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			
 			//do the SSL handshake
 			if(SSL_connect(server->ssl_handle)!=1){
-				snprintf(error_file,BUFFER_SIZE,"Err: SSL connection to host %s on port %i failed (handshake error)\n",host,port);
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: SSL connection to host %s on port %i failed (handshake error)\n",host,port);
 				fprintf(error_file,"%s",ssl_error_buffer);
 				properly_close(current_server);
 				return;
