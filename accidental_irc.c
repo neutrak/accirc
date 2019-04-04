@@ -175,6 +175,10 @@ char *command_list[]={
 	"/ping_toggle <phrase> -> toggles whether or not a PING is done on a given phrase",
 	"/auto_hi -> automatically creates a faux channel when a user PMs you (default)",
 	"/no_auto_hi -> disables automatic faux channel creation when a user PMs you",
+#ifdef _OPENSSL
+	"/ssl_cert_check -> enable ssl certificate verification on all new ssl connections (default)"
+	"/no_ssl_cert_check -> disable ssl certificate verification on all new ssl connections [DANGEROUS!]"
+#endif
 	"/ping_on_pms -> makes PMs in faux PM channels on the current server considered PINGs",
 	"/no_ping_on_pms -> makes PMs in faux PM channels on the server considered as normal messages after the first one (default)",
 	"<Tab> -> automatically completes nicks in current channel"
@@ -357,6 +361,14 @@ char ignore_rc;
 //easy mode; set by default, turned off with the --proper cli switch
 //when enabled, sets default aliases for nick, quit, and msg; also sets time format and auto-sends user quartet
 char easy_mode;
+
+#ifdef _OPENSSL
+
+//enables the checking of SSL certificates prior to SSL connections
+//enabled by default
+char ssl_cert_check;
+
+#endif
 
 //whether or not to automatically create a faux-pm channel with /hi when PM'd
 char auto_hi;
@@ -2638,16 +2650,20 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			char ssl_error_buffer[BUFFER_SIZE];
 			
 			//trust all the same cert authorities that are configured to be default-trusted by openssl at /etc/ssl/certs
-			if(SSL_CTX_load_verify_locations(server->ssl_context,NULL,ca_path_name)){
+			if((ssl_cert_check==TRUE) && (SSL_CTX_load_verify_locations(server->ssl_context,NULL,ca_path_name))){
 #ifdef DEBUG
 				//set certificate checking settings prior to handshake
 				snprintf(ssl_error_buffer,BUFFER_SIZE,"Info: Checking SSL cert of %s using files at %s\n",host,ca_path_name);
 				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
 #endif
 			}else{
-				snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: Could not open the cert authority directory at %s; not verifying SSL!\n",ca_path_name);
-				fprintf(error_file,"%s",ssl_error_buffer);
-				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
+				//this is a read error if we are configured to check certs
+				//otherwise it's an expected configuration, so don't output an error
+				if(ssl_cert_check==TRUE){
+					snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: Could not open the cert authority directory at %s; not verifying SSL!\n",ca_path_name);
+					fprintf(error_file,"%s",ssl_error_buffer);
+					scrollback_output(current_server,0,ssl_error_buffer,TRUE);
+				}
 				ssl_verify_state=SSL_VERIFY_NONE;
 			}
 			SSL_set_verify(server->ssl_handle,ssl_verify_state,NULL);
@@ -3725,6 +3741,18 @@ void parse_input(char *input_buffer, char keep_history){
 			if(current_server>=0){
 				scrollback_output(current_server,0,"accirc: will now NOT automatically create faux channel on new PM",TRUE);
 			}
+#ifdef _OPENSSL
+		}else if(!strcmp(command,"ssl_cert_check")){
+			ssl_cert_check=TRUE;
+			if(current_server>=0){
+				scrollback_output(current_server,0,"accirc: ssl_cert_check set to TRUE",TRUE);
+			}
+		}else if(!strcmp(command,"no_ssl_cert_check")){
+			ssl_cert_check=FALSE;
+			if(current_server>=0){
+				scrollback_output(current_server,0,"accirc: ssl_cert_check set to FALSE",TRUE);
+			}
+#endif
 		//this set of command depends on being connected to a server, so first check that we are
 		}else if((server!=NULL) && (current_server>=0)){
 			//TODO: update helper functions to take the server object instead of or in addition to current_server where appropriate
@@ -5687,6 +5715,9 @@ int main(int argc, char *argv[]){
 	
 	ignore_rc=FALSE;
 	easy_mode=TRUE;
+#ifdef _OPENSSL
+	ssl_cert_check=TRUE;
+#endif
 	//by default PM faux-channels are opened as needed
 	auto_hi=TRUE;
 	char rc_file[BUFFER_SIZE];
@@ -5718,6 +5749,10 @@ int main(int argc, char *argv[]){
 				ignore_rc=TRUE;
 			}else if(!strcmp(argv[n],"--proper")){
 				easy_mode=FALSE;
+#ifdef _OPENSSL
+			}else if(!strcmp(argv[n],"--no-ssl-cert-check")){
+				ssl_cert_check=FALSE;
+#endif
 			//allow for a custom rc file path to be passed
 			}else if(!strcmp(argv[n],"--rc") && (n+1<argc)){
 				strncpy(rc_file,argv[n+1],BUFFER_SIZE);

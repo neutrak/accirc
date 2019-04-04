@@ -4,7 +4,7 @@ accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
 \fBaccirc\fP [ --help | --version ]
 .TP
-\fBaccirc\fP [ --ignorerc ] [ --proper ] [ --rc <rc_file> ]
+\fBaccirc\fP [ --ignorerc ] [ --proper ] [ --no-ssl-cert-check ] [ --rc <rc_file> ]
 .SH DESCRIPTION
 \fBaccirc\fP starts ncurses; functionality is available from there; config is read from ~/.config/accirc/config.rc ; logs are stored in ~/.local/share/accirc/logs/
 .SS Options
@@ -24,6 +24,9 @@ causes the program to read an rc file from a custom path instead of the default 
 .TP
 \fB--proper\fP
 disables "easy mode"; "easy mode" is on by default and adds aliases for /nick, /msg, and /quit, as well as auto-sends user and nick information on a connect command
+.TP
+\fB--no-ssl-cert-check\fP
+disables ssl cert checking, in case you don't root CAs installed and are making a conscious decision to trust servers even without a valid certificate
 .SS Commands
 .TP
 \fB\\\fP
@@ -169,6 +172,12 @@ automatically creates a faux channel when a user PMs you (default)
 .TP
 \fB/no_auto_hi\fP
 disables automatic faux channel creation when a user PMs you
+.TP
+\fB/ssl_cert_check\fP
+enables the checking of ssl certs using /etc/ssl/certs
+.TP
+\fB/no_ssl_cert_check\fP
+disables the checking of ssl certs; when this is set all ssl certs will be trusted when running sconnect
 .TP
 \fB/ping_on_pms\fP
 makes PMs in faux PM channels on the current server considered PINGs
