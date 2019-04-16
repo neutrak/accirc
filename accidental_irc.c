@@ -176,8 +176,8 @@ char *command_list[]={
 	"/auto_hi -> automatically creates a faux channel when a user PMs you (default)",
 	"/no_auto_hi -> disables automatic faux channel creation when a user PMs you",
 #ifdef _OPENSSL
-	"/ssl_cert_check -> enable ssl certificate verification on all new ssl connections (default)"
-	"/no_ssl_cert_check -> disable ssl certificate verification on all new ssl connections [DANGEROUS!]"
+	"/ssl_cert_check -> enable ssl certificate verification on all new ssl connections (default)",
+	"/no_ssl_cert_check -> disable ssl certificate verification on all new ssl connections [DANGEROUS!]",
 #endif
 	"/ping_on_pms -> makes PMs in faux PM channels on the current server considered PINGs",
 	"/no_ping_on_pms -> makes PMs in faux PM channels on the server considered as normal messages after the first one (default)",
