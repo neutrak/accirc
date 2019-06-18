@@ -83,9 +83,6 @@
 //for the SIGHUP handler
 #define DEFAULT_TERM_LOST_MESSAGE "accidental_irc exited (lost terminal)"
 
-//for reconnecting we should re-send user information, it'll use this
-#define DEFAULT_USER "1 2 3 4"
-
 //default leading characters to send raw data and run client commands, respectively
 #define DEFAULT_SERVER_ESCAPE ':'
 #define DEFAULT_CLIENT_ESCAPE '/'
@@ -1220,7 +1217,8 @@ int properly_close(int server_index){
 			char command_buffer[BUFFER_SIZE];
 			snprintf(command_buffer,BUFFER_SIZE,"%cnick %s",server_escape,reconnect_nick);
 			parse_input(command_buffer,FALSE);
-			snprintf(command_buffer,BUFFER_SIZE,"%cuser %s",server_escape,DEFAULT_USER);
+			//the syntax for USER is "USER <username> <hostname> <servername> <realname>"
+			snprintf(command_buffer,BUFFER_SIZE,"%cuser %s %s %s %s",server_escape,reconnect_nick,reconnect_host,reconnect_host,reconnect_nick);
 			parse_input(command_buffer,FALSE);
 			
 			snprintf(command_buffer,BUFFER_SIZE,"%cfallback_nick %s",client_escape,reconnect_fallback_nick);
@@ -2702,11 +2700,12 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 		if(easy_mode){
 			char easy_mode_buf[BUFFER_SIZE];
 			
-			snprintf(easy_mode_buf,BUFFER_SIZE,":user %s",DEFAULT_USER);
+			//the syntax for USER is "USER <username> <hostname> <servername> <realname>"
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%cuser %s %s %s %s",server_escape,DEFAULT_NICK,host,host,DEFAULT_NICK);
 			parse_input(easy_mode_buf,FALSE);
 			
 			//default the nick to accirc_user too, just to get connected (the user can always change this later)
-			snprintf(easy_mode_buf,BUFFER_SIZE,":nick %s",DEFAULT_NICK);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%cnick %s",server_escape,DEFAULT_NICK);
 			parse_input(easy_mode_buf,FALSE);
 		}
 		
