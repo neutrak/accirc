@@ -321,6 +321,10 @@ struct irc_connection {
 	char use_ssl;
 	SSL *ssl_handle;
 	SSL_CTX *ssl_context;
+
+	//the ssl cert check status when this connection was first made
+	//so that whatever setting was in-use at that time gets re-used on every reconnection attempt
+	char ssl_cert_check;
 #endif
 	
 	//this data is what the user sees (but is also used for other things)
@@ -1088,6 +1092,9 @@ int properly_close(int server_index){
 #ifdef _OPENSSL
 	//whether to use ssl when we reconnect
 	char reconnect_with_ssl;
+	
+	//and wheter or not to verify certs
+	char reconnect_ssl_cert_check;
 #endif
 	
 	//if we'll be reconnecting to this server
@@ -1111,6 +1118,7 @@ int properly_close(int server_index){
 		
 #ifdef _OPENSSL
 		reconnect_with_ssl=server->use_ssl;
+		reconnect_ssl_cert_check=server->ssl_cert_check;
 #endif
 	}
 	
@@ -1192,8 +1200,18 @@ int properly_close(int server_index){
 			if((current_time-start_time)>RECONNECT_TIMEOUT){
 				timeout=TRUE;
 			}else{
+#ifdef _OPENSSL
+				//save the current global ssl cert check setting into a temporary variable
+				//and re-set it to the value that was used for the initial connection to this server
+				char tmp_ssl_cert_check=ssl_cert_check;
+				ssl_cert_check=reconnect_ssl_cert_check;
+#endif
 				//send the connect command (if this works then dlist_get_entry(servers,next_server) should no longer be NULL, breaking the loop)
 				parse_input(reconnect_command,FALSE);
+#ifdef _OPENSSL
+				//restore global ssl cert check setting
+				ssl_cert_check=tmp_ssl_cert_check;
+#endif
 			}
 		}
 		
@@ -2331,6 +2349,9 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	//clear out ssl-specific structures
 	server->ssl_handle=NULL;
 	server->ssl_context=NULL;
+	
+	//store the global cert check setting with this server when the connection is made
+	server->ssl_cert_check=ssl_cert_check;
 #endif
 	
 	//initialize the buffer to all NULL bytes
@@ -2605,7 +2626,7 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 		//make some data structures for relevant information
 		//add the server (this updates the global servers doubly-linked list with the relevant new server information)
 		irc_connection *server=add_server(new_socket_fd,host,port);
-	
+		
 		//NOTE: if ssl support is not compiled in the ssl parameter of this function is just totally ignored
 		//(this is intentional behavior)
 #ifdef _OPENSSL
@@ -2648,7 +2669,7 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			char ssl_error_buffer[BUFFER_SIZE];
 			
 			//trust all the same cert authorities that are configured to be default-trusted by openssl at /etc/ssl/certs
-			if((ssl_cert_check==TRUE) && (SSL_CTX_load_verify_locations(server->ssl_context,NULL,ca_path_name))){
+			if((server->ssl_cert_check==TRUE) && (SSL_CTX_load_verify_locations(server->ssl_context,NULL,ca_path_name))){
 #ifdef DEBUG
 				//set certificate checking settings prior to handshake
 				snprintf(ssl_error_buffer,BUFFER_SIZE,"Info: Checking SSL cert of %s using files at %s\n",host,ca_path_name);
@@ -2657,7 +2678,7 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			}else{
 				//this is a read error if we are configured to check certs
 				//otherwise it's an expected configuration, so don't output an error
-				if(ssl_cert_check==TRUE){
+				if(server->ssl_cert_check==TRUE){
 					snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: Could not open the cert authority directory at %s; not verifying SSL!\n",ca_path_name);
 					fprintf(error_file,"%s",ssl_error_buffer);
 					scrollback_output(current_server,0,ssl_error_buffer,TRUE);
