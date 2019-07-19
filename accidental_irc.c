@@ -1091,10 +1091,10 @@ int properly_close(int server_index){
 	
 #ifdef _OPENSSL
 	//whether to use ssl when we reconnect
-	char reconnect_with_ssl;
+	char reconnect_with_ssl=FALSE;
 	
 	//and wheter or not to verify certs
-	char reconnect_ssl_cert_check;
+	char reconnect_ssl_cert_check=FALSE;
 #endif
 	
 	//if we'll be reconnecting to this server
@@ -1217,6 +1217,11 @@ int properly_close(int server_index){
 		
 		//because there wasn't a timeout, implicitly we successfully connected
 		if(!timeout){
+			//NOTE: we know that server_entry will NOT be null because the above while loop exited and we know timeout is false
+			//therefore dlist_get_entry(servers,next_server) returned a non-null value prior to this code being executed
+			server_entry=dlist_get_entry(servers,next_server);
+			server=(irc_connection *)(server_entry->data);
+
 			int old_server;
 			if(current_server>=0){
 				old_server=current_server;
@@ -1226,8 +1231,6 @@ int properly_close(int server_index){
 			
 			//we're connected, so time to do some stuff
 			current_server=next_server;
-			server_entry=dlist_get_entry(servers,current_server);
-			server=(irc_connection *)(server_entry->data);
 			
 			//the last message timestamp is now the current time
 			server->last_msg_time=time(NULL);
@@ -1258,7 +1261,7 @@ int properly_close(int server_index){
 //			parse_input("/reconnect",FALSE); //this should be client_escape instead of literal "/" anyway...
 			server->reconnect=TRUE;
 			
-			//go back to whatever server you were on
+			//go back to whatever server you were on prior to the reconnection operation
 			current_server=old_server;
 			
 			//set the new server index as the return value of this function
@@ -2349,9 +2352,6 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	//clear out ssl-specific structures
 	server->ssl_handle=NULL;
 	server->ssl_context=NULL;
-	
-	//store the global cert check setting with this server when the connection is made
-	server->ssl_cert_check=ssl_cert_check;
 #endif
 	
 	//initialize the buffer to all NULL bytes
@@ -2635,6 +2635,9 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			//remember we're using SSL, this will be important for all reads and writes
 			server->use_ssl=TRUE;
 			
+			//store the global cert check setting with this server when the connection is made
+			server->ssl_cert_check=ssl_cert_check;
+			
 			//register error strings for libcrypto and libssl
 			SSL_load_error_strings();
 			//register ciphers and digests
@@ -2669,7 +2672,7 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			char ssl_error_buffer[BUFFER_SIZE];
 			
 			//trust all the same cert authorities that are configured to be default-trusted by openssl at /etc/ssl/certs
-			if((server->ssl_cert_check==TRUE) && (SSL_CTX_load_verify_locations(server->ssl_context,NULL,ca_path_name))){
+			if((ssl_cert_check==TRUE) && (SSL_CTX_load_verify_locations(server->ssl_context,NULL,ca_path_name))){
 #ifdef DEBUG
 				//set certificate checking settings prior to handshake
 				snprintf(ssl_error_buffer,BUFFER_SIZE,"Info: Checking SSL cert of %s using files at %s\n",host,ca_path_name);
@@ -2678,7 +2681,7 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			}else{
 				//this is a read error if we are configured to check certs
 				//otherwise it's an expected configuration, so don't output an error
-				if(server->ssl_cert_check==TRUE){
+				if(ssl_cert_check==TRUE){
 					snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: Could not open the cert authority directory at %s; not verifying SSL!\n",ca_path_name);
 					fprintf(error_file,"%s",ssl_error_buffer);
 					scrollback_output(current_server,0,ssl_error_buffer,TRUE);

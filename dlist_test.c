@@ -28,7 +28,7 @@ int dlist_test(char be_verbose){
 		test_list=dlist_append(test_list,data);
 	}
 	
-	//output list contents
+	//validate initialization and the ability to retrieve data from the list
 	for(n=0;n<TEST_LIST_SIZE;n++){
 		dlist_entry *item=dlist_get_entry(test_list,n);
 		if(n!=(*((int*)item->data))){
@@ -46,7 +46,7 @@ int dlist_test(char be_verbose){
 		test_list=dlist_delete_entry(test_list,rand_idx,TRUE);
 	}
 	
-	//output list contents again
+	//check the remaining items in the list to make sure they are what is expected
 	for(n=0;n<(TEST_LIST_SIZE-TEST_DELETE_COUNT);n++){
 		dlist_entry *item=dlist_get_entry(test_list,n);
 		if(be_verbose){
