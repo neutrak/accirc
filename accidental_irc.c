@@ -1885,6 +1885,8 @@ void refresh_channel_text(){
 						}
 					//unicode support (requires -lncursesw)
 					}else if((output_text[n] & 128)>0){
+						//TODO: fix this; unicode handling is BROKEN and never worked that well to start with!
+						
 						//realistically a unicode character will only be like 4 or 5 bytes max
 						//but modern systems have enough memory we can take a whole buffer
 						//for just a second
@@ -5747,7 +5749,7 @@ int main(int argc, char *argv[]){
 	strncpy(rc_file,"",BUFFER_SIZE);
 	
 	//support utf-8
-	setlocale(LC_CTYPE,"C-UTF-8");
+	setlocale(LC_CTYPE,"C.UTF-8");
 //	setlocale(LC_ALL, "");
 	
 	//handle special argument cases like --version, --help, etc.
