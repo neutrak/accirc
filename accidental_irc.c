@@ -178,6 +178,7 @@ char *command_list[]={
 #endif
 	"/ping_on_pms -> makes PMs in faux PM channels on the current server considered PINGs",
 	"/no_ping_on_pms -> makes PMs in faux PM channels on the server considered as normal messages after the first one (default)",
+	"/disconnect -> disconnects from the currently active server without sending a QUIT (resulting in an I/O error)",
 	"<Tab> -> automatically completes nicks in current channel"
 };
 
@@ -3926,6 +3927,14 @@ void parse_input(char *input_buffer, char keep_history){
 			}else if(!strcmp(command,"no_ping_on_pms")){
 				server->ping_on_pms=FALSE;
 				scrollback_output(current_server,0,"accirc: will now NOT consider every PM received on this server to be a PING (the first one still is considered a PING though)",TRUE);
+			}else if(!strcmp(command,"disconnect")){
+				//set the reconnect to false so we don't try to immediately reconnect after disconnecting
+				server->reconnect=FALSE;
+				
+				//close the connection to this server without sending a proper QUIT message
+				//this will result in a connection timeout from the perspective of the server
+				//NOTE: the value of current_server will be re-set once this completes
+				properly_close(current_server);
 			//unknown command error
 			//NOTE: prior to a command being "unknown" we check if there is an alias and try to handle it as such
 			}else if(!handle_aliased_command(command,parameters)){
