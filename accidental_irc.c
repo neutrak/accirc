@@ -1261,9 +1261,9 @@ int properly_close(int server_index){
 			//(I think this might have been implicity fixed when other changes were made but it needs to be tested thoroughly)
 			
 			//re-send all the auto-sent text when relevant, just like on first connection
-			//note that the post_commands MUST start with the server escape,
+			//note that the post_commands MUST start with the server escape or client escape,
 			//because on bouncer connections join may happen before the post_type message,
-			//and the commands might get leaked to a channel if they don't start with server_escape
+			//and the commands might get leaked to a channel if they don't start with an escape character
 			strncpy(server->post_type,reconnect_post_type,BUFFER_SIZE);
 			server->post_commands=dlist_deep_copy(reconnect_post_commands,(sizeof(char)*(BUFFER_SIZE+1)));
 			
@@ -3596,31 +3596,40 @@ void parse_input(char *input_buffer, char keep_history){
 	//then assume it's a client command; they probably want /help
 	if((current_server<0) && (!server_command) && (!client_command)){
 		client_command=TRUE;
-	}
-	
-	//NOTE: post ONLY delays /server/ commands, not client commands!
 	//if the lines are intended to be delayed then delay them
-	if(server_command && (current_server>=0) && post_listen && (!keep_history)){
+	}else if((client_command || server_command) && (current_server>=0) && post_listen && (!keep_history)){
 		irc_connection *server=get_server(current_server);
 		
 		//NOTE: we used a linked list so there is no maximum number of commands we can store
 		
 		//append this command to the current server's post_commands
-		char *post_cmd_buffer=malloc(sizeof(char)*(BUFFER_SIZE+1));
-		snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE+1)),"%c%s\n",server_escape,input_buffer);
+		char *post_cmd_buffer=malloc(sizeof(char)*(BUFFER_SIZE));
+		snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE)),"%c%s",server_escape,input_buffer);
+		if(client_command){
+			snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE)),"%c%s",client_escape,input_buffer);
+		}
 		server->post_commands=dlist_append(server->post_commands,post_cmd_buffer);
 		
 		//let the user know we did something
 		char notify_buffer[BUFFER_SIZE];
-		snprintf(notify_buffer,BUFFER_SIZE,"accirc: Saving post-%s command \"%c%s\" for later",server->post_type,server_escape,input_buffer);
+		snprintf(notify_buffer,(sizeof(char)*BUFFER_SIZE),"accirc: Saving post-%s command \"%s\" for later",server->post_type,post_cmd_buffer);
 		scrollback_output(current_server,0,notify_buffer,TRUE);
 		
 		return;
 	//the user manually entered /post into the client, rather than putting it in an rc file
-	}else if(server_command && (current_server>=0) && post_listen){
+	}else if((client_command || server_command) && (current_server>=0) && post_listen){
 		char notify_buffer[BUFFER_SIZE];
 		strncpy(notify_buffer,"accirc: post_listen flag ignored (keep_history is true) (/post commands should only exist in an rc file!); use /no_post to stop seeing this",BUFFER_SIZE);
 		scrollback_output(current_server,0,notify_buffer,TRUE);
+	//NOTE: post-message delays are intentionally mutually exclusive with this statement
+	//since depending on race conditions it's possible for messages to leak to channels otherwise
+	//and we don't want anything like a /msg NickServ passwork leaking to the channel text
+	}else if((current_server>=0) && post_listen){
+		irc_connection *server=get_server(current_server);
+		char notify_buffer[BUFFER_SIZE];
+		snprintf(notify_buffer,sizeof(char)*BUFFER_SIZE,"accirc: Warn: rc file error, the line \"%s\" is ignored from post-%s commands for security reasons because it does not start with %c (server command) or %c (client command)",input_buffer,server->post_type,server_escape,client_escape);
+		scrollback_output(current_server,0,notify_buffer,TRUE);
+		return;
 	}
 	
 	irc_connection *server=get_server(current_server);
