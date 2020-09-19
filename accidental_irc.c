@@ -4688,16 +4688,19 @@ void server_quit_command(irc_connection *server, int server_index, char *tmp_buf
 		int name_index=nick_idx(ch,nick,0);
 		//found it!
 		if(name_index>=0){
-			//output to the appropriate channel
-			scrollback_output(server_index,channel_index,output_buffer,TRUE);
-			
-			//don't actually remove the name from the list if it's a PM
-			//since PMs aren't channels and you can't part from them
-			if(ch->is_pm==FALSE){
-				//remove this user from that channel's names array
-				ch->user_names=dlist_delete_entry(ch->user_names,name_index,TRUE);
-				//and update the user count
-				ch->nick_count--;
+			//if we're not hiding joins and quits on this server
+			if(!(server->hide_joins_quits)){
+				//output to the appropriate channel
+				scrollback_output(server_index,channel_index,output_buffer,TRUE);
+				
+				//don't actually remove the name from the list if it's a PM
+				//since PMs aren't channels and you can't part from them
+				if(ch->is_pm==FALSE){
+					//remove this user from that channel's names array
+					ch->user_names=dlist_delete_entry(ch->user_names,name_index,TRUE);
+					//and update the user count
+					ch->nick_count--;
+				}
 			}
 			
 			//for handling later; just let us know we found a channel to output to
