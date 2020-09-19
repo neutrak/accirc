@@ -441,6 +441,7 @@ void refresh_channel_topic();
 void refresh_channel_text();
 irc_connection *get_server(int server_index);
 int get_current_channel(int server_index);
+void privmsg_command(char *input_buffer);
 
 //helper functions for common tasks
 
@@ -3308,12 +3309,38 @@ void hi_command(char *input_buffer, char *command, char *parameters){
 	char output_buffer[BUFFER_SIZE];
 	int output_channel;
 	
+	//new faux channel name
+	char pm_ch_name[BUFFER_SIZE];
+	strncpy(pm_ch_name,parameters,BUFFER_SIZE);
+	
+	//the message to send on open, if one is given
+	char message[BUFFER_SIZE];
+	strncpy(message,"",BUFFER_SIZE);
+	
 	//set some sane default output just in case it doesn't change
 	output_channel=0;
 	strncpy(output_buffer,"",BUFFER_SIZE);
 	
-	join_new_channel(current_server,parameters,output_buffer,&output_channel,TRUE);
+	//check for space in parameters, and if there is a space
+	//the consider the pre-space content to be the channel/user name
+	//and the post-space content to be a message to send to that user once the faux channel is opened
+	int first_space=strfind(" ",parameters);
+	if(first_space>=0){
+		substr(pm_ch_name,parameters,0,first_space);
+		substr(message,parameters,first_space+1,strlen(parameters)-(first_space+1));
+	}
+	
+	join_new_channel(current_server,pm_ch_name,output_buffer,&output_channel,TRUE);
 	scrollback_output(current_server,output_channel,output_buffer,TRUE);
+	
+	if(strlen(message)>0){
+		//NOTE: we don't need to swap servers or channels
+		//because we know that we are joining a channel on the current_server
+		//and because we know join_new_channel sets the output_channel to be the newly-created channel
+		//so this is always the correct server and channel to output to
+		//by the time control gets to this statement
+		privmsg_command(message);
+	}
 }
 
 //TODO: add support for "otr_hi", which would initialize an otr PM chat via libotr
@@ -3727,7 +3754,7 @@ void parse_input(char *input_buffer, char keep_history){
 			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias quit %cexit",client_escape,client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
-			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias msg %cprivmsg",client_escape,server_escape);
+			snprintf(easy_mode_buf,BUFFER_SIZE,"%calias msg %chi",client_escape,client_escape);
 			parse_input(easy_mode_buf,FALSE);
 			
 			snprintf(easy_mode_buf,BUFFER_SIZE,"%ctime_format %%Y-%%m-%%d %%R:%%S",client_escape);
@@ -4780,6 +4807,12 @@ int parse_server(int server_index){
 		
 		//the channel to output to, by default the SYSTEM channel
 		int output_channel=0;
+		
+		//TODO: fix this handling
+		//idk what's going on but on bitlbee connections this doesn't properly recognize 001s (doesn't run post-001 commands)
+		//and it also seems to ignore my hide_join_quit setting for this server (maybe just sometimes?)
+		//all other irc servers seem to behave fine, so it must be some weird formatting in bitlbee
+		//but upon inspecting the network traffic nothing seems obviously wrong
 		
 		//seperate server messages from PMs
 		int first_space=strfind(" ",server->read_buffer);
@@ -5982,7 +6015,7 @@ int main(int argc, char *argv[]){
 		snprintf(easy_mode_buf,BUFFER_SIZE,"%calias quit %cexit",client_escape,client_escape);
 		parse_input(easy_mode_buf,FALSE);
 		
-		snprintf(easy_mode_buf,BUFFER_SIZE,"%calias msg %cprivmsg",client_escape,server_escape);
+		snprintf(easy_mode_buf,BUFFER_SIZE,"%calias msg %chi",client_escape,client_escape);
 		parse_input(easy_mode_buf,FALSE);
 		
 		snprintf(easy_mode_buf,BUFFER_SIZE,"%ctime_format %%Y-%%m-%%d %%R:%%S",client_escape);
