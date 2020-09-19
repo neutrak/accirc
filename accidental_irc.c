@@ -3600,20 +3600,30 @@ void parse_input(char *input_buffer, char keep_history){
 	}else if((client_command || server_command) && (current_server>=0) && post_listen && (!keep_history)){
 		irc_connection *server=get_server(current_server);
 		
-		//NOTE: we used a linked list so there is no maximum number of commands we can store
-		
-		//append this command to the current server's post_commands
-		char *post_cmd_buffer=malloc(sizeof(char)*(BUFFER_SIZE));
-		snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE)),"%c%s",server_escape,input_buffer);
-		if(client_command){
-			snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE)),"%c%s",client_escape,input_buffer);
+		//NOTE: this additional handling is necessary
+		//because client commands are now accepted as post- commands
+		//and so if we don't include any type of way to get out of the post- handling
+		//then you can only connect to one irc server in the rc file
+		//but we want to allow multiple irc server connections to be specified
+		if(client_command && (strfind("no_post",input_buffer)==0)){
+			post_listen=FALSE;
+			scrollback_output(current_server,0,"accirc: no longer listening for post- commands",TRUE);
+		}else{
+			//NOTE: we used a linked list so there is no maximum number of commands we can store
+			
+			//append this command to the current server's post_commands
+			char *post_cmd_buffer=malloc(sizeof(char)*(BUFFER_SIZE));
+			snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE)),"%c%s",server_escape,input_buffer);
+			if(client_command){
+				snprintf(post_cmd_buffer,(sizeof(char)*(BUFFER_SIZE)),"%c%s",client_escape,input_buffer);
+			}
+			server->post_commands=dlist_append(server->post_commands,post_cmd_buffer);
+			
+			//let the user know we did something
+			char notify_buffer[BUFFER_SIZE];
+			snprintf(notify_buffer,(sizeof(char)*BUFFER_SIZE),"accirc: Saving post-%s command \"%s\" for later",server->post_type,post_cmd_buffer);
+			scrollback_output(current_server,0,notify_buffer,TRUE);
 		}
-		server->post_commands=dlist_append(server->post_commands,post_cmd_buffer);
-		
-		//let the user know we did something
-		char notify_buffer[BUFFER_SIZE];
-		snprintf(notify_buffer,(sizeof(char)*BUFFER_SIZE),"accirc: Saving post-%s command \"%s\" for later",server->post_type,post_cmd_buffer);
-		scrollback_output(current_server,0,notify_buffer,TRUE);
 		
 		return;
 	//the user manually entered /post into the client, rather than putting it in an rc file
