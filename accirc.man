@@ -71,6 +71,12 @@ turns easy_mode on (this is the default unless the --proper switch is provided);
 \fB/no_easy_mode\fP
 turns easy_mode off
 .TP
+\fB/center_server_list\fP
+keep the server name always centered on the screen, even when there is room to display multiple server names
+.TP
+\fB/no_center_server_list\fP
+use responsive behavior for server names (left-aligned and display all if it can fit, or centered if that's all that can fit)
+.TP
 \fB/reconnect\fP
 reconnect to the currently selected server if connection is lost for any reason
 .TP

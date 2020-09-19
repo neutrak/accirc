@@ -136,6 +136,8 @@ char *command_list[]={
 	"/set_quit_msg <quit message> -> sets a custom quit message for the current server",
 	"/easy_mode -> turns easy_mode on, which auto-sends user and nick info to new servers",
 	"/no_easy_mode -> turns easy_mode off",
+	"/center_server_list -> displays only a single server name (and arrows) even when there is room to display them all",
+	"/no_center_server_list -> displays all server names left to right if there's room, falls back to centered when there's no room left",
 	"/reconnect -> reconnect to the current server if dropped",
 	"/no_reconnect -> don't reconnect to the current server if dropped",
 	"/manual_reconnect -> force a reconnect even if a drop was not detected",
@@ -367,6 +369,9 @@ char ignore_rc;
 //easy mode; set by default, turned off with the --proper cli switch
 //when enabled, sets default aliases for nick, quit, and msg; also sets time format and auto-sends user quartet
 char easy_mode;
+
+//whether to center the server name (responsive behavior always)
+char center_server_list;
 
 #ifdef _OPENSSL
 
@@ -1467,7 +1472,8 @@ void refresh_server_list(){
 	}
 
 	//if we can't display everything
-	if(calc_server_list_chars()>width){
+	//or we can, but we've been asked not to
+	if((calc_server_list_chars()>width) || (center_server_list)){
 		//then center the current item and show arrows
 		refresh_server_list_centered();
 		
@@ -1605,7 +1611,8 @@ void refresh_channel_list(){
 	}
 	
 	//if we can't display everything at once
-	if(calc_channel_list_chars(server)>width){
+	//or we can, but we've been asked not to
+	if((calc_channel_list_chars(server)>width) || (center_server_list)){
 		//then cneter the current channel and show arrows
 		refresh_channel_list_centered(server);
 		
@@ -3756,6 +3763,16 @@ void parse_input(char *input_buffer, char keep_history){
 			if(current_server>=0){
 				scrollback_output(current_server,0,"accirc: easy_mode turned OFF",TRUE);
 			}
+		}else if(!strcmp(command,"center_server_list")){
+			center_server_list=TRUE;
+			if(current_server>=0){
+				scrollback_output(current_server,0,"accirc: will now always use small screen server list display",TRUE);
+			}
+		}else if(!strcmp(command,"no_center_server_list")){
+			center_server_list=FALSE;
+			if(current_server>=0){
+				scrollback_output(current_server,0,"accirc: will now use responsive screen server list display",TRUE);
+			}
 		//toggle a phrase in the ping phrases list
 		}else if(!strcmp(command,"ping_toggle")){
 			char ping_state=ping_toggle_command(parameters);
@@ -5777,6 +5794,7 @@ int main(int argc, char *argv[]){
 	
 	ignore_rc=FALSE;
 	easy_mode=TRUE;
+	center_server_list=TRUE;
 #ifdef _OPENSSL
 	ssl_cert_check=TRUE;
 #endif
