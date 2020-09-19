@@ -4808,12 +4808,6 @@ int parse_server(int server_index){
 		//the channel to output to, by default the SYSTEM channel
 		int output_channel=0;
 		
-		//TODO: fix this handling
-		//idk what's going on but on bitlbee connections this doesn't properly recognize 001s (doesn't run post-001 commands)
-		//and it also seems to ignore my hide_join_quit setting for this server (maybe just sometimes?)
-		//all other irc servers seem to behave fine, so it must be some weird formatting in bitlbee
-		//but upon inspecting the network traffic nothing seems obviously wrong
-		
 		//seperate server messages from PMs
 		int first_space=strfind(" ",server->read_buffer);
 		if(first_space>=0){
