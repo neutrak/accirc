@@ -178,6 +178,8 @@ char *command_list[]={
 #endif
 	"/ping_on_pms -> makes PMs in faux PM channels on the current server considered PINGs",
 	"/no_ping_on_pms -> makes PMs in faux PM channels on the server considered as normal messages after the first one (default)",
+	"/hide_joins_quits -> hides all JOINs, QUITs, and PARTs from what would otherwise be normal channel output; does not affect user list",
+	"/no_hide_joins_quits -> shows all JOINs, QUITs, and PARTs in normal channel output (default)",
 	"/disconnect -> disconnects from the currently active server without sending a QUIT (resulting in an I/O error)",
 	"<Tab> -> automatically completes nicks in current channel"
 };
@@ -315,6 +317,8 @@ struct irc_connection {
 	//whether to consider all pm messages (even after the first one) pings or not
 	//if FALSE, only the first private message in a conversation is considered a ping, and others are not
 	char ping_on_pms;
+	//whether or not to hide joins/quits/parts in channel output on this server
+	char hide_joins_quits;
 	
 #ifdef _OPENSSL
 	//SSL additions
@@ -2379,6 +2383,9 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	//by default don't ping on pms, other than the first one
 	server->ping_on_pms=FALSE;
 	
+	//by default don't hide joins and quits
+	server->hide_joins_quits=FALSE;
+	
 	//set the current channel to be 0 (the system/debug channel)
 	//a JOIN would add channels, but upon initial connection 0 is the only valid one
 	server->current_channel=0;
@@ -3927,6 +3934,12 @@ void parse_input(char *input_buffer, char keep_history){
 			}else if(!strcmp(command,"no_ping_on_pms")){
 				server->ping_on_pms=FALSE;
 				scrollback_output(current_server,0,"accirc: will now NOT consider every PM received on this server to be a PING (the first one still is considered a PING though)",TRUE);
+			}else if(!strcmp(command,"hide_joins_quits")){
+				server->hide_joins_quits=TRUE;
+				scrollback_output(current_server,0,"accirc: will now HIDE all JOINs, QUITs, and PARTs for all channels of this server\n",TRUE);
+			}else if(!strcmp(command,"no_hide_joins_quits")){
+				server->hide_joins_quits=FALSE;
+				scrollback_output(current_server,0,"accirc: will now SHOW all JOINs, QUITs, and PARTs for all channels of this server\n",TRUE);
 			}else if(!strcmp(command,"disconnect")){
 				//set the reconnect to false so we don't try to immediately reconnect after disconnecting
 				server->reconnect=FALSE;
@@ -4720,6 +4733,10 @@ int parse_server(int server_index){
 	}else if(!strcmp(command,"ERROR")){
 		server_index=properly_close(server_index);
 	}else{
+		//whether or not this is a JOIN, PART, or QUIT message
+		//because in some circumstances we hide those
+		char is_join_part_quit=FALSE;
+				
 		//set this to show as having new data, it must since we're getting something on it
 		//(this is done automatically as a result of new_content being set true in scrollback_output)
 		refresh_server_list();
@@ -4780,7 +4797,9 @@ int parse_server(int server_index){
 					scrollback_output(current_server,0,notify_buffer,TRUE);
 					
 					//send the post commands (which are stored in a doubly-linekd list)
-					char tmp_command_buffer[BUFFER_SIZE];
+					//NOTE: this +1 is important because post_command_entry->data
+					//(from server->post_commands) is malloc'd to BUFFER_SIZE+1
+					char tmp_command_buffer[BUFFER_SIZE+1];
 					dlist_entry *post_command_entry=server->post_commands;
 					
 					//loop through the post commands
@@ -4879,9 +4898,11 @@ int parse_server(int server_index){
 				//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 				}else if(!strcmp(command,"JOIN")){
 					server_join_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+					is_join_part_quit=TRUE;
 				//or ":neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz"
 				}else if(!strcmp(command,"PART")){
 					server_part_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+					is_join_part_quit=TRUE;
 				//or ":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
 				}else if(!strcmp(command,"KICK")){
 					server_kick_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,text);
@@ -4914,8 +4935,15 @@ int parse_server(int server_index){
 				//(this will require outputting multiple times, which I don't have the faculties for at the moment)
 				}else if(!strcmp(command,"QUIT")){
 					server_quit_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text,&special_output);
+					is_join_part_quit=TRUE;
 				}
 			}
+		}
+		
+		//if this is something we're supposed to hide based on server settings
+		if((is_join_part_quit) && (server->hide_joins_quits)){
+			//then that's special too
+			special_output=TRUE;
 		}
 		
 		//if we haven't already done some crazy kind of output
