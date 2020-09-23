@@ -48,7 +48,7 @@
 #define MIN_HEIGHT 7
 #define MIN_WIDTH 12
 
-#define VERSION "0.13.0"
+#define VERSION "0.13.1"
 
 //these are for ncurses' benefit
 #define KEY_ESCAPE 27
@@ -90,7 +90,7 @@
 //the error to display when a line overflows
 #define LINE_OVERFLOW_ERROR "<<etc.>>"
 
-//the default directoryto save logs to
+//the default directory to save logs to
 #define LOGGING_DIRECTORY "logs"
 
 //the file to log errors to
@@ -705,6 +705,43 @@ char verify_or_make_dir(char *path){
 		//we failed
 		return FALSE;
 	}
+	//if we got here and didn't return we succeeded
+	return TRUE;
+}
+
+//verify or make all parent directories for a given file
+char verify_or_make_parent_dirs_for(char *file_path){
+	char path_prefix[BUFFER_SIZE];
+	strncpy(path_prefix,"",BUFFER_SIZE);
+	
+	char partial_file_path[BUFFER_SIZE];
+	strncpy(partial_file_path,file_path,BUFFER_SIZE);
+	int first_slash=strfind("/",partial_file_path);
+	//while this is a directory/path definition and not just a file
+	while(first_slash>=0){
+		//get the topmost directory to create
+		char dir_name[BUFFER_SIZE];
+		substr(dir_name,partial_file_path,0,first_slash);
+		
+		//along with its prefix (for everything up to this point)
+		char dir_path[BUFFER_SIZE];
+		snprintf(dir_path,BUFFER_SIZE,"%s/%s",path_prefix,dir_name);
+		
+		//and try to create it
+		if(!verify_or_make_dir(dir_path)){
+			return FALSE;
+		}
+		
+		//and then update buffers to try to create the next subdirectory
+		strncpy(path_prefix,dir_path,BUFFER_SIZE);
+		char new_file_path[BUFFER_SIZE];
+		//NOTE: the +1 here is because we skip over the slash character itself
+		substr(new_file_path,partial_file_path,first_slash+1,strlen(partial_file_path)-(first_slash+1));
+		strncpy(partial_file_path,new_file_path,BUFFER_SIZE);
+		
+		first_slash=strfind("/",partial_file_path);
+	}
+	
 	//if we got here and didn't return we succeeded
 	return TRUE;
 }
@@ -2423,15 +2460,19 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	if(server->keep_logs){
 		//TODO: create a subdirectory for the user's nick so that multiple logs can be kept for simultaneous connections with different nicks
 		//the directory structure should then be ~/.local/share/accirc/logs/<server>/<nick>/ with all the #channel files under that
+		//NOTE: this is complicated because the user's nick can change ove time so for now that's just not being done
 		
 		//first make a directory for this server
 		char file_location[BUFFER_SIZE];
-		snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,server->server_name);
-		if(verify_or_make_dir(file_location)){
-			snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,server->server_name,ch->name);
+		snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,server->server_name,ch->name);
+		
+		if(verify_or_make_parent_dirs_for(file_location)){
 			//note that if this call fails it will be set to NULL and hence be skipped over when writing logs
 			ch->log_file=fopen(file_location,"a");
-			if(ch->log_file==NULL){
+			if(ch->log_file!=NULL){
+				//turn off buffering since I need may this output immediately and buffers annoy me for that
+				setvbuf(ch->log_file,NULL,_IONBF,0);
+			}else{
 				scrollback_output(server_index,0,"accirc: Err: could not make log file",TRUE);
 			}
 		//this fails in a non-silent way, the user should know there was a problem
@@ -2575,16 +2616,28 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 	if(server->keep_logs){
 		//TODO: use a subdirectory for the user's nick so that multiple logs can be kept for simultaneous connections with different nicks
 		//the directory structure should then be ~/.local/share/accirc/logs/<server>/<nick>/ with all the #channel files under that
+		//NOTE: this is complicated because the user's nick can change ove time so for now that's just not being done
 		
 		char file_location[BUFFER_SIZE];
 		snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,server->server_name,ch->name);
-		//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
-		ch->log_file=fopen(file_location,"a");
 		
+		//NOTE: we declare this error message here so it doesn't need to be repeated
+		//but it is only actually output if there is actually an error
+		char error_buffer[BUFFER_SIZE];
+		snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: could not make log file for channel %s",ch->name);
 		
-		if(ch->log_file!=NULL){
-			//turn off buffering since I need may this output immediately and buffers annoy me for that
-			setvbuf(ch->log_file,NULL,_IONBF,0);
+		//if this channel name contains any '/' characters make the associated subdirectories at this time
+		if(verify_or_make_parent_dirs_for(file_location)){
+			//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
+			ch->log_file=fopen(file_location,"a");
+			if(ch->log_file!=NULL){
+				//turn off buffering since I need may this output immediately and buffers annoy me for that
+				setvbuf(ch->log_file,NULL,_IONBF,0);
+			}else{
+				scrollback_output(server_index,channel_index,error_buffer,TRUE);
+			}
+		}else{
+			scrollback_output(server_index,channel_index,error_buffer,TRUE);
 		}
 	}
 		
@@ -3101,19 +3154,26 @@ void log_command(){
 			for(channel_index=0;ch_entry!=NULL;channel_index++){
 				//TODO: use a subdirectory for the user's nick so that multiple logs can be kept for simultaneous connections with different nicks
 				//the directory structure should then be ~/.local/share/accirc/logs/<server>/<nick>/ with all the #channel files under that
+				//NOTE: this is complicated because the user's nick can change ove time so for now that's just not being done
 				
 				//try to open a file for every channel
 				channel_info *ch=(channel_info *)(ch_entry->data);
 				
 				char file_location[BUFFER_SIZE];
 				snprintf(file_location,BUFFER_SIZE,"%s/.local/share/accirc/%s/%s/%s",getenv("HOME"),LOGGING_DIRECTORY,server->server_name,ch->name);
-				//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
-				ch->log_file=fopen(file_location,"a");
-				
-				
-				if(ch->log_file!=NULL){
-					//turn off buffering since I need may this output immediately and buffers annoy me for that
-					setvbuf(ch->log_file,NULL,_IONBF,0);
+				if(verify_or_make_parent_dirs_for(file_location)){
+					//note if this fails it will be set to NULL and hence will be skipped over when trying to output to it
+					ch->log_file=fopen(file_location,"a");
+					
+					
+					if(ch->log_file!=NULL){
+						//turn off buffering since I need may this output immediately and buffers annoy me for that
+						setvbuf(ch->log_file,NULL,_IONBF,0);
+					}
+				}else{
+					char error_buffer[BUFFER_SIZE];
+					snprintf(error_buffer,BUFFER_SIZE,"accirc: Err: could not open log file for channel %s!",ch->name);
+					scrollback_output(current_server,channel_index,error_buffer,TRUE);
 				}
 				ch_entry=ch_entry->next;
 			}
@@ -5841,6 +5901,7 @@ int main(int argc, char *argv[]){
 	//generic loop counter variable
 	int n;
 	
+	error_file=NULL;
 	ignore_rc=FALSE;
 	easy_mode=TRUE;
 	center_server_list=TRUE;
@@ -5894,13 +5955,8 @@ int main(int argc, char *argv[]){
 	char error_file_buffer[BUFFER_SIZE];
 	char *home_dir=getenv("HOME");
 	if(home_dir!=NULL){
-		snprintf(error_file_buffer,BUFFER_SIZE,"%s/.local/",home_dir);
-		verify_or_make_dir(error_file_buffer);
-		snprintf(error_file_buffer,BUFFER_SIZE,"%s/.local/share",home_dir);
-		verify_or_make_dir(error_file_buffer);
-		snprintf(error_file_buffer,BUFFER_SIZE,"%s/.local/share/accirc",home_dir);
-		verify_or_make_dir(error_file_buffer);
 		snprintf(error_file_buffer,BUFFER_SIZE,"%s/.local/share/accirc/%s",home_dir,ERROR_FILE);
+		verify_or_make_parent_dirs_for(error_file_buffer);
 	}else{
 		snprintf(error_file_buffer,BUFFER_SIZE,ERROR_FILE);
 	}
@@ -5924,13 +5980,8 @@ int main(int argc, char *argv[]){
 	//ensure appropriate directories exist for config and logs
 	char log_dir[BUFFER_SIZE];
 	if(home_dir!=NULL){
-		snprintf(log_dir,BUFFER_SIZE,"%s/.local/",home_dir);
-		verify_or_make_dir(log_dir);
-		snprintf(log_dir,BUFFER_SIZE,"%s/.local/share",home_dir);
-		verify_or_make_dir(log_dir);
-		snprintf(log_dir,BUFFER_SIZE,"%s/.local/share/accirc",home_dir);
-		verify_or_make_dir(log_dir);
 		snprintf(log_dir,BUFFER_SIZE,"%s/.local/share/accirc/%s",home_dir,LOGGING_DIRECTORY);
+		verify_or_make_parent_dirs_for(log_dir);
 	}else{
 		snprintf(log_dir,BUFFER_SIZE,LOGGING_DIRECTORY);
 	}
@@ -5997,11 +6048,8 @@ int main(int argc, char *argv[]){
 	//store config in ~/.config/accirc/config.rc unless otherwise specified
 	if(strlen(rc_file)<1){
 		if(home_dir!=NULL){
-			snprintf(rc_file,BUFFER_SIZE,"%s/.config",home_dir);
-			verify_or_make_dir(rc_file);
-			snprintf(rc_file,BUFFER_SIZE,"%s/.config/accirc",home_dir);
-			verify_or_make_dir(rc_file);
 			snprintf(rc_file,BUFFER_SIZE,"%s/.config/accirc/config.rc",home_dir);
+			verify_or_make_parent_dirs_for(rc_file);
 		}else{
 			snprintf(rc_file,BUFFER_SIZE,"config.rc");
 		}
