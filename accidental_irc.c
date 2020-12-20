@@ -1115,6 +1115,7 @@ char get_mode_prefix(char *mode_str){
 		//precedence rules: q (~) > o (@) > h (%) > v (+)
 		switch(mode_str[idx]){
 			case 'q': //channel owner
+			case 'a': //channel owner (slashnet)
 				ret='~';
 				break;
 			case 'o': //channel operator
@@ -1143,7 +1144,7 @@ char get_mode_prefix(char *mode_str){
 }
 
 //stores the given mode_prefix in the given mode_str
-void set_mode_str_from_prefix(const char *mode_prefix, char *mode_str, unsigned int max_out_len){
+void set_mode_str_from_prefix(char *mode_str,const char *mode_prefix,unsigned int max_out_len){
 	unsigned int out_idx=0;
 	
 	unsigned int idx;
@@ -2403,9 +2404,17 @@ void add_name(int server_index, int channel_index, char *name, const char *mode_
 		//find a spot for a new user
 		nick_info *nick_content=(nick_info *)(malloc(sizeof(nick_info)));
 		strncpy(nick_content->user_name,name,BUFFER_SIZE);
-		set_mode_str_from_prefix(mode_prefix,nick_content->mode_str,BUFFER_SIZE);
+		set_mode_str_from_prefix(nick_content->mode_str,mode_prefix,BUFFER_SIZE);
 		ch->user_names=dlist_append(ch->user_names,nick_content);
 		ch->nick_count++;
+	//if this user did already exist
+	}else if(matches==1){
+		idx=nick_idx(ch,name,0);
+		dlist_entry *nick_entry=dlist_get_entry(ch->user_names,idx);
+		nick_info *nick_content=(nick_info*)(nick_entry->data);
+		
+		//update the MODE string for them
+		set_mode_str_from_prefix(nick_content->mode_str,mode_prefix,BUFFER_SIZE);
 	}
 }
 
@@ -4815,20 +4824,31 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 	//get the string of nicks to apply the mode_ctrl_str to
 	char nicks[BUFFER_SIZE];
 	substr(nicks,tmp_text,space_idx+1,strlen(tmp_text)-1-space_idx);
+
+	/*
+	fprintf(error_file,"dbg: Got MODE command \"%s\"; mode_ctrl_str=\"%s\"; tmp_text=\"%s\", nicks=\"%s\"\n",
+		text,mode_ctrl_str,tmp_text,nicks);
+	*/
 	
 	unsigned int nick_mode_idx=0;
 	
 	//for each nick, set mode_str in *output_channel to new_mode_str
 	while(strncmp(nicks,"",BUFFER_SIZE)!=0){
 		char nick[BUFFER_SIZE];
-		space_idx=strfind(" ",nick);
+		space_idx=strfind(" ",nicks);
 		if(space_idx<0){
 			strncpy(nick,nicks,BUFFER_SIZE);
 			strncpy(nicks,"",BUFFER_SIZE);
 		}else{
 			substr(nick,nicks,0,space_idx);
-			substr(nicks,nicks,space_idx+1,strlen(nicks)-1);
+			char tmp_buffer[BUFFER_SIZE];
+			substr(tmp_buffer,nicks,space_idx+1,strlen(nicks)-1);
+			strncpy(nicks,tmp_buffer,BUFFER_SIZE);
 		}
+		
+		//TODO: figure out why this code, which works fine for +o, +h, etc.
+		//doesn't seem to work for +vh, +ov, etc.
+		//e.g. this fails on MODE #channel +ao username username
 		
 		channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,*output_channel)->data);
 		int name_index=nick_idx(ch,nick,0);
@@ -4848,7 +4868,8 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 				//copy the one-character mode into a string
 				//so that it can be used with strfind
 				char mode_delta_str[2];
-				snprintf(mode_delta_str,2,"%c",mode_ctrl_str[nick_mode_idx+1]);
+				mode_delta_str[0]=mode_ctrl_str[nick_mode_idx+1];
+				mode_delta_str[1]='\0';
 				
 				//find the existing index of this mode in the mode list, if it exists
 				int mode_idx=strfind(mode_delta_str,new_mode_str);
@@ -4858,7 +4879,11 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 					//and that mode wasn't previously included in the list
 					if(mode_idx<0){
 						//then append it to the end
-						snprintf(new_mode_str,BUFFER_SIZE,"%s%c",new_mode_str,mode_delta);
+						unsigned int ins_idx=strlen(new_mode_str);
+						if((ins_idx+1)<BUFFER_SIZE){
+							new_mode_str[ins_idx]=mode_delta;
+							new_mode_str[ins_idx+1]='\0';
+						}
 					}
 				//if an existing mode is being removed
 				}else if(mode_ctrl_str[0]=='-'){
@@ -4873,14 +4898,20 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 							tmp_buffer[idx]=new_mode_str[idx];
 						}
 						for(idx=mode_idx+1;idx<strlen(new_mode_str);idx++){
-							tmp_buffer[idx]=new_mode_str[idx];
+							//NOTE: because one character from the mode string is removed/omitted
+							//we need a -1 here to sync up destination and source indicies
+							tmp_buffer[idx-1]=new_mode_str[idx];
 						}
 						//always null-terminate; realizing that one character was removed
-						tmp_buffer[strlen(new_mode_str)-2]='\0';
+						tmp_buffer[strlen(new_mode_str)-1]='\0';
 						
 						strncpy(new_mode_str,tmp_buffer,BUFFER_SIZE);
 					}
 				}
+				/*
+				fprintf(error_file,"dbg: New user mode for user \"%s\" in channel \"%s\" is user_mode_str \"%s\"\n",
+					nick,ch->name,new_mode_str);
+				*/
 			}
 			
 			//copy the newly-transformed mode back into the user name information
@@ -4889,9 +4920,6 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 		
 		nick_mode_idx++;
 	}
-	
-//	fprintf(error_file,"dbg: Got MODE command \"%s\"; mode_ctrl_str=\"%s\"; tmp_text=\"%s\", new_mode_str=\"%s\"\n",
-//		text,mode_ctrl_str,tmp_text,new_mode_str);
 }
 
 //handle the "quit" command from the server
