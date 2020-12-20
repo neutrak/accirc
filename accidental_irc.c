@@ -1106,6 +1106,88 @@ void custom_format_time(char *time_buffer, time_t current_unixtime){
 	//NOTE: apparently current_localtime gets free'd by strftime or something; definitely don't do it here
 }
 
+//returns the character to show before a user's nick
+//based on the list of modes which they currenty have applied to them
+char get_mode_prefix(char *mode_str){
+	char ret='\0';
+	unsigned int idx;
+	for(idx=0;idx<strlen(mode_str);idx++){
+		//precedence rules: q (~) > o (@) > h (%) > v (+)
+		switch(mode_str[idx]){
+			case 'q': //channel owner
+				ret='~';
+				break;
+			case 'o': //channel operator
+				if(ret!='~'){
+					ret='@';
+				}
+				break;
+			case 'h': //channel half operator
+				if((ret!='~') && (ret!='@')){
+					ret='%';
+				}
+				break;
+			case 'v': //voice
+				if((ret!='~') && (ret!='@') && (ret!='%')){
+					ret='+';
+				}
+				break;
+/*
+			case 'v': //TODO: find correct mode for &
+				ret='&';
+				break;
+*/
+		}
+	}
+	return ret;
+}
+
+//stores the given mode_prefix in the given mode_str
+void set_mode_str_from_prefix(const char *mode_prefix, char *mode_str, unsigned int max_out_len){
+	unsigned int out_idx=0;
+	
+	unsigned int idx;
+	for(idx=0;idx<strlen(mode_prefix);idx++){
+		char new_mode='\0';
+		switch(mode_prefix[idx]){
+			case '~':
+				new_mode='q';
+				break;
+			case '@':
+				new_mode='o';
+				break;
+			case '%':
+				new_mode='h';
+				break;
+			case '+':
+				new_mode='v';
+				break;
+/*
+			case '&': //TODO: find correct mode for &
+				new_mode='v';
+				break;
+*/
+			//if we got an unrecognized mode character
+			//then this is likely part of a nick
+			//so stop looking for mode characters in that case
+			default:
+				idx=strlen(mode_prefix);
+				break;
+		}
+		//if a mode was recognized and we haven't filled up the output buffer
+		//then add this mode to the output buffer
+		//NOTE: the +1 here is because we need to leave a character for the null termination
+		if((new_mode!='\0') && ((out_idx+1)<max_out_len)){
+			mode_str[out_idx]=new_mode;
+			out_idx++;
+		}
+	}
+	//null terminate strings
+	mode_str[out_idx]='\0';
+	
+	//no return; mode_str changed as side-effect
+}
+
 //handles SIGHUP by sending a default exit message to every server currently in use
 void terminal_close(int signal){
 	char quit_buffer[BUFFER_SIZE];
@@ -2277,7 +2359,7 @@ void leave_channel(int server_index, char *ch_name){
 }
 
 //add a name to the names list for a channel
-void add_name(int server_index, int channel_index, char *name, const char *mode_str){
+void add_name(int server_index, int channel_index, char *name, const char *mode_prefix){
 	irc_connection *server=get_server(server_index);
 	if(server==NULL){
 		return;
@@ -2321,7 +2403,7 @@ void add_name(int server_index, int channel_index, char *name, const char *mode_
 		//find a spot for a new user
 		nick_info *nick_content=(nick_info *)(malloc(sizeof(nick_info)));
 		strncpy(nick_content->user_name,name,BUFFER_SIZE);
-		strncpy(nick_content->mode_str,mode_str,BUFFER_SIZE);
+		set_mode_str_from_prefix(mode_prefix,nick_content->mode_str,BUFFER_SIZE);
 		ch->user_names=dlist_append(ch->user_names,nick_content);
 		ch->nick_count++;
 	}
@@ -3461,7 +3543,7 @@ void privmsg_command(char *input_buffer){
 				if((nick_ch_idx>=0) && (server->use_mode_str)){
 					dlist_entry *nick_entry=dlist_get_entry(ch->user_names,nick_ch_idx);
 					nick_info *nick_content=(nick_info*)(nick_entry->data);
-					strncpy(nick_mode_str,nick_content->mode_str,BUFFER_SIZE);
+					snprintf(nick_mode_str,BUFFER_SIZE,"%c",get_mode_prefix(nick_content->mode_str));
 				}
 				
 				snprintf(output_buffer,BUFFER_SIZE,">> <%s%s> %s",nick_mode_str,server->nick,input_buffer);
@@ -4246,14 +4328,14 @@ void server_353_command(irc_connection *server, int server_index, char *tmp_buff
 			substr(names,names,space_index+1,strlen(names)-space_index-1);
 			
 			//trim this user's name to remove the mode modifier, if applicable
-			char mode_str[BUFFER_SIZE];
-			strncpy(mode_str,"",BUFFER_SIZE);
+			char mode_prefix[BUFFER_SIZE];
+			strncpy(mode_prefix,"",BUFFER_SIZE);
 			if((strfind("@",this_name)==0)||(strfind("~",this_name)==0)||(strfind("%",this_name)==0)||(strfind("&",this_name)==0)||(strfind("+",this_name)==0)){
-				snprintf(mode_str,BUFFER_SIZE,"%c",this_name[0]);
+				snprintf(mode_prefix,BUFFER_SIZE,"%c",this_name[0]);
 				substr(this_name,this_name,1,strlen(this_name)-1);
 			}
 			
-			add_name(server_index,*output_channel,this_name,mode_str);
+			add_name(server_index,*output_channel,this_name,mode_prefix);
 		}
 	}
 }
@@ -4368,7 +4450,7 @@ void server_privmsg_command(irc_connection *server, int server_index, char *tmp_
 	if((nick_ch_idx>=0) && (server->use_mode_str)){
 		dlist_entry *nick_entry=dlist_get_entry(ch->user_names,nick_ch_idx);
 		nick_info *nick_content=(nick_info *)(nick_entry->data);
-		strncpy(nick_mode_str,nick_content->mode_str,BUFFER_SIZE);
+		snprintf(nick_mode_str,BUFFER_SIZE,"%c",get_mode_prefix(nick_content->mode_str));
 	}
 	
 	//this is so pings can be case-insensitive
@@ -4734,29 +4816,7 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 	char nicks[BUFFER_SIZE];
 	substr(nicks,tmp_text,space_idx+1,strlen(tmp_text)-1-space_idx);
 	
-	char new_mode_str[BUFFER_SIZE];
-	strncpy(new_mode_str,"",BUFFER_SIZE);
-	if(mode_ctrl_str[0]=='+'){
-		switch(mode_ctrl_str[1]){
-			case 'o':
-				strncpy(new_mode_str,"@",BUFFER_SIZE);
-				break;
-			case 'v':
-				strncpy(new_mode_str,"+",BUFFER_SIZE);
-				break;
-			case 'q':
-				strncpy(new_mode_str,"~",BUFFER_SIZE);
-				break;
-/*
-			case 'v': //TODO: find correct mode for %
-				strncpy(new_mode_str,"%",BUFFER_SIZE);
-				break;
-			case 'v': //TODO: find correct mode for &
-				strncpy(new_mode_str,"&",BUFFER_SIZE);
-				break;
-*/
-		}
-	}
+	unsigned int nick_mode_idx=0;
 	
 	//for each nick, set mode_str in *output_channel to new_mode_str
 	while(strncmp(nicks,"",BUFFER_SIZE)!=0){
@@ -4773,8 +4833,61 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 		channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,*output_channel)->data);
 		int name_index=nick_idx(ch,nick,0);
 		if(name_index>=0){
+			char new_mode_str[BUFFER_SIZE];
+			
+			//use the existing mode string for this user in this channel
+			//as a starting point
+			strncpy(new_mode_str,((nick_info *)(dlist_get_entry(ch->user_names,name_index)->data))->mode_str,BUFFER_SIZE);
+			
+			//NOTE: this handles multiuser syntax +ooo nick nick nick
+			//NOTE: this handles mode losses (-o, -ooo) in addition to mode grants
+			if((nick_mode_idx+1)<strlen(mode_ctrl_str)){
+				//get the mode character that's being applied or removed
+				char mode_delta=mode_ctrl_str[nick_mode_idx+1];
+				
+				//copy the one-character mode into a string
+				//so that it can be used with strfind
+				char mode_delta_str[2];
+				snprintf(mode_delta_str,2,"%c",mode_ctrl_str[nick_mode_idx+1]);
+				
+				//find the existing index of this mode in the mode list, if it exists
+				int mode_idx=strfind(mode_delta_str,new_mode_str);
+				
+				//if a new mode is being added
+				if(mode_ctrl_str[0]=='+'){
+					//and that mode wasn't previously included in the list
+					if(mode_idx<0){
+						//then append it to the end
+						snprintf(new_mode_str,BUFFER_SIZE,"%s%c",new_mode_str,mode_delta);
+					}
+				//if an existing mode is being removed
+				}else if(mode_ctrl_str[0]=='-'){
+					//and that mode was included in the mode string for this user previously
+					if(mode_idx>=0){
+						//then remove it by copying the existing string,
+						//omitting the character at that index where this mode was found
+						
+						char tmp_buffer[BUFFER_SIZE];
+						unsigned int idx;
+						for(idx=0;idx<mode_idx;idx++){
+							tmp_buffer[idx]=new_mode_str[idx];
+						}
+						for(idx=mode_idx+1;idx<strlen(new_mode_str);idx++){
+							tmp_buffer[idx]=new_mode_str[idx];
+						}
+						//always null-terminate; realizing that one character was removed
+						tmp_buffer[strlen(new_mode_str)-2]='\0';
+						
+						strncpy(new_mode_str,tmp_buffer,BUFFER_SIZE);
+					}
+				}
+			}
+			
+			//copy the newly-transformed mode back into the user name information
 			strncpy(((nick_info *)(dlist_get_entry(ch->user_names,name_index)->data))->mode_str,new_mode_str,BUFFER_SIZE);
 		}
+		
+		nick_mode_idx++;
 	}
 	
 //	fprintf(error_file,"dbg: Got MODE command \"%s\"; mode_ctrl_str=\"%s\"; tmp_text=\"%s\", new_mode_str=\"%s\"\n",
