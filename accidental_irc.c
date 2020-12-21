@@ -2412,6 +2412,11 @@ void add_name(int server_index, int channel_index, char *name, const char *mode_
 		idx=nick_idx(ch,name,0);
 		dlist_entry *nick_entry=dlist_get_entry(ch->user_names,idx);
 		nick_info *nick_content=(nick_info*)(nick_entry->data);
+
+		//TODO: if user already existed,
+		//use the existing mode string for this user in this channel
+		//as a starting point
+		//and add the prefix-based mode if it's not already in the user's mode str
 		
 		//update the MODE string for them
 		set_mode_str_from_prefix(nick_content->mode_str,mode_prefix,BUFFER_SIZE);
@@ -4845,10 +4850,6 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 			substr(tmp_buffer,nicks,space_idx+1,strlen(nicks)-1);
 			strncpy(nicks,tmp_buffer,BUFFER_SIZE);
 		}
-		
-		//TODO: figure out why this code, which works fine for +o, +h, etc.
-		//doesn't seem to work for +vh, +ov, etc.
-		//e.g. this fails on MODE #channel +ao username username
 		
 		channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,*output_channel)->data);
 		int name_index=nick_idx(ch,nick,0);
