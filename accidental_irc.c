@@ -2413,13 +2413,10 @@ void add_name(int server_index, int channel_index, char *name, const char *mode_
 		dlist_entry *nick_entry=dlist_get_entry(ch->user_names,idx);
 		nick_info *nick_content=(nick_info*)(nick_entry->data);
 
-		//TODO: if user already existed,
-		//use the existing mode string for this user in this channel
-		//as a starting point
-		//and add the prefix-based mode if it's not already in the user's mode str
-		
-		//update the MODE string for them
-		set_mode_str_from_prefix(nick_content->mode_str,mode_prefix,BUFFER_SIZE);
+		//NOTE: if user already existed,
+		//we do NOT change the mode string
+		//and instead use the existing mode string for this user in this channel
+		//which will already be correct as long as our other mode handling is working
 	}
 }
 
