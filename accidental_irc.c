@@ -854,11 +854,16 @@ int calc_server_list_chars(){
 #endif
 		//the server name is the primary content
 		//along with an associated delimiter string
-		chr_count+=strlen(server->server_name)+strlen(" | ");
+		chr_count+=strlen(server->server_name);
 
 		//if the nick isn't empty, we will be ouptutting that as well, in parens
 		if(strncmp(server->nick,"",BUFFER_SIZE)!=0){
 			chr_count+=strlen(server->nick)+strlen(" ()");
+		}
+		
+		//include length for delimiters
+		if(server_entry->next!=NULL){
+			chr_count+=strlen(" | ");
 		}
 		
 		server_entry=server_entry->next;
@@ -885,7 +890,11 @@ int calc_channel_list_chars(irc_connection *server){
 		
 		//the channel name is the primary content
 		//along with an associated delimiter string
-		chr_count+=strlen(ch->name)+strlen(" | ");
+		chr_count+=strlen(ch->name);
+		
+		if(ch_entry->next!=NULL){
+			chr_count+=strlen(" | ");
+		}
 		
 		ch_entry=ch_entry->next;
 	}
@@ -1593,8 +1602,8 @@ void refresh_server_list(){
 	}
 
 	//if we can't display everything
-	//or we can, but we've been asked not to
-	if((calc_server_list_chars()>width) || (center_server_list)){
+	unsigned int server_list_chars=calc_server_list_chars();
+	if(server_list_chars>width){
 		//then center the current item and show arrows
 		refresh_server_list_centered();
 		
@@ -1602,11 +1611,21 @@ void refresh_server_list(){
 		return;
 	}
 	
+	//calculate the offset from the left side to center the server list text
+	//by calculating the total output width, then getting
+	//lchar_offset = (screen_width - output_width)/2;
+	unsigned int offset=(width-server_list_chars)/2;
+	
 	//update the display of the server list
 	wblank(server_list,width,1);
 //	wclear(server_list); //this shouldn't be needed and causes flicker!
 	
-	wmove(server_list,0,0);
+	//if we're centering, apply offset
+	if(center_server_list){
+		wmove(server_list,0,offset);
+	}else{
+		wmove(server_list,0,0);
+	}
 	
 	int n=0;
 	dlist_entry *server_entry=servers;
@@ -1616,7 +1635,7 @@ void refresh_server_list(){
 	while(server_entry!=NULL){
 		server=(irc_connection *)(server_entry->data);
 		
-		refresh_server_title(server,(current_server==n)?TRUE:FALSE,TRUE);
+		refresh_server_title(server,(current_server==n)?TRUE:FALSE,(server_entry->next!=NULL));
 
 		server_entry=server_entry->next;
 		n++;
@@ -1732,26 +1751,37 @@ void refresh_channel_list(){
 	}
 	
 	//if we can't display everything at once
-	//or we can, but we've been asked not to
-	if((calc_channel_list_chars(server)>width) || (center_server_list)){
+	unsigned int channel_list_chars=calc_channel_list_chars(server);
+	if(channel_list_chars>width){
 		//then cneter the current channel and show arrows
 		refresh_channel_list_centered(server);
 		
 		//and don't do anything else
 		return;
 	}
+
+	//calculate the offset from the left side to center the server list text
+	//by calculating the total output width, then getting
+	//lchar_offset = (screen_width - output_width)/2;
+	unsigned int offset=(width-channel_list_chars)/2;
 	
 	//update the display of the channel list
 	wblank(channel_list,width,1);
 //	wclear(channel_list); //this shouldn't be needed and causes flicker!
-	wmove(channel_list,0,0);
+	
+	//if we're centering, apply offset
+	if(center_server_list){
+		wmove(channel_list,0,offset);
+	}else{
+		wmove(channel_list,0,0);
+	}
 	
 	dlist_entry *ch_entry=server->ch;
 	int n=0;
 	while(ch_entry!=NULL){
 		channel_info *ch=(channel_info *)(ch_entry->data);
 		
-		refresh_channel_title(ch,(server->current_channel==n)?TRUE:FALSE,TRUE);
+		refresh_channel_title(ch,(server->current_channel==n)?TRUE:FALSE,(ch_entry->next!=NULL));
 			
 		ch_entry=ch_entry->next;
 		n++;
@@ -2410,8 +2440,8 @@ void add_name(int server_index, int channel_index, char *name, const char *mode_
 	//if this user did already exist
 	}else if(matches==1){
 		idx=nick_idx(ch,name,0);
-		dlist_entry *nick_entry=dlist_get_entry(ch->user_names,idx);
-		nick_info *nick_content=(nick_info*)(nick_entry->data);
+//		dlist_entry *nick_entry=dlist_get_entry(ch->user_names,idx);
+//		nick_info *nick_content=(nick_info*)(nick_entry->data);
 
 		//NOTE: if user already existed,
 		//we do NOT change the mode string
