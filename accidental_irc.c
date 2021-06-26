@@ -3269,10 +3269,6 @@ void cr_command(){
 	}
 }
 
-//TODO: fix this; when multiple servers are connected this seems to segmentation fault
-//at least on refresh left; I haven't tested refresh right yet
-//note that it appears to work fine on a single server; problems only occur with multiple connected servers
-
 //the "refresh" command; goes to next unread channel or channel/server
 //left->right by default but can go right->left if the argument "left" is given in parameters
 //NOTE: this really should be const char *parameters but existing functions use char *parameters so this is for consistency
@@ -3293,12 +3289,6 @@ void refresh_command(char *parameters){
 #ifdef DEBUG
 //	fprintf(error_file,"dbg: refresh_command, refresh_dir=%i, server_index=%i, channel_index=%i\n",refresh_dir,server_index,channel_index);
 #endif
-	
-	//NOTE: unlike for server_index, channel_index will be re-set to 0 every time we change servers
-	//but we don't /necessarily/ want to change the actual global variable yet
-	//since we don't know yet whether or not it has unread messages
-	//so we need a separate start_channel_index variable here
-	int start_channel_index=channel_index;
 	
 	//since we're already in the current channel we want to start from the NEXT channel
 	//(or previous, depending on our specified direction)
@@ -3340,23 +3330,30 @@ void refresh_command(char *parameters){
 	int next_server_index=server_index;
 	int next_channel_index=channel_index;
 	
+	//NOTE: unlike for server_index, channel_index will be re-set to 0 every time we change servers
+	//but we don't /necessarily/ want to change the actual global variable yet
+	//since we don't know yet whether or not it has unread messages
+	//so we need a separate start_channel_index variable here
+	int start_channel_index=channel_index;
+	
 #ifdef DEBUG
 //	fprintf(error_file,"dbg: refresh_command, next_server_index=%i, next_channel_index=%i\n",next_server_index,next_channel_index);
 #endif
-
-	//ensure the server object is correctly initialized
-	//for the first loop iteration
-	server=get_server(server_index);
 	
 	//while we haven't made a full loop around all servers and channels
 	//NOTE: this is a do-while because we may start with other channels on the current server
 	do{
+		//ensure the server object is always correctly initialized
+		server=get_server(server_index);
 #ifdef DEBUG
-//		fprintf(error_file,"dbg: refresh_command server loop, server_index=%i, channel_index=%i\n",server_index,channel_index);
+//		fprintf(error_file,"dbg: refresh_command server loop, server_index=%i\n",server_index);
 #endif
 		//while we haven't made a full loop around all channels within this server
 		//NOTE: this is a do-while because if we move servers start_channel_index and channel_index will initially be identical
 		do {
+#ifdef DEBUG
+//			fprintf(error_file,"dbg: refresh_command channel loop, channel_index=%i, start_channel_index=%i\n",channel_index,start_channel_index);
+#endif
 			channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,channel_index)->data);
 			//if there was any new content in this channel
 			if((ch!=NULL) && (ch->new_content)){
@@ -3384,6 +3381,7 @@ void refresh_command(char *parameters){
 				channel_index=dlist_length(server->ch)-1;
 			}
 		} while(channel_index!=start_channel_index);
+		
 		//move server in the specified direction
 		server_index+=refresh_dir;
 		
@@ -3400,13 +3398,14 @@ void refresh_command(char *parameters){
 		//if we're going right->left when we go to the next server we'll start at channel 0
 		//if we're going left->right then when we go to the next server (previous server?) we'll start at the end of the channel list
 		server=get_server(server_index);
-		start_channel_index=(refresh_dir==REFRESH_DIRECTION_RIGHT)?0:(dlist_length(server->ch)-1);
+		start_channel_index=(refresh_dir>0)?0:(dlist_length(server->ch)-1);
 		channel_index=start_channel_index;
 	}while(server_index!=current_server);
-	
+
 	//if we got here and didn't return then just go to the next channel/server
 	//in the list relative to wherever we started
 	current_server=next_server_index;
+	server=get_server(next_server_index);
 	server->current_channel=next_channel_index;
 }
 
