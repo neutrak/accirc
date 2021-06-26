@@ -53,7 +53,7 @@
 //	a) the doubly-linked list library change counts as a substantial rewrite
 //	b) it's not the first public release so versoin 1 doesn't really make sense
 //hence going forward we'll be on 2.x.x for a bit
-#define VERSION "2.0.0"
+#define VERSION "2.0.1"
 
 //these are for ncurses' benefit
 #define KEY_ESCAPE 27
@@ -3269,6 +3269,10 @@ void cr_command(){
 	}
 }
 
+//TODO: fix this; when multiple servers are connected this seems to segmentation fault
+//at least on refresh left; I haven't tested refresh right yet
+//note that it appears to work fine on a single server; problems only occur with multiple connected servers
+
 //the "refresh" command; goes to next unread channel or channel/server
 //left->right by default but can go right->left if the argument "left" is given in parameters
 //NOTE: this really should be const char *parameters but existing functions use char *parameters so this is for consistency
@@ -3285,6 +3289,10 @@ void refresh_command(char *parameters){
 	if((server_index<0) || (channel_index<0)){
 		return;
 	}
+
+#ifdef DEBUG
+//	fprintf(error_file,"dbg: refresh_command, refresh_dir=%i, server_index=%i, channel_index=%i\n",refresh_dir,server_index,channel_index);
+#endif
 	
 	//NOTE: unlike for server_index, channel_index will be re-set to 0 every time we change servers
 	//but we don't /necessarily/ want to change the actual global variable yet
@@ -3331,6 +3339,10 @@ void refresh_command(char *parameters){
 	//just in case we get to the end of this function without returning
 	int next_server_index=server_index;
 	int next_channel_index=channel_index;
+	
+#ifdef DEBUG
+//	fprintf(error_file,"dbg: refresh_command, next_server_index=%i, next_channel_index=%i\n",next_server_index,next_channel_index);
+#endif
 
 	//ensure the server object is correctly initialized
 	//for the first loop iteration
@@ -3339,8 +3351,12 @@ void refresh_command(char *parameters){
 	//while we haven't made a full loop around all servers and channels
 	//NOTE: this is a do-while because we may start with other channels on the current server
 	do{
+#ifdef DEBUG
+//		fprintf(error_file,"dbg: refresh_command server loop, server_index=%i, channel_index=%i\n",server_index,channel_index);
+#endif
 		//while we haven't made a full loop around all channels within this server
-		while(channel_index!=start_channel_index){
+		//NOTE: this is a do-while because if we move servers start_channel_index and channel_index will initially be identical
+		do {
 			channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,channel_index)->data);
 			//if there was any new content in this channel
 			if((ch!=NULL) && (ch->new_content)){
@@ -3367,7 +3383,7 @@ void refresh_command(char *parameters){
 			}else if(channel_index<0){
 				channel_index=dlist_length(server->ch)-1;
 			}
-		}
+		} while(channel_index!=start_channel_index);
 		//move server in the specified direction
 		server_index+=refresh_dir;
 		
@@ -3376,7 +3392,7 @@ void refresh_command(char *parameters){
 		if(server_index>=dlist_length(servers)){
 			server_index=0;
 		//if we're past the end of the server list to the left
-		//then start over from the right (index length-1_
+		//then start over from the right (index length-1)
 		}else if(server_index<0){
 			server_index=dlist_length(servers)-1;
 		}
@@ -3385,6 +3401,7 @@ void refresh_command(char *parameters){
 		//if we're going left->right then when we go to the next server (previous server?) we'll start at the end of the channel list
 		server=get_server(server_index);
 		start_channel_index=(refresh_dir==REFRESH_DIRECTION_RIGHT)?0:(dlist_length(server->ch)-1);
+		channel_index=start_channel_index;
 	}while(server_index!=current_server);
 	
 	//if we got here and didn't return then just go to the next channel/server
