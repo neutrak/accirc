@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "19 September 2020"
+.TH ACCIRC 1 "26 June 2021"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -54,7 +54,7 @@ changes the client command escape character to <new>, if possible
 changes the server raw data escape character to <new>, if possible
 .TP
 \fB/alias\fP \fItrigger\fP \fIsubstitution\fP
-registers an alias; when the client escape is used with the trigger the trigger will be substituted for whatever substitution is specified; for example "/alias part :part" would allow you to use /part in place of :part ; note this is a direct text substitution and does no additional handling ; an empty substitution deletes an alias
+registers an alias; when the client escape is used with the trigger the trigger will be substituted for whatever substitution is specified; for example "/alias part :part" would allow you to use /part in place of :part ; note this is a direct text substitution and does no additional handling ; an empty substitution deletes an alias (if you use "/alias part" it will delete the example alias)
 .TP
 \fB/time_format\fP \fInew_format\fP
 sets the time format for viewing (the clock and timestamps on messages in ncurses); note that logs always use unix timestamps, and ignore this formatting; for time formatting variables, see man 3 strftime
@@ -136,6 +136,9 @@ sets active channel one left of current channel
 .TP
 \fB/cr\fP
 sets active channel one right of current channel
+.TP
+\fB/refresh\fP \fIdirection\fP
+cycles to the next unread channel, by default in left->right direction; right->left iff the direction argument is given as "left"; if no unread channels remain cycles through each channel on each server in order.  also bound to f5 (left) and f6 (right)
 .TP
 \fB/me\fP
 sends CTCP ACTION message
@@ -219,13 +222,19 @@ server left (see /sl)
 \fBf4 or alt+down\fP
 server right (see /sr)
 .TP
-\fBf5 or alt+tab\fP
-literal tab character, displays as a bold _ in the input and display areas
+\fBf5\fP
+refresh left (see /refresh left)
 .TP
 \fBf6\fP
+refresh (see /refresh)
+.TP
+\fBf9 or alt+tab\fP
+literal tab character, displays as a bold _ in the input and display areas
+.TP
+\fBf10\fP
 0x01 character, since screen intercepts literal ^A (for manually sending CTCP messages other than ACTION); displays as a bold \\ in input area
 .TP
-\fBf7\fP
+\fBf11\fP
 0x03 character for sending MIRC colors (MIRC color support is still experimental, and requires compilation with -D MIRC_COLOR); displays as a bold \^ (caret) in input area
 .TP
 \fB<tab>\fP

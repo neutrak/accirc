@@ -48,7 +48,12 @@
 #define MIN_HEIGHT 7
 #define MIN_WIDTH 12
 
-#define VERSION "0.13.1"
+//switching to more typical semantic major.minor.patch versioning as of version 2.0; previous version was "0.13.1"
+//I'm counting at 2.0.0 rather than 1.0.0 for two reasons:
+//	a) the doubly-linked list library change counts as a substantial rewrite
+//	b) it's not the first public release so versoin 1 doesn't really make sense
+//hence going forward we'll be on 2.x.x for a bit
+#define VERSION "2.0.0"
 
 //these are for ncurses' benefit
 #define KEY_ESCAPE 27
@@ -73,6 +78,9 @@
 //for MIRC colors (these are indexes in an array)
 #define FOREGROUND 0
 #define BACKGROUND 1
+
+#define REFRESH_DIRECTION_LEFT -1
+#define REFRESH_DIRECTION_RIGHT 1
 
 //some defaults in case the user forgets to give a nickname
 #define DEFAULT_NICK "accirc_user"
@@ -130,7 +138,7 @@ char *command_list[]={
 	"/exit -> closes all connections and closes program",
 	"/cli_escape <new> -> changes client command escape character, used for these commands (default \'/\')",
 	"/ser_escape <new> -> changes server escape (default \':\')",
-	"/alias <trigger> <sub> -> does text substitution on /trigger to act like the given substitution",
+	"/alias <trigger> <sub> -> does text substitution on /trigger to act like the given substitution; if <sub> is omitted and the trigger previously existed the alias will be deleted",
 	"/time_format <timestring> -> changes clock display as requested",
 	"/set_version <version string> -> sets a custom string for CTCP VERSION",
 	"/set_quit_msg <quit message> -> sets a custom quit message for the current server",
@@ -154,10 +162,11 @@ char *command_list[]={
 	"/swsr -> swap current server for server to the left of it in the server list",
 	"/hi <nick> -> opens a faux channel for PM-ing with the user named <nick>",
 	"/bye -> closes the actively selected faux-pm channel",
-	"/sl -> server left",
-	"/sr -> server right",
-	"/cl -> channel left",
-	"/cr -> channel right",
+	"/sl -> server left (aka f3, alt+up)",
+	"/sr -> server right (aka f4, alt+down)",
+	"/cl -> channel left (aka f1, alt+right)",
+	"/cr -> channel right (aka f2, alt+right)",
+	"/refresh [left|right] -> cycle to next unread channel or server/channel combination (default in left->right direction), can loop, if no unreads cycles all channels (aka f5 and f6 for right->left and left->right respectively)",
 	"/me -> sends CTCP ACTION message",
 	"/r -> replies by pm to last user who PM'd you (or empty string if no PMs recieved)",
 	//reverse is an easter egg and so is not documented
@@ -3260,6 +3269,130 @@ void cr_command(){
 	}
 }
 
+//the "refresh" command; goes to next unread channel or channel/server
+//left->right by default but can go right->left if the argument "left" is given in parameters
+//NOTE: this really should be const char *parameters but existing functions use char *parameters so this is for consistency
+void refresh_command(char *parameters){
+	int refresh_dir=REFRESH_DIRECTION_RIGHT;
+	if(strfind("left",parameters)==0){
+		refresh_dir=REFRESH_DIRECTION_LEFT;
+	}
+	
+	int server_index=current_server;
+	irc_connection *server=get_server(server_index);
+	int channel_index=server->current_channel;
+	//if you're not connected to a server, this command does nothing
+	if((server_index<0) || (channel_index<0)){
+		return;
+	}
+	
+	//NOTE: unlike for server_index, channel_index will be re-set to 0 every time we change servers
+	//but we don't /necessarily/ want to change the actual global variable yet
+	//since we don't know yet whether or not it has unread messages
+	//so we need a separate start_channel_index variable here
+	int start_channel_index=channel_index;
+	
+	//since we're already in the current channel we want to start from the NEXT channel
+	//(or previous, depending on our specified direction)
+	channel_index+=refresh_dir;
+	
+	//if this channel is past the end of what's available on the current server
+	//then we want to go to the following server
+	if(channel_index>=dlist_length(server->ch)){
+		channel_index=0;
+		server_index+=1;
+		if(server_index>=dlist_length(servers)){
+			//NOTE: we're safe to assume that there is at least one server and a server_index of 0 is valid
+			//because we previously verified that server_index>=0 and channel_index>=0
+			server_index=0;
+			
+			//NOTE: we already set channel_index=0 so we don't need to set it again here; it's 0
+		}
+	//if this channel is past the end of the list to the left (because we're going in right->left direction)
+	}else if(channel_index<0){
+		//if there's a previous server, go to the previous server
+		if((server_index-1)>=0){
+			server_index--;
+		//otherwise go to the last server in the list
+		//which could potentially be the server we started at
+		}else{
+			server_index=dlist_length(servers)-1;
+		}
+		server=get_server(server_index);
+		
+		//start on the last channel present on whatever server we ended up at
+		//because that's the direction we're going
+		//NOTE: all servers must always have at least one channel
+		channel_index=dlist_length(server->ch)-1;
+	}
+	//NOTE: if no unread channels are found
+	//then we'll just go to the next channel
+	//so we're storing the location of that now
+	//just in case we get to the end of this function without returning
+	int next_server_index=server_index;
+	int next_channel_index=channel_index;
+
+	//ensure the server object is correctly initialized
+	//for the first loop iteration
+	server=get_server(server_index);
+	
+	//while we haven't made a full loop around all servers and channels
+	//NOTE: this is a do-while because we may start with other channels on the current server
+	do{
+		//while we haven't made a full loop around all channels within this server
+		while(channel_index!=start_channel_index){
+			channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,channel_index)->data);
+			//if there was any new content in this channel
+			if((ch!=NULL) && (ch->new_content)){
+				//then that's now the current channel!
+				//set global vars and return
+				current_server=server_index;
+				server->current_channel=channel_index;
+				
+				//NOTE: we do not need to refresh any output here
+				//because the event_poll code, upon seeing that the current_server and/or current_channel changed
+				//will know to do that automatically
+				return;
+			}
+			
+			//move channel in the specified direction
+			channel_index+=refresh_dir;
+			
+			//if we're past the end of the channel list to the right
+			//then start over from the left (index 0)
+			if(channel_index>=dlist_length(server->ch)){
+				channel_index=0;
+			//if we're past the end of the channel list to the left
+			//then start over from the right (index length-1)
+			}else if(channel_index<0){
+				channel_index=dlist_length(server->ch)-1;
+			}
+		}
+		//move server in the specified direction
+		server_index+=refresh_dir;
+		
+		//if we're past the end of the server list to the right
+		//then start over from the left (index 0)
+		if(server_index>=dlist_length(servers)){
+			server_index=0;
+		//if we're past the end of the server list to the left
+		//then start over from the right (index length-1_
+		}else if(server_index<0){
+			server_index=dlist_length(servers)-1;
+		}
+		
+		//if we're going right->left when we go to the next server we'll start at channel 0
+		//if we're going left->right then when we go to the next server (previous server?) we'll start at the end of the channel list
+		server=get_server(server_index);
+		start_channel_index=(refresh_dir==REFRESH_DIRECTION_RIGHT)?0:(dlist_length(server->ch)-1);
+	}while(server_index!=current_server);
+	
+	//if we got here and didn't return then just go to the next channel/server
+	//in the list relative to wherever we started
+	current_server=next_server_index;
+	server->current_channel=next_channel_index;
+}
+
 //the "log" client command (enables logging where possible)
 void log_command(){
 	irc_connection *server=get_server(current_server);
@@ -3847,6 +3980,11 @@ void parse_input(char *input_buffer, char keep_history){
 		//this set of commands does not depend on being connected to a server
 		
 		if(!strcmp("help",command)){
+			//TODO: and support for a /help argument so things like /help <command> will output what you'd expect
+			//and make the generic /help output a list of help commands on a single line rather than a whole screenful of output
+			//also, include full information on all key bindings in the built-in help
+			//(all this documentation already exists in the man page accirc.man, it's just not currently included in the program itself)
+			
 			if(current_server>=0){
 				char notify_buffer[BUFFER_SIZE];
 				strncpy(notify_buffer,"accirc: For detailed help and additional commands please read the manual page",BUFFER_SIZE);
@@ -4048,6 +4186,12 @@ void parse_input(char *input_buffer, char keep_history){
 			//move a channel to the right
 			}else if(!strcmp(command,"cr")){
 				cr_command();
+			//refresh (right by default or when "right" is given, but left if argument "left" is given)
+			//also known as a "cycle to next unread channel or server" command (key bindings f5 and f6)
+			//also known as "next unread left" and "next unread right" (a user can choose the direction)
+			//this is to make it easier to go to just the channels with messages when cycling through
+			}else if(!strcmp(command,"refresh")){
+				refresh_command(parameters);
 			//CTCP ACTION, bound to the common "/me"
 			}else if(!strcmp(command,"me")){
 				//attach the control data and recurse
@@ -5774,18 +5918,22 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 				c=wgetch(user_input);
 				switch(c){
 					case KEY_UP:
+					case 'w':
 						snprintf(key_combo_buffer,BUFFER_SIZE,"%csl",client_escape);
 						parse_input(key_combo_buffer,FALSE);
 						break;
 					case KEY_DOWN:
+					case 'a':
 						snprintf(key_combo_buffer,BUFFER_SIZE,"%csr",client_escape);
 						parse_input(key_combo_buffer,FALSE);
 						break;
 					case KEY_LEFT:
+					case 's':
 						snprintf(key_combo_buffer,BUFFER_SIZE,"%ccl",client_escape);
 						parse_input(key_combo_buffer,FALSE);
 						break;
 					case KEY_RIGHT:
+					case 'd':
 						snprintf(key_combo_buffer,BUFFER_SIZE,"%ccr",client_escape);
 						parse_input(key_combo_buffer,FALSE);
 						break;
@@ -5982,19 +6130,29 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 			case 23:
 				kill_word(input_buffer,&cursor_pos,&input_display_start);
 				break;
-			//NOTE: this is alt+tab also, f5 left here only for backwards compatibility
-			//f5 sends a literal tab
+			//f5 is refresh left (previous unread, cycle through in order if no unreads remain)
 			case 269:
-			//and f6 sends a 0x01 (since screen catches the real one)
+				snprintf(key_combo_buffer,BUFFER_SIZE,"%crefresh left",client_escape);
+				parse_input(key_combo_buffer,FALSE);
+				break;
+			//f6 is refresh (next unread, cycle through in order if no unreads remain)
 			case 270:
-			//f7 is a literal 0x03 for mirc color sending
-			case 271:
+				snprintf(key_combo_buffer,BUFFER_SIZE,"%crefresh",client_escape);
+				parse_input(key_combo_buffer,FALSE);
+				break;
+			//NOTE: this is alt+tab also, f5 left here only for backwards compatibility
+			//f9 sends a literal tab
+			case 273:
+			//and f10 sends a 0x01 (since screen catches the real one)
+			case 274:
+			//f11 is a literal 0x03 for mirc color sending
+			case 275:
 				//these are mutually exclusive, so an if is needed
-				if(c==269){
+				if(c==273){
 					c='\t';
-				}else if(c==270){
+				}else if(c==274){
 					c=0x01;
-				}else if(c==271){
+				}else if(c==275){
 					c=0x03;
 				}
 			//normal input
@@ -6104,7 +6262,7 @@ int main(int argc, char *argv[]){
 		//handle runtime arguments that will persist during execution
 		int n;
 		for(n=1;n<argc;n++){
-			if(!strcmp(argv[n],"--ignorerc")){
+			if((!strcmp(argv[n],"--ignorerc")) || (!strcmp(argv[n],"--ignore-rc"))){
 				ignore_rc=TRUE;
 			}else if(!strcmp(argv[n],"--proper")){
 				easy_mode=FALSE;
@@ -6113,7 +6271,8 @@ int main(int argc, char *argv[]){
 				ssl_cert_check=FALSE;
 #endif
 			//allow for a custom rc file path to be passed
-			}else if(!strcmp(argv[n],"--rc") && (n+1<argc)){
+			//NOTE: the rc file path must be provided as an argument after this or this gets ignored
+			}else if(((!strcmp(argv[n],"--rc")) || (!strcmp(argv[n],"--rc-file"))) && (n+1<argc)){
 				strncpy(rc_file,argv[n+1],BUFFER_SIZE);
 			}
 		}
@@ -6227,12 +6386,21 @@ int main(int argc, char *argv[]){
 	//until we're connected to a server we can't listen for post commands
 	post_listen=FALSE;
 	
+	char easy_mode_buf[BUFFER_SIZE];
+
+	//for all users set a few general command aliases just to be more user-friendly
+	//(you can un-set these if you want)
+	
+	snprintf(easy_mode_buf,BUFFER_SIZE,"%calias use_mode_str %cmode_str",client_escape,client_escape);
+	parse_input(easy_mode_buf,FALSE);
+
+	snprintf(easy_mode_buf,BUFFER_SIZE,"%calias show_mode_str %cmode_str",client_escape,client_escape);
+	parse_input(easy_mode_buf,FALSE);
+	
 	//if we're not being proper, then register some default aliases and set more friendly settings
 	//this is to make it easier for non-experts to use this client (mostly for the kindle port)
 	//this is done before the rc loading so the aliases are available to crappy rc files
 	if(easy_mode){
-		char easy_mode_buf[BUFFER_SIZE];
-		
 		snprintf(easy_mode_buf,BUFFER_SIZE,"%calias nick %cnick",client_escape,server_escape);
 		parse_input(easy_mode_buf,FALSE);
 		
