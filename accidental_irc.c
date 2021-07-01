@@ -3379,6 +3379,14 @@ void refresh_command(char *parameters){
 			//then start over from the left (index 0)
 			if(channel_index>=dlist_length(server->ch)){
 				channel_index=0;
+				//if this is the server we started on and we're going in the left->right direction
+				if((server_index==start_server_index) && (refresh_dir>0)){
+					//then exit this loop
+					//NOTE: after control exits this loop server_index will be updated
+					//and channel_index will get reset to the last channel on that server
+					//so no action is needed here
+					break;
+				}
 			//if we're past the end of the channel list to the left
 			//then start over from the right (index length-1)
 			}else if(channel_index<0){
