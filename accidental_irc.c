@@ -3336,6 +3336,10 @@ void refresh_command(char *parameters){
 	//so we need a separate start_channel_index variable here
 	int start_channel_index=channel_index;
 	
+	//NOTE: we still need a start_server_index to know in the channel loop whether or not we're still on the first server
+	//since that changes what happens when we hit the 0th index and are going in the right->left direction
+	int start_server_index=server_index;
+	
 #ifdef DEBUG
 //	fprintf(error_file,"dbg: refresh_command, next_server_index=%i, next_channel_index=%i\n",next_server_index,next_channel_index);
 #endif
@@ -3379,6 +3383,14 @@ void refresh_command(char *parameters){
 			//then start over from the right (index length-1)
 			}else if(channel_index<0){
 				channel_index=dlist_length(server->ch)-1;
+				//if this is the server we started on and we're going in the right->left direction
+				if((server_index==start_server_index) && (refresh_dir<0)){
+					//then exit this loop
+					//NOTE: after control exits this loop server_index will be updated
+					//and channel_index will get reset to the last channel on that server
+					//so no action is needed here
+					break;
+				}
 			}
 		} while(channel_index!=start_channel_index);
 		
