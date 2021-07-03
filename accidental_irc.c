@@ -3286,6 +3286,10 @@ void refresh_command(char *parameters){
 		return;
 	}
 
+	//NOTE: we need a start_server_index to know in the channel loop whether or not we're still on the first server
+	//since that changes what happens when we hit the 0th index and are going in the right->left direction
+	const int start_server_index=server_index;
+
 #ifdef DEBUG
 //	fprintf(error_file,"dbg: refresh_command, refresh_dir=%i, server_index=%i, channel_index=%i\n",refresh_dir,server_index,channel_index);
 #endif
@@ -3330,19 +3334,22 @@ void refresh_command(char *parameters){
 	int next_server_index=server_index;
 	int next_channel_index=channel_index;
 	
-	//NOTE: unlike for server_index, channel_index will be re-set to 0 every time we change servers
+	//NOTE: channel_index will be re-set to 0 every time we change servers
 	//but we don't /necessarily/ want to change the actual global variable yet
 	//since we don't know yet whether or not it has unread messages
 	//so we need a separate start_channel_index variable here
 	int start_channel_index=channel_index;
 	
-	//NOTE: we still need a start_server_index to know in the channel loop whether or not we're still on the first server
-	//since that changes what happens when we hit the 0th index and are going in the right->left direction
-	int start_server_index=server_index;
-	
 #ifdef DEBUG
 //	fprintf(error_file,"dbg: refresh_command, next_server_index=%i, next_channel_index=%i\n",next_server_index,next_channel_index);
 #endif
+	
+	//in the case that we're going in the wrong direction
+	//and will hit the first unread thing only after going through everything else first
+	//we might end up at the starting server
+	//so in that case we need to recheck the start server index
+	//and this flag tells us when we're in that case
+	char recheck_start_server_index=FALSE;
 	
 	//while we haven't made a full loop around all servers and channels
 	//NOTE: this is a do-while because we may start with other channels on the current server
@@ -3355,6 +3362,15 @@ void refresh_command(char *parameters){
 		//while we haven't made a full loop around all channels within this server
 		//NOTE: this is a do-while because if we move servers start_channel_index and channel_index will initially be identical
 		do {
+			char in_repeat=FALSE;
+			
+			//if we were told to recheck the first server again
+			//and we're doing so now
+			if((recheck_start_server_index==TRUE) && (server_index==start_server_index)){
+				//then don't do it again
+				recheck_start_server_index=FALSE;
+				in_repeat=TRUE;
+			}
 #ifdef DEBUG
 //			fprintf(error_file,"dbg: refresh_command channel loop, channel_index=%i, start_channel_index=%i\n",channel_index,start_channel_index);
 #endif
@@ -3381,11 +3397,16 @@ void refresh_command(char *parameters){
 				channel_index=0;
 				//if this is the server we started on and we're going in the left->right direction
 				if((server_index==start_server_index) && (refresh_dir>0)){
-					//then exit this loop
-					//NOTE: after control exits this loop server_index will be updated
-					//and channel_index will get reset to the last channel on that server
-					//so no action is needed here
-					break;
+					//and this isn't our second time checking this server
+					if(in_repeat==FALSE){
+						//then exit this loop
+						//NOTE: after control exits this loop server_index will be updated
+						//and channel_index will get reset to the last channel on that server
+						//so no other action is needed here
+						
+						recheck_start_server_index=TRUE;
+						break;
+					}
 				}
 			//if we're past the end of the channel list to the left
 			//then start over from the right (index length-1)
@@ -3393,11 +3414,16 @@ void refresh_command(char *parameters){
 				channel_index=dlist_length(server->ch)-1;
 				//if this is the server we started on and we're going in the right->left direction
 				if((server_index==start_server_index) && (refresh_dir<0)){
-					//then exit this loop
-					//NOTE: after control exits this loop server_index will be updated
-					//and channel_index will get reset to the last channel on that server
-					//so no action is needed here
-					break;
+					//and this isn't our second time checking this server
+					if(in_repeat==FALSE){
+						//then exit this loop
+						//NOTE: after control exits this loop server_index will be updated
+						//and channel_index will get reset to the last channel on that server
+						//so no other action is needed here
+
+						recheck_start_server_index=TRUE;
+						break;
+					}
 				}
 			}
 		} while(channel_index!=start_channel_index);
@@ -3420,7 +3446,7 @@ void refresh_command(char *parameters){
 		server=get_server(server_index);
 		start_channel_index=(refresh_dir>0)?0:(dlist_length(server->ch)-1);
 		channel_index=start_channel_index;
-	}while(server_index!=current_server);
+	}while((server_index!=start_server_index) || (recheck_start_server_index==FALSE));
 
 	//if we got here and didn't return then just go to the next channel/server
 	//in the list relative to wherever we started
