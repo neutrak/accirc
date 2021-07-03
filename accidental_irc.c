@@ -53,7 +53,7 @@
 //	a) the doubly-linked list library change counts as a substantial rewrite
 //	b) it's not the first public release so versoin 1 doesn't really make sense
 //hence going forward we'll be on 2.x.x for a bit
-#define VERSION "2.0.1"
+#define VERSION "2.0.2"
 
 //these are for ncurses' benefit
 #define KEY_ESCAPE 27
@@ -3286,8 +3286,6 @@ void refresh_command(char *parameters){
 		return;
 	}
 
-	//NOTE: we need a start_server_index to know in the channel loop whether or not we're still on the first server
-	//since that changes what happens when we hit the 0th index and are going in the right->left direction
 	const int start_server_index=server_index;
 
 #ifdef DEBUG
@@ -3357,20 +3355,29 @@ void refresh_command(char *parameters){
 		//ensure the server object is always correctly initialized
 		server=get_server(server_index);
 #ifdef DEBUG
-//		fprintf(error_file,"dbg: refresh_command server loop, server_index=%i\n",server_index);
+//		fprintf(error_file,"dbg: refresh_command server loop, server_index=%i, recheck_start_server_index=%i\n",server_index,recheck_start_server_index);
 #endif
+		char in_repeat=FALSE;
+		
+		//if we were told to recheck the first server again
+		//and we're doing so now
+		if((recheck_start_server_index==TRUE) && (server_index==start_server_index)){
+			//then don't do it again
+			recheck_start_server_index=FALSE;
+			in_repeat=TRUE;
+			
+			//and since we are in a repeat case we need to start at the correct end of the list
+			//which is the end that we didn't already check the first time
+			start_channel_index=(refresh_dir>0)?0:(dlist_length(server->ch)-1);
+			channel_index=start_channel_index;
+#ifdef DEBUG
+//			fprintf(error_file,"dbg: refresh_command server loop start server repeat, server_index=%i, start_channel_index=%i\n",server_index,start_channel_index);
+#endif
+		}
+		
 		//while we haven't made a full loop around all channels within this server
 		//NOTE: this is a do-while because if we move servers start_channel_index and channel_index will initially be identical
 		do {
-			char in_repeat=FALSE;
-			
-			//if we were told to recheck the first server again
-			//and we're doing so now
-			if((recheck_start_server_index==TRUE) && (server_index==start_server_index)){
-				//then don't do it again
-				recheck_start_server_index=FALSE;
-				in_repeat=TRUE;
-			}
 #ifdef DEBUG
 //			fprintf(error_file,"dbg: refresh_command channel loop, channel_index=%i, start_channel_index=%i\n",channel_index,start_channel_index);
 #endif
@@ -3403,6 +3410,9 @@ void refresh_command(char *parameters){
 						//NOTE: after control exits this loop server_index will be updated
 						//and channel_index will get reset to the last channel on that server
 						//so no other action is needed here
+#ifdef DEBUG
+//						fprintf(error_file,"dbg: refresh_command channel loop, setting flag to come back to this server later (left->right)\n");
+#endif
 						
 						recheck_start_server_index=TRUE;
 						break;
@@ -3420,6 +3430,10 @@ void refresh_command(char *parameters){
 						//NOTE: after control exits this loop server_index will be updated
 						//and channel_index will get reset to the last channel on that server
 						//so no other action is needed here
+
+#ifdef DEBUG
+//						fprintf(error_file,"dbg: refresh_command channel loop, setting flag to come back to this server later (right->left)\n");
+#endif
 
 						recheck_start_server_index=TRUE;
 						break;
@@ -3441,12 +3455,14 @@ void refresh_command(char *parameters){
 			server_index=dlist_length(servers)-1;
 		}
 		
-		//if we're going right->left when we go to the next server we'll start at channel 0
-		//if we're going left->right then when we go to the next server (previous server?) we'll start at the end of the channel list
+		//if we're going left->right when we go to the next server we'll start at channel 0
+		//if we're going right->left then when we go to the next server (previous server?) we'll start at the end of the channel list
 		server=get_server(server_index);
 		start_channel_index=(refresh_dir>0)?0:(dlist_length(server->ch)-1);
 		channel_index=start_channel_index;
-	}while((server_index!=start_server_index) || (recheck_start_server_index==FALSE));
+	//while we're not on the server we started on
+	//or we are on that server but we're supposed to be because we're rechecking it
+	}while((server_index!=start_server_index) || (recheck_start_server_index==TRUE));
 
 	//if we got here and didn't return then just go to the next channel/server
 	//in the list relative to wherever we started
