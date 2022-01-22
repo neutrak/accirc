@@ -928,7 +928,13 @@ void get_server_ping_state(irc_connection *server,char *was_pingged, char *new_s
 	//return nothing because new_server_content and was_pingged were set already by reference
 }
 
-//log a "ping" to a seperate file
+//log an error to the global error_log file
+//and include a timestamp when that error occurred
+void error_log(const char *error_buffer){
+	fprintf(error_file,"[%ju] %s\n",(uintmax_t)(time(NULL)),error_buffer);
+}
+
+//log a "ping" to a separate file
 //line starts with given ping_time (usually PING or PM), and is server-local, but not channel-local (although channel is logged)
 void ping_log(int server_index, const char *ping_type, const char *nick, const char *channel, const char *text){
 	irc_connection *server=get_server(server_index);
@@ -941,7 +947,7 @@ void ping_log(int server_index, const char *ping_type, const char *nick, const c
 		//try to make a ping log file, if that's impossible just give up
 		FILE *ping_file=fopen(ping_file_buffer,"a");
 		if(ping_file==NULL){
-			fprintf(error_file,"Err: Could not find or create ping log file\n");
+			error_log("Err: Could not find or create ping log file");
 		}else{
 			fprintf(ping_file,"(%s %s) %s: %ju <%s> %s\n",server->server_name,channel,ping_type,(uintmax_t)(time(NULL)),nick,text);
 			fclose(ping_file);
@@ -953,7 +959,7 @@ void ping_log(int server_index, const char *ping_type, const char *nick, const c
 char load_rc(char *rc_file){
 	FILE *rc=fopen(rc_file,"r");
 	if(!rc){
-		fprintf(error_file,"Warn: rc file not found, not executing anything on startup\n");
+		error_log("Warn: rc file not found, not executing anything on startup");
 		post_listen=FALSE;
 		return FALSE;
 	}else{
@@ -1019,6 +1025,9 @@ void wcoloroff(WINDOW *win, int fg, int bg){
 //attempts to connect to given host and port
 //returns a descriptor for the socket used, -1 if connection was unsuccessful
 char make_socket_connection(char *input_buffer, char *host, int port){
+	//a string buffer to hold error messages
+	char error_buffer[BUFFER_SIZE];
+	
 	//the address of the server
 	struct sockaddr_in serv_addr;
 	
@@ -1028,7 +1037,7 @@ char make_socket_connection(char *input_buffer, char *host, int port){
 	
 	if(new_socket_fd<0){
 		//handle failed socket openings gracefully here (by telling the user and giving up)
-		fprintf(error_file,"Err: Could not open socket\n");
+		error_log("Err: Could not open socket");
 		strncpy(input_buffer,"\0",BUFFER_SIZE);
 		return -1;
 	}
@@ -1037,7 +1046,8 @@ char make_socket_connection(char *input_buffer, char *host, int port){
 	struct hostent *server=gethostbyname(host);
 	if(server==NULL){
 		//handle failed hostname lookups gracefully here (by telling the user and giving up)
-		fprintf(error_file,"Err: Could not find server \"%s\"\n",host);
+		snprintf(error_buffer,BUFFER_SIZE,"Err: Could not find server \"%s\"",host);
+		error_log(error_buffer);
 		strncpy(input_buffer,"\0",BUFFER_SIZE);
 		return -1;
 	}
@@ -1051,7 +1061,8 @@ char make_socket_connection(char *input_buffer, char *host, int port){
 	//(side effects happen during this call to connect())
 	if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
 		//handle failed connections gracefully here (by telling the user and giving up)
-		fprintf(error_file,"Err: Could not connect to server \"%s\"\n",host);
+		snprintf(error_buffer,BUFFER_SIZE,"Err: Could not connect to server \"%s\"",host);
+		error_log(error_buffer);
 		strncpy(input_buffer,"\0",BUFFER_SIZE);
 		return -1;
 	}
@@ -1069,13 +1080,13 @@ char server_write(int server_index, char *buffer){
 #ifdef _OPENSSL
 	if(server->use_ssl){
 		if(SSL_write(server->ssl_handle,buffer,strlen(buffer))<0){
-			fprintf(error_file,"Err: Could not send (ecrypted) data\n");
+			error_log("Err: Could not send (ecrypted) data");
 			return FALSE;
 		}
 	}else{
 #endif
 	if(write(server->socket_fd,buffer,strlen(buffer))<0){
-		fprintf(error_file,"Err: Could not send data\n");
+		error_log("Err: Could not send data");
 		return FALSE;
 	}
 #ifdef _OPENSSL
@@ -1105,7 +1116,7 @@ char server_read(int server_index, char *buffer){
 	}
 	
 	if(bytes_transferred<=0){
-		fprintf(error_file,"Err: Could not receive data\n");
+		error_log("Err: Could not receive data");
 		return FALSE;
 	}
 	//clear out the remainder of the buffer just in case
@@ -2813,7 +2824,9 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 		}
 		
 		//write this to the error log, so the user can view it if they choose
-		fprintf(error_file,"Err: too few arguments given to \"%s\"\n",command);
+		char error_buffer[BUFFER_SIZE];
+		snprintf(error_buffer,BUFFER_SIZE,"Err: too few arguments given to \"%s\"",command);
+		error_log(error_buffer);
 	}else{
 		substr(host,parameters,0,first_space);
 		substr(port_buffer,parameters,first_space+1,strlen(parameters)-(first_space+1));
@@ -2835,6 +2848,9 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 #ifdef _OPENSSL
 		//if this is an ssl connection, do some handshaking (the socket is known to be valid if we didn't return by now)
 		if(ssl){
+			//a string buffer to store any errors that might occur
+			char ssl_error_buffer[BUFFER_SIZE];
+			
 			//remember we're using SSL, this will be important for all reads and writes
 			server->use_ssl=TRUE;
 			
@@ -2849,7 +2865,8 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			//new context stating we are client using SSL 2 or SSL 3
 			server->ssl_context=SSL_CTX_new(SSLv23_client_method());
 			if(server->ssl_context==NULL){
-				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (context error)\n",host,port);
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: SSL connection to host %s on port %i failed (context error)",host,port);
+				error_log(ssl_error_buffer);
 				properly_close(current_server);
 				return;
 			}
@@ -2857,14 +2874,16 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			//create an ssl struct for the connection based on the above context
 			server->ssl_handle=SSL_new(server->ssl_context);
 			if(server->ssl_handle==NULL){
-				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (handle error)\n",host,port);
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: SSL connection to host %s on port %i failed (handle error)",host,port);
+				error_log(ssl_error_buffer);
 				properly_close(current_server);
 				return;
 			}
 			
 			//associate the SSL struct with the socket
 			if(!SSL_set_fd(server->ssl_handle,new_socket_fd)){
-				fprintf(error_file,"Err: SSL connection to host %s on port %i failed (set_fd error)\n",host,port);
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: SSL connection to host %s on port %i failed (set_fd error)",host,port);
+				error_log(ssl_error_buffer);
 				properly_close(current_server);
 				return;
 			}
@@ -2872,7 +2891,6 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			//try to make an error log file, if that's impossible just use stderr
 			const char* ca_path_name="/etc/ssl/certs";
 			int ssl_verify_state=SSL_VERIFY_PEER;
-			char ssl_error_buffer[BUFFER_SIZE];
 			
 			//trust all the same cert authorities that are configured to be default-trusted by openssl at /etc/ssl/certs
 			if((ssl_cert_check==TRUE) && (SSL_CTX_load_verify_locations(server->ssl_context,NULL,ca_path_name))){
@@ -2885,8 +2903,8 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 				//this is a read error if we are configured to check certs
 				//otherwise it's an expected configuration, so don't output an error
 				if(ssl_cert_check==TRUE){
-					snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: Could not open the cert authority directory at %s; not verifying SSL!\n",ca_path_name);
-					fprintf(error_file,"%s",ssl_error_buffer);
+					snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: Could not open the cert authority directory at %s; not verifying SSL!",ca_path_name);
+					error_log(ssl_error_buffer);
 					scrollback_output(current_server,0,ssl_error_buffer,TRUE);
 				}
 				ssl_verify_state=SSL_VERIFY_NONE;
@@ -2897,16 +2915,16 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			
 			//do the SSL handshake
 			if(SSL_connect(server->ssl_handle)!=1){
-				snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: SSL connection to host %s on port %i failed (handshake error)\n",host,port);
-				fprintf(error_file,"%s",ssl_error_buffer);
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Err: SSL connection to host %s on port %i failed (handshake error)",host,port);
+				error_log(ssl_error_buffer);
 				properly_close(current_server);
 				return;
 			}
 			
 			int ssl_verify_result=SSL_get_verify_result(server->ssl_handle);
 			if(ssl_verify_result!=X509_V_OK){
-				snprintf(ssl_error_buffer,BUFFER_SIZE,"Warn: SSL cert check failed for host %s on port %i, ssl_verify_result=%i\n",host,port,ssl_verify_result);
-				fprintf(error_file,"%s",ssl_error_buffer);
+				snprintf(ssl_error_buffer,BUFFER_SIZE,"Warn: SSL cert check failed for host %s on port %i, ssl_verify_result=%i",host,port,ssl_verify_result);
+				error_log(ssl_error_buffer);
 				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
 #ifdef DEBUG
 			}else{
@@ -2977,7 +2995,7 @@ void cli_escape_command(char *input_buffer, char *command, char *parameters){
 		if(current_server>=0){
 			scrollback_output(current_server,0,error_buffer,TRUE);
 		}else{
-			fprintf(error_file,"%s\n",error_buffer);
+			error_log(error_buffer);
 		}
 	}else{
 		//we got an argument, since this is always a 1-character escape take the first char
@@ -3001,7 +3019,7 @@ void cli_escape_command(char *input_buffer, char *command, char *parameters){
 		if(current_server>=0){
 			scrollback_output(current_server,0,reply_buffer,TRUE);
 		}else{
-			fprintf(error_file,"%s\n",reply_buffer);
+			error_log(reply_buffer);
 		}
 	}
 }
@@ -3019,7 +3037,7 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 		if(current_server>=0){
 			scrollback_output(current_server,0,error_buffer,TRUE);
 		}else{
-			fprintf(error_file,"%s\n",error_buffer);
+			error_log(error_buffer);
 		}
 	}else{
 		//we got an argument, since this is always a 1-character escape take the first char
@@ -3043,7 +3061,7 @@ void ser_escape_command(char *input_buffer, char *command, char *parameters){
 		if(current_server>=0){
 			scrollback_output(current_server,0,reply_buffer,TRUE);
 		}else{
-			fprintf(error_file,"%s\n",reply_buffer);
+			error_log(reply_buffer);
 		}
 	}
 }
@@ -3061,7 +3079,8 @@ void alias_command(char *input_buffer, char *command, char *parameters){
 	//error handling, don't get ahead of ourselves
 	if(first_space<0){
 		//write this to the error log, so the user can view it if they choose
-		fprintf(error_file,"Err: too few arguments given to \"%s\"\n",command);
+		snprintf(output_buffer,BUFFER_SIZE,"Err: too few arguments given to \"%s\"",command);
+		error_log(output_buffer);
 		if(current_server>=0){
 			snprintf(output_buffer,BUFFER_SIZE,"accirc: Err: too few arguments given to \"%s\" (put a space at the end if you meant to delete this alias)",command);
 			scrollback_output(current_server,0,output_buffer,TRUE);
@@ -5629,6 +5648,9 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 
 //check every server we're connected to for new data and handle it accordingly
 void read_server_data(){
+	//a string buffer to store any errors
+	char error_buffer[BUFFER_SIZE];
+	
 	//loop through servers and see if there's any data worth reading
 	int server_index;
 	int server_count=dlist_length(servers);
@@ -5659,7 +5681,8 @@ void read_server_data(){
 		
 		if((bytes_transferred<=0)&&(errno!=EAGAIN)){
 			//handle connection errors gracefully here (as much as possible)
-			fprintf(error_file,"Err: connection error with server %i, host %s\n",server_index,server->server_name);
+			snprintf(error_buffer,BUFFER_SIZE,"Err: connection error with server %i, host %s",server_index,server->server_name);
+			error_log(error_buffer);
 			//if this server wasn't automatically reconnected
 			if(properly_close(server_index)<0){
 				//then cancel this read operation (we'll read buffers from other servers on the next cycle)
@@ -5669,7 +5692,8 @@ void read_server_data(){
 		//note if reconnect was set, a reconnection will be attempted
 		}else if((bytes_transferred<=0)&&(errno==EAGAIN)&&((time(NULL)-(server->last_msg_time))>=SERVER_TIMEOUT)){
 			//handle connection timeouts gracefully here (as much as possible)
-			fprintf(error_file,"Err: connection timed out with server %i, host %s\n",server_index,server->server_name);
+			snprintf(error_buffer,BUFFER_SIZE,"Err: connection timed out with server %i, host %s",server_index,server->server_name);
+			error_log(error_buffer);
 			if(properly_close(server_index)<0){
 				//then cancel this read operation (we'll read buffers from other servers on the next cycle)
 				break;
@@ -6394,13 +6418,13 @@ int main(int argc, char *argv[]){
 	
 	//not making log dir is a non-fatal error
 	if(!verify_or_make_dir(log_dir)){
-		fprintf(error_file,"Warn: Could not find or create the log directory\n");
+		error_log("Warn: Could not find or create the log directory");
 		can_log=FALSE;
 	}
 	
 	//register signal handlers
 	if(signal(SIGHUP,terminal_close)==SIG_ERR){
-		fprintf(error_file,"Warn: Could not register the SIGHUP signal handler (closing terminal will time out)\n");
+		error_log("Warn: Could not register the SIGHUP signal handler (closing terminal will time out)");
 	}
 	
 	//initialize the global variables appropriately
@@ -6504,7 +6528,7 @@ int main(int argc, char *argv[]){
 		char rc_success=load_rc(rc_file);
 		if(!rc_success){
 #ifdef DEBUG
-			fprintf(error_file,"Err: Could not load rc file\n");
+			error_log("Err: Could not load rc file");
 #endif
 		}
 	}
