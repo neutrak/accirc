@@ -21,6 +21,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <arpa/inet.h>
 //ssl support via openssl, enable with -D OPENSSL
 //(left as a configuration option for platform support on devices that don't have those libs)
 #ifdef _OPENSSL
@@ -1024,7 +1025,7 @@ void wcoloroff(WINDOW *win, int fg, int bg){
 
 //attempts to connect to given host and port
 //returns a descriptor for the socket used, -1 if connection was unsuccessful
-char make_socket_connection(char *input_buffer, char *host, int port){
+char make_socket_connection(char *input_buffer, char *host, int port, const struct in_addr *own_ip){
 	//a string buffer to hold error messages
 	char error_buffer[BUFFER_SIZE];
 	
@@ -1057,6 +1058,20 @@ char make_socket_connection(char *input_buffer, char *host, int port){
 	serv_addr.sin_family=AF_INET;
 	bcopy((char *)(server->h_addr),(char *)(&serv_addr.sin_addr.s_addr),server->h_length);
 	serv_addr.sin_port=htons(port);
+	
+	//include an optional own_ip setting that allows us to how our own hostname is shown
+	//NOTE: for now we're only supporting ipv4
+	//although I would love to add ipv6 support as soon as my ISP allows it...
+	if(own_ip!=NULL){
+#ifdef DEBUG
+		char error_buffer[BUFFER_SIZE];
+		snprintf(error_buffer,BUFFER_SIZE,"dbg: setting own_ip to %u with memcpy",(*((u_int32_t *)own_ip)));
+		error_log(error_buffer);
+#endif
+		
+		memcpy(&serv_addr.sin_addr,&own_ip,sizeof(struct in_addr));
+	}
+	
 	//if we could successfully connect
 	//(side effects happen during this call to connect())
 	if(connect(new_socket_fd,(struct sockaddr *)(&serv_addr),sizeof(serv_addr))<0){
@@ -2830,10 +2845,40 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 	}else{
 		substr(host,parameters,0,first_space);
 		substr(port_buffer,parameters,first_space+1,strlen(parameters)-(first_space+1));
-		int port=atoi(port_buffer);
+		int port=0;
+		
+		//parse optional own_ip argument to this command
+		//and convert it to a struct in_addr pointer
+		//to pass it as the last argument to the make_socket_connection function
+		struct in_addr *own_ip=NULL;
+		int first_space=strfind(" ",port_buffer);
+		if(first_space<0){
+			port=atoi(port_buffer);
+		}else{
+			substr(parameters,port_buffer,first_space+1,strlen(port_buffer)-(first_space+1));
+			substr(port_buffer,port_buffer,0,first_space);
+			port=atoi(port_buffer);
+			
+#ifdef DEBUG
+			char error_buffer[BUFFER_SIZE];
+			snprintf(error_buffer,BUFFER_SIZE,"dbg: attempting to set own_ip to \"%s\" while connecting to \"%s\" on port \"%u\"",parameters,host,port);
+			error_log(error_buffer);
+#endif
+			
+			own_ip=malloc(sizeof(struct in_addr));
+			memset(own_ip,'\0',sizeof(struct in_addr));
+			inet_aton(parameters,own_ip);
+		}
 		
 		//handle a new connection
-		int new_socket_fd=make_socket_connection(input_buffer,host,port);
+		int new_socket_fd=make_socket_connection(input_buffer,host,port,own_ip);
+		
+		//clean up the own_ip struct now that we're done with it
+		if(own_ip!=NULL){
+			free(own_ip);
+			own_ip=NULL;
+		}
+		
 		//if the connection was unsuccessful give up
 		if(new_socket_fd==-1){
 			return;
