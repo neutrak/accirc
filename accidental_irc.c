@@ -28,6 +28,7 @@
 	#include <openssl/rand.h>
 	#include <openssl/ssl.h>
 	#include <openssl/err.h>
+	#include <openssl/x509_vfy.h>
 #endif
 //non-blocking
 #include <fcntl.h>
@@ -2968,7 +2969,13 @@ void connect_command(char *input_buffer, char *command, char *parameters, char s
 			
 			int ssl_verify_result=SSL_get_verify_result(server->ssl_handle);
 			if(ssl_verify_result!=X509_V_OK){
+				
 				snprintf(ssl_error_buffer,BUFFER_SIZE,"Warn: SSL cert check failed for host %s on port %i, ssl_verify_result=%i",host,port,ssl_verify_result);
+				//TODO: generalize this if and include information for all other errors
+				//the lookup table for this can be found (at time of writing) at: https://github.com/openssl/openssl/blob/master/include/openssl/x509_vfy.h.in
+				if(ssl_verify_result==X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT){
+					snprintf(ssl_error_buffer,BUFFER_SIZE,"Warn: SSL cert check failed for host %s on port %i, ssl_verify_result=%i (SELF-SIGNED CERT)",host,port,ssl_verify_result);
+				}
 				error_log(ssl_error_buffer);
 				scrollback_output(current_server,0,ssl_error_buffer,TRUE);
 #ifdef DEBUG
