@@ -173,6 +173,7 @@ char *command_list[]={
 	"/r -> replies by pm to last user who PM'd you (or empty string if no PMs recieved)",
 	//reverse is an easter egg and so is not documented
 	//morse and unmorse aren't documented here for brevity, but are documented in the manual page
+	"/hide_user_mode_changes <user modes to hide> -> makes the given user mode changes on the selected server not output in the console; set to empty string to make all user mode changes visible (default)",
 	"/usleep <microseconds> -> pauses program for given microsecond count",
 	"/comment -> ignores this line (for rc files)",
 	"/fallback_nick <nick> -> sets nick if other nick taken",
@@ -361,6 +362,11 @@ struct irc_connection {
 	
 	//quit message to use when no argument is given
 	char quit_msg[BUFFER_SIZE];
+	
+	//an option for hidden_user_mode_changes
+	//where you can specify a string, each character of which is a user mode whose changes should be hidden from the log
+	//and setting the empty string should re-set behaviour to cause no user mode changes to be hidden
+	char hidden_user_mode_changes[BUFFER_SIZE];
 };
 
 //this holds an "alias"
@@ -2590,6 +2596,9 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	//by default don't hide joins and quits
 	server->hide_joins_quits=FALSE;
 	
+	//by default don't hide any user mode changes
+	strncpy(server->hidden_user_mode_changes,"",BUFFER_SIZE);
+	
 	//set the current channel to be 0 (the system/debug channel)
 	//a JOIN would add channels, but upon initial connection 0 is the only valid one
 	server->current_channel=0;
@@ -4383,6 +4392,16 @@ void parse_input(char *input_buffer, char keep_history){
 				
 				//don't keep the recursion in the history
 				parse_input(tmp_buffer,FALSE);
+			//hide user mode changes on this server
+			}else if(!strcmp(command,"hide_user_mode_changes")){
+				strncpy(server->hidden_user_mode_changes,parameters,BUFFER_SIZE);
+				if(strnlen(server->hidden_user_mode_changes,BUFFER_SIZE)>0){
+					char tmp_buffer[BUFFER_SIZE];
+					snprintf(tmp_buffer,BUFFER_SIZE,"accirc: now ignoring user mode changes %s",server->hidden_user_mode_changes);
+					scrollback_output(current_server,0,tmp_buffer,TRUE);
+				}else{
+					scrollback_output(current_server,0,"accirc: no longer ignoring any user mode changes",TRUE);
+				}
 			//automatically send subsequent commands in the rc file only after a certain message is received from the server
 			}else if(!strcmp(command,"post")){
 				strncpy(server->post_type,parameters,BUFFER_SIZE);
@@ -5128,7 +5147,9 @@ void server_topic_command(irc_connection *server, int server_index, char *tmp_bu
 }
 
 //handle the "mode" command from the server
-void server_mode_command(irc_connection *server, int server_index, char *text, int *output_channel){
+//returns TRUE for special_output, otherwise FALSE
+char server_mode_command(irc_connection *server, int server_index, char *text, int *output_channel){
+	char special_output=FALSE;
 	char channel[BUFFER_SIZE];
 	substr(channel,text,0,strfind(" ",text));
 	
@@ -5145,6 +5166,20 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 	char mode_ctrl_str[BUFFER_SIZE];
 	space_idx=strfind(" ",tmp_text);
 	substr(mode_ctrl_str,tmp_text,0,space_idx);
+	
+	//if this mode change should be hidden per the user's setting for this server
+	unsigned int n=0;
+	for(n=0;n<strnlen(server->hidden_user_mode_changes,BUFFER_SIZE);n++){
+		char tmp_buffer[2];
+		tmp_buffer[0]=server->hidden_user_mode_changes[n];
+		tmp_buffer[1]='\0';
+		if(strfind(tmp_buffer,mode_ctrl_str)>=0){
+			//then don't output it, just hide it
+			//NOTE: this doesn't change our internal processing at all
+			//it's only for output
+			special_output=TRUE;
+		}
+	}
 	
 	//get the string of nicks to apply the mode_ctrl_str to
 	char nicks[BUFFER_SIZE];
@@ -5241,6 +5276,8 @@ void server_mode_command(irc_connection *server, int server_index, char *text, i
 		
 		nick_mode_idx++;
 	}
+	
+	return special_output;
 }
 
 //handle the "quit" command from the server
@@ -5505,7 +5542,7 @@ int parse_server(int server_index){
 					server_topic_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
 				//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
 				}else if(!strcmp(command,"MODE")){
-					server_mode_command(server,server_index,text,&output_channel);
+					special_output=server_mode_command(server,server_index,text,&output_channel);
 				//proper NOTICE handling is to output to the correct channel if it's a channel-wide notice, and like a PM otherwise
 				}else if(!strcmp(command,"NOTICE")){
 					//parse out the channel

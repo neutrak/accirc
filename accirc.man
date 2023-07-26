@@ -1,4 +1,4 @@
-.TH ACCIRC 1 "26 June 2021"
+.TH ACCIRC 1 "26 July 2023"
 .SH NAME
 accirc \- The accidental ncurses irc client
 .SH SYNOPSIS
@@ -208,6 +208,9 @@ encodes the given text in morse code, with one space between each character; cha
 .TP
 \fB/unmorse \fItext\fP
 decodes the given morse string into ascii; assumes the same input format as the output format of /morse
+.TP
+\fB/hide_user_mode_changes \fIuser_modes_to_hide\fP
+makes the given user mode changes on the selected server not output in the console; set to empty string to make all user mode changes visible (default)
 .SS "Key Bindings"
 .TP
 \fBf1 or alt+left\fP
