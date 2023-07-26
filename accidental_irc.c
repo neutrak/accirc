@@ -810,10 +810,19 @@ int nick_idx(channel_info *ch, const char *nick, int start_idx){
 
 //find the index of the given channel in the given server's channel list
 int ch_idx_from_name(irc_connection *server, const char *ch_name){
+	//NOTE: some servers give channel names with leading : characters in some contexts
+	//such as for PART messages
+	//as far as I know this isn't compliant with the spec and shouldn't be done
+	//but nonetheless for compatibility we should be able to handle it
+	int offset=0;
+	if((strnlen(ch_name,BUFFER_SIZE)>0) && (ch_name[0]==':')){
+		offset=1;
+	}
+	
 	//channel names are case-insensitive
 	//so before we do anything else, make a lower-case copy
 	char channel[BUFFER_SIZE];
-	strncpy(channel,ch_name,BUFFER_SIZE);
+	strncpy(channel,ch_name+offset,BUFFER_SIZE-offset);
 	strtolower(channel,BUFFER_SIZE);
 	
 	//go through the channels, searching for the given channel name
