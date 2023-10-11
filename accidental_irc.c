@@ -5157,6 +5157,10 @@ void server_topic_command(irc_connection *server, int server_index, char *tmp_bu
 
 //handle the "mode" command from the server
 //returns TRUE for special_output, otherwise FALSE
+//accepts formats:
+//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o Nick"
+//":*.DE MODE #imgurians +o Nick"
+//":bitlbee.local MODE &bitlbee +v Nick"
 char server_mode_command(irc_connection *server, int server_index, char *text, int *output_channel){
 	char special_output=FALSE;
 	char channel[BUFFER_SIZE];
@@ -5487,12 +5491,30 @@ int parse_server(int server_index){
 				//a temporary buffer to store intermediate results during parsing
 				char tmp_buffer[BUFFER_SIZE];
 				
+				//NOTE: we parse out command_and_args and split on space BEFORE anything else
+				//to handle uncommon MODE commands that don't contain all the normal parts
+				//	normal: ":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
+				//	weird: ":*.DE MODE #imgurians +o Nick"
+				//	weird: ":bitlbee.local MODE &bitlbee +v Nick"
+				
+				//the most important character to parse first is " "
+				//everything that's prior to that is all the user and hostmask information we got
+				//which is sometimes not much at all
+				int space_index=strfind(" ",tmp_buffer);
+				
+				char command_and_args[BUFFER_SIZE];
+				substr(command_and_args,tmp_buffer,space_index+1,strlen(tmp_buffer)-space_index-1);
+				
 				//declarations for various things worth parsing out
 				char nick[BUFFER_SIZE];
 				char real_name[BUFFER_SIZE];
 				char hostmask[BUFFER_SIZE];
 				char command[BUFFER_SIZE];
 				char text[BUFFER_SIZE];
+				
+				//NOTE: substr never allows operations on negative-length substrings
+				//and essentially ignores it and treats the result as a null string if given a negative length
+				//so these substr calls are safe despite not explicitly verifying that the indicies are positive
 				
 				//user's nickname is delimeted by "!"
 				int exclam_index=strfind("!",server->read_buffer);
@@ -5510,16 +5532,25 @@ int parse_server(int server_index){
 				substr(tmp_buffer,tmp_buffer,at_index+1,strlen(tmp_buffer)-at_index-1);
 				
 				//hostmask is delimeted by " "
-				int space_index=strfind(" ",tmp_buffer);
+				space_index=strfind(" ",tmp_buffer);
 				substr(hostmask,tmp_buffer,0,space_index);
 				
 				substr(tmp_buffer,tmp_buffer,space_index+1,strlen(tmp_buffer)-space_index-1);
 				
-				//command is delimeted by " "
-				space_index=strfind(" ",tmp_buffer);
-				substr(command,tmp_buffer,0,space_index);
+				//NOTE: we are using command_and_args here, parsed out earlier in this function
+				//and NOT tmp_buffer
+				//to account for unusual formats (MODEs)
+				//e.g.
+				//":*.DE MODE #imgurians +o Nick"
+				//":bitlbee.local MODE &bitlbee +v Nick"
 				
-				substr(tmp_buffer,tmp_buffer,space_index+1,strlen(tmp_buffer)-space_index-1);
+				//command is delimeted by " "
+				space_index=strfind(" ",command_and_args);
+				substr(command,command_and_args,0,space_index);
+				
+				//and then we copy FROM command_and_args into the tmp_buffer
+				//since that contains everything after the first space in the original line
+				substr(tmp_buffer,command_and_args,space_index+1,strlen(command_and_args)-space_index-1);
 				
 				//the rest of the string is the text
 				strncpy(text,tmp_buffer,BUFFER_SIZE);
@@ -5550,6 +5581,8 @@ int parse_server(int server_index){
 				}else if(!strcmp(command,"TOPIC")){
 					server_topic_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
 				//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
+				//":*.DE MODE #imgurians +o Nick"
+				//":bitlbee.local MODE &bitlbee +v Nick"
 				}else if(!strcmp(command,"MODE")){
 					special_output=server_mode_command(server,server_index,text,&output_channel);
 				//proper NOTICE handling is to output to the correct channel if it's a channel-wide notice, and like a PM otherwise
