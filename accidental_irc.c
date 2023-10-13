@@ -5490,6 +5490,8 @@ int parse_server(int server_index){
 			}else{
 				//a temporary buffer to store intermediate results during parsing
 				char tmp_buffer[BUFFER_SIZE];
+				//initialized to be the value of server->read_buffer
+				strncpy(tmp_buffer,server->read_buffer,BUFFER_SIZE);
 				
 				//NOTE: we parse out command_and_args and split on space BEFORE anything else
 				//to handle uncommon MODE commands that don't contain all the normal parts
@@ -5517,12 +5519,13 @@ int parse_server(int server_index){
 				//so these substr calls are safe despite not explicitly verifying that the indicies are positive
 				
 				//user's nickname is delimeted by "!"
-				int exclam_index=strfind("!",server->read_buffer);
+				int exclam_index=strfind("!",tmp_buffer);
 				//start at 1 to cut off the leading ":"
-				substr(nick,server->read_buffer,1,exclam_index-1);
+				substr(nick,tmp_buffer,1,exclam_index-1);
 				
 				//move past that point so we have a tmp_buffer after it (we'll be doing this a lot)
-				substr(tmp_buffer,server->read_buffer,exclam_index+1,strlen(server->read_buffer)-exclam_index-1);
+				//I CAN set tmp_buffer to a substring of itself here BECAUSE it'll just shift everything left and never overwrite what it needs to use
+				substr(tmp_buffer,tmp_buffer,exclam_index+1,strlen(server->read_buffer)-exclam_index-1);
 				
 				//user's real name is delimeted by "@"
 				int at_index=strfind("@",tmp_buffer);
@@ -5531,7 +5534,7 @@ int parse_server(int server_index){
 				//I CAN set tmp_buffer to a substring of itself here BECAUSE it'll just shift everything left and never overwrite what it needs to use
 				substr(tmp_buffer,tmp_buffer,at_index+1,strlen(tmp_buffer)-at_index-1);
 				
-				//hostmask is delimeted by " "
+				//hostmask is delimited by " "
 				space_index=strfind(" ",tmp_buffer);
 				substr(hostmask,tmp_buffer,0,space_index);
 				
