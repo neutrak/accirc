@@ -20,5 +20,13 @@ irc client (accidental IRC) (// indicates "tentatively done")
 //	scroll-by-search feature (center searched term where possible) //decided searched term should display at bottom
 
 todo:
-
+	add a concept of saved channel order such that channels are pre-arranged in a particular order per config file parameter
+		/comment sets the channel order for the given named channels to be the same as it appears in this list
+		/comment if channels are omitted, they will appear at the end of the list of channels in the order that they were joined in
+		/comment this list will be compared to every JOIN, and so should be set prior to the first JOIN in order to function correctly
+		/comment the raw-SERVER channel will ALWAYS appear at index 0, no matter what, and does not need to be included in this list
+		/set_channel_order #channel0 #channel1 #channel2
+	
+	use a proper ini config file format instead of the rc file to store config
+		where line order is less significant, and if a connection fails the config for the next connection isn't used incorrectly
 

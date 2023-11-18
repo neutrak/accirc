@@ -1467,8 +1467,14 @@ int properly_close(int server_index){
 					current_server=old_server-1;
 				}
 			}
-		}
 		//else it was a timeout, so sorry, can't do anything, give up
+		}else{
+			//TODO: in a function called here in the else case,
+			//read the .rc file until the next /connect or /sconnect command
+			//and throw out any lines prior to that
+			//since items after a failed connection but associated with the server we failed to connect to
+			//should NOT be read as configuration for the next server in any way
+		}
 	}
 	
 	//free memory that was for a reconnect buffer
