@@ -996,6 +996,14 @@ char load_rc(char *rc_file){
 			}
 			parse_input(rc_line,FALSE);
 			
+			//TODO: group rc_lines by the preceding /sconnect or /connect command
+			//and in cases of timeout or connection error,
+			//do NOT incorrectly apply configuration parameters to the /next/ connection
+			//this will probably require pre-loading data from the rc file in order to group the lines by (uncommented) connection command
+			//and when we do this, the group of lines associated with the connection should be the /same/ lines that get re-run on reconnect
+			//so it should be stored in the same data structure and processed in the same way
+			//on every reconnect following a connection timeout or recoverable disconnect
+			
 			refresh_server_list();
 			refresh_channel_list();
 			refresh_channel_topic();
@@ -1467,6 +1475,10 @@ int properly_close(int server_index){
 					current_server=old_server-1;
 				}
 			}
+		//TODO: find the correct place to put the following
+		//it shouldn't go here because this is the properly_close function
+		//and not a connect function
+		//and does not, in general, run while the rc file is being processed
 		//else it was a timeout, so sorry, can't do anything, give up
 		}else{
 			//TODO: in a function called here in the else case,
@@ -5702,6 +5714,9 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
 	getmaxyx(stdscr,height,width);
 	
+	//TODO: in this case just show a blank display
+	//(or a single line that says "accirc: Warn: terminal too small, make this window larger to see irc" if there is sufficient space to show it)
+	//instead of hard crashing and disconnecting everything
 	if((height<MIN_HEIGHT)||(width<MIN_WIDTH)){
 		endwin();
 		fprintf(stderr,"Err: Window too small, would segfault if I stayed, exiting...\n");
