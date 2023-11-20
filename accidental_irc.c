@@ -976,37 +976,44 @@ void ping_log(int server_index, const char *ping_type, const char *nick, const c
 	}
 }
 
-//load the configuration file at path, returns TRUE on success, FALSE on failure
-char load_rc(char *rc_file){
+//load an rc file as a dlist of server (irc_connection) objects
+//NOTE: these are not TRUE irc connections because they aren't really connected
+//and only serve as a placeholder for hostname, port, use_ssl, and server_run_lines
+dlist_entry *load_rc_servers(char *rc_file){
+	dlist_entry *rc_servers=NULL;
+	int rc_server_index=-1;
+	
 	FILE *rc=fopen(rc_file,"r");
 	if(!rc){
 		error_log("Warn: rc file not found, not executing anything on startup");
-		post_listen=FALSE;
-		return FALSE;
+		return NULL;
 	}else{
-		dlist_entry *rc_servers=NULL;
-		int rc_server_index=-1;
-		
 		//read in the .rc, parse_input each line until the end
 		char rc_line[BUFFER_SIZE];
 		while(!feof(rc)){
 			fgets(rc_line,BUFFER_SIZE,rc);
+			
+			//cut off the trailing newline
+			int newline_index=strfind("\n",rc_line);
+			if(newline_index>=0){
+				substr(rc_line,rc_line,0,newline_index);
+			}
 			
 			char is_server_run_line=FALSE;
 			
 			//client command
 			if((strnlen(rc_line,BUFFER_SIZE)>0) && (rc_line[0]==client_escape)){
 				char command[BUFFER_SIZE];
-//				char parameters[BUFFER_SIZE];
+				char parameters[BUFFER_SIZE];
 				int first_space=strfind(" ",rc_line);
 				
 				//space not found, command with no parameters
 				if(first_space<0){
 					strncpy(command,rc_line,BUFFER_SIZE);
-//					strncpy(parameters,"",BUFFER_SIZE);
+					strncpy(parameters,"",BUFFER_SIZE);
 				}else{
 					substr(command,rc_line,0,first_space);
-//					substr(parameters,rc_line,first_space+1,strlen(rc_line)-(first_space+1));
+					substr(parameters,rc_line,first_space+1,strlen(rc_line)-(first_space+1));
 				}
 				
 				//an rc file command to connect to a server, with or without encryption
@@ -1017,18 +1024,37 @@ char load_rc(char *rc_file){
 					//zero out the server structure to ensure no uninitialized data
 					memset(server,0,sizeof(irc_connection));
 					
+#ifdef _OPENSSL
 					//save encryption option
 					server->use_ssl=FALSE;
-#ifdef _OPENSSL
 					if(!strncmp("sconnect",command,BUFFER_SIZE)){
 						server->use_ssl=TRUE;
 					}
 #endif
 					
+					//store server host and port
+					char host_param[BUFFER_SIZE];
+					char port_param[BUFFER_SIZE];
+					first_space=strfind(" ",parameters);
+					if(first_space<0){
+						strncpy(host_param,parameters,BUFFER_SIZE);
+						strncpy(port_param,"6667",BUFFER_SIZE);
+					}else{
+						substr(host_param,parameters,0,first_space);
+						substr(port_param,parameters,first_space+1,strlen(parameters)-(first_space+1));
+					}
+					
+					strncpy(server->server_name,host_param,BUFFER_SIZE);
+					server->port=atoi(port_param);
+					
 					//add this server to the doubly-linked list of rc servers
 					//and update the index to reflect the new entry
 					rc_server_index=dlist_length(rc_servers);
 					rc_servers=dlist_append(rc_servers,server);
+				//TODO: ignore anything between /post and /no_post commands
+				//as those are already handled by the server post_commands structure
+				//and adding them to the server_run_lines as well would be redundant
+				
 				//any other client commands get added to the server's server_run_lines structure
 				}else{
 					is_server_run_line=TRUE;
@@ -1038,49 +1064,88 @@ char load_rc(char *rc_file){
 				is_server_run_line=TRUE;
 			}
 			
+			//if this is a line that should be added to server_run_lines
+			//then add it now
 			if((rc_server_index>=0) && is_server_run_line){
 				char *server_run_line=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 				strncpy(server_run_line,rc_line,BUFFER_SIZE);
 				dlist_append(((irc_connection*)dlist_get_entry(rc_servers,rc_server_index))->server_run_lines,server_run_line);
 			}
 		}
+		fclose(rc);
+	}
+	return rc_servers;
+}
 
+//load the configuration file at path, returns TRUE on success, FALSE on failure
+char load_rc(char *rc_file){
+	dlist_entry *rc_servers=load_rc_servers(rc_file);
+	
+	//for each server we're meant to connect to
+	for(int rc_server_index=0;rc_server_index<=dlist_length(rc_servers);rc_server_index++){
+		int connection_count=dlist_length(servers);
 		
+		irc_connection *rc_server=(irc_connection*)(dlist_get_entry(rc_servers,rc_server_index));
 		
-		//read in the .rc, parse_input each line until the end
-//		char rc_line[BUFFER_SIZE];
-		while(!feof(rc)){
-			fgets(rc_line,BUFFER_SIZE,rc);
+		//create the appropriate connect command
+		char input_buffer[BUFFER_SIZE];
+		strncpy("/connect %s %i",rc_server->server_name,rc_server->port);
+#ifdef _OPENSSL
+		if(rc_server->use_ssl){
+			strncpy("/sconnect %s %i",rc_server->server_name,rc_server->port);
+		}
+#endif
+		//run the connect command
+		//(yes, even though this is called parse_input it does in fact run the command, not just parse it)
+		parse_input(input_buffer,FALSE);
+		
+		//store the value of current_server before we start running server_run_lines
+		int prev_current_server=current_server;
+		
+		//if a connection actually was created
+		if(dlist_length(servers)>connection_count){
+			irc_connection *last_server=(irc_connection*)(dlist_get_entry(servers,dlist_length(servers)-1));
 			
-//			if(feof(rc)){
-//				break;
-//			}
-			
-			//cut off the trailing newline
-			int newline_index=strfind("\n",rc_line);
-			if(newline_index>=0){
-				substr(rc_line,rc_line,0,newline_index);
+			//and what we connected to was the server we expected to be connected to
+			//(i.e. the thing our rc_server lines are for)
+			if((!strncmp(last_server->server_name,rc_server->server_name,BUFFER_SIZE)) && (last_server->port==rc_server->port)){
+#ifdef _OPENSSL
+				if(last_server->use_ssl==rc_server->use_ssl){
+#endif
+					//set the current/active/viewed server to be the last server in the list
+					//since we're about to run a bunch of commands
+					//and we want to only run them in the context of that particular server connection
+					current_server=dlist_length(servers)-1;
+					
+					//clear out any previously-existing server_run_lines
+					//just to make sure we're ONLY including the lines specified in the rc file
+					if(dlist_length(last_server->server_run_lines)>0){
+						dlist_free(last_server->server_run_lines,TRUE);
+						last_server->server_run_lines=NULL;
+					}
+					//copy the rc_server's server_run_lines to the actual connected server object
+					last_server->server_run_lines=dlist_deep_copy(rc_server->server_run_lines,sizeof(char)*(BUFFER_SIZE+1));
+					
+					//for each server run line
+					for(int server_run_line_index=0;server_run_line_index<dlist_length(last_server->server_run_lines);server_run_line_index++){
+						//actually run it now that we're connected
+						parse_input((char*)dlist_get_entry(last_server->server_run_lines,server_run_line_index),FALSE);
+					}
+#ifdef _OPENSSL
+				}
+#endif
 			}
-			parse_input(rc_line,FALSE);
-			
-			//TODO: group rc_lines by the preceding /sconnect or /connect command
-			//and in cases of timeout or connection error,
-			//do NOT incorrectly apply configuration parameters to the /next/ connection
-			//this will probably require pre-loading data from the rc file in order to group the lines by (uncommented) connection command
-			//and when we do this, the group of lines associated with the connection should be the /same/ lines that get re-run on reconnect
-			//so it should be stored in the same data structure and processed in the same way
-			//on every reconnect following a connection timeout or recoverable disconnect
-			
-			refresh_server_list();
-			refresh_channel_list();
-			refresh_channel_topic();
-			refresh_channel_text();
 		}
 		
-		fclose(rc);
-		post_listen=FALSE;
-		return TRUE;
+		//reset the current_server to what it was before we started running server_run_lines
+		current_server=prev_current_server;
+		
+		refresh_server_list();
+		refresh_channel_list();
+		refresh_channel_topic();
+		refresh_channel_text();
 	}
+	
 	post_listen=FALSE;
 	return TRUE;
 }
@@ -1354,6 +1419,7 @@ int properly_close(int server_index){
 	char reconnect_fallback_nick[BUFFER_SIZE];
 	char reconnect_post_type[BUFFER_SIZE];
 	dlist_entry *reconnect_post_commands=NULL;
+	dlist_entry *reconnect_server_run_lines=NULL;
 	
 #ifdef _OPENSSL
 	//whether to use ssl when we reconnect
@@ -1372,6 +1438,7 @@ int properly_close(int server_index){
 		//we'll automatically rejoin the channels we had on auto-join anyway, using the post command
 		strncpy(reconnect_post_type,server->post_type,BUFFER_SIZE);
 		reconnect_post_commands=dlist_deep_copy(server->post_commands,sizeof(char)*(BUFFER_SIZE+1));
+		reconnect_server_run_lines=dlist_deep_copy(server->server_run_lines,sizeof(char)*(BUFFER_SIZE+1));
 		
 		strncpy(reconnect_nick,server->nick,BUFFER_SIZE);
 		
@@ -1516,17 +1583,29 @@ int properly_close(int server_index){
 			//the last output in these cases is the fallback_nick set result
 			//(I think this might have been implicity fixed when other changes were made but it needs to be tested thoroughly)
 			
+			//if you wanted to reconnect before you probably still want to
+			//this segfaults with parse_input but doesn't fail at all with just setting the value, not sure why that is
+//			parse_input("/reconnect",FALSE); //this should be client_escape instead of literal "/" anyway...
+			server->reconnect=TRUE;
+			
 			//re-send all the auto-sent text when relevant, just like on first connection
 			//note that the post_commands MUST start with the server escape or client escape,
 			//because on bouncer connections join may happen before the post_type message,
 			//and the commands might get leaked to a channel if they don't start with an escape character
 			strncpy(server->post_type,reconnect_post_type,BUFFER_SIZE);
-			server->post_commands=dlist_deep_copy(reconnect_post_commands,(sizeof(char)*(BUFFER_SIZE+1)));
 			
-			//if you wanted to reconnect before you probably still want to
-			//this segfaults with parse_input but doesn't fail at all with just setting the value, not sure why that is
-//			parse_input("/reconnect",FALSE); //this should be client_escape instead of literal "/" anyway...
-			server->reconnect=TRUE;
+			//NOTE: this is now redundant with server_run_lines
+			//so we are leaving server->post_commands in the default NULL state it was set to in add_server
+			//and it should get auto-repopulated when the server_run_lines are executed later
+//			server->post_commands=dlist_deep_copy(reconnect_post_commands,(sizeof(char)*(BUFFER_SIZE+1)));
+			
+			server->server_run_lines=dlist_deep_copy(reconnect_server_run_lines,sizeof(char)*(BUFFER_SIZE+1));
+			
+			//for each server run line
+			for(int server_run_line_index=0;server_run_line_index<dlist_length(server->server_run_lines);server_run_line_index++){
+				//actually run it now that we're connected
+				parse_input((char*)dlist_get_entry(server->server_run_lines,server_run_line_index),FALSE);
+			}
 			
 			//go back to whatever server you were on prior to the reconnection operation
 			current_server=old_server;
@@ -1543,24 +1622,14 @@ int properly_close(int server_index){
 					current_server=old_server-1;
 				}
 			}
-		//TODO: find the correct place to put the following
-		//it shouldn't go here because this is the properly_close function
-		//and not a connect function
-		//and does not, in general, run while the rc file is being processed
-		//else it was a timeout, so sorry, can't do anything, give up
-		}else{
-			//TODO: in a function called here in the else case,
-			//read the .rc file until the next /connect or /sconnect command
-			//and throw out any lines prior to that
-			//since items after a failed connection but associated with the server we failed to connect to
-			//should NOT be read as configuration for the next server in any way
 		}
 	}
 	
 	//free memory that was for a reconnect buffer
 	//if we needed it then we made a deep copy already in the server structure
 	dlist_free(reconnect_post_commands,TRUE);
-
+	dlist_free(reconnect_server_run_lines,TRUE);
+	
 	//output
 	if(current_server<0){
 		wblank(server_list,width,1);
