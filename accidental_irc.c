@@ -988,6 +988,10 @@ dlist_entry *load_rc_servers(char *rc_file){
 		error_log("Warn: rc file not found, not executing anything on startup");
 		return NULL;
 	}else{
+#ifdef DEBUG
+		char error_buffer[BUFFER_SIZE];
+#endif
+		
 		//read in the .rc, parse_input each line until the end
 		char rc_line[BUFFER_SIZE];
 		while(!feof(rc)){
@@ -999,25 +1003,38 @@ dlist_entry *load_rc_servers(char *rc_file){
 				substr(rc_line,rc_line,0,newline_index);
 			}
 			
+#ifdef DEBUG
+			snprintf(error_buffer,BUFFER_SIZE,"Info: parsing rc_line \"%s\"",rc_line);
+			error_log(error_buffer);
+#endif
+			
 			char is_server_run_line=FALSE;
 			
 			//client command
 			if((strnlen(rc_line,BUFFER_SIZE)>0) && (rc_line[0]==client_escape)){
+				//trim off the first character, which is the client escape character
+				char tmp_buffer[BUFFER_SIZE];
+				substr(tmp_buffer,rc_line,1,strlen(rc_line)-1);
+				
 				char command[BUFFER_SIZE];
 				char parameters[BUFFER_SIZE];
-				int first_space=strfind(" ",rc_line);
+				int first_space=strfind(" ",tmp_buffer);
 				
 				//space not found, command with no parameters
 				if(first_space<0){
-					strncpy(command,rc_line,BUFFER_SIZE);
+					strncpy(command,tmp_buffer,BUFFER_SIZE);
 					strncpy(parameters,"",BUFFER_SIZE);
 				}else{
-					substr(command,rc_line,0,first_space);
-					substr(parameters,rc_line,first_space+1,strlen(rc_line)-(first_space+1));
+					substr(command,tmp_buffer,0,first_space);
+					substr(parameters,tmp_buffer,first_space+1,strlen(tmp_buffer)-(first_space+1));
 				}
 				
 				//an rc file command to connect to a server, with or without encryption
 				if((!strncmp("connect",command,BUFFER_SIZE)) || (!strncpy("sconnect",command,BUFFER_SIZE))){
+#ifdef DEBUG
+					snprintf(error_buffer,BUFFER_SIZE,"Info: found rc connection command \"%s\" with parameters \"%s\"",command,parameters);
+					error_log(error_buffer);
+#endif
 					//make a new server structure to store information about this server
 					irc_connection *server=(irc_connection*)(malloc(sizeof(irc_connection)));
 					
@@ -1057,7 +1074,13 @@ dlist_entry *load_rc_servers(char *rc_file){
 				
 				//any other client commands get added to the server's server_run_lines structure
 				}else{
-					is_server_run_line=TRUE;
+					//if this is a server escape (ser_escape) or client escape (cli_escape) command then run it right away
+					//because otherwise we might be in the wrong state to parse the rest of the rc file
+					if((!strncmp(command,"cli_escape",BUFFER_SIZE)) || (!strncmp(command,"ser_escape",BUFFER_SIZE))){
+						parse_input(rc_line,FALSE);
+					}else{
+						is_server_run_line=TRUE;
+					}
 				}
 			//any other lines before the next server get added to the server's server_run_lines structure
 			}else{
@@ -1069,7 +1092,13 @@ dlist_entry *load_rc_servers(char *rc_file){
 			if((rc_server_index>=0) && is_server_run_line){
 				char *server_run_line=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 				strncpy(server_run_line,rc_line,BUFFER_SIZE);
-				dlist_append(((irc_connection*)dlist_get_entry(rc_servers,rc_server_index))->server_run_lines,server_run_line);
+				irc_connection *rc_server=((irc_connection*)dlist_get_entry(rc_servers,rc_server_index));
+				rc_server->server_run_lines=dlist_append(rc_server->server_run_lines,server_run_line);
+				
+#ifdef DEBUG
+				snprintf(error_buffer,BUFFER_SIZE,"Info: added line \"%s\" to server_run_lines for rc_server \"%s\"",server_run_line,rc_server->server_name);
+				error_log(error_buffer);
+#endif
 			}
 		}
 		fclose(rc);
@@ -4219,7 +4248,7 @@ void parse_input(char *input_buffer, char keep_history){
 		if(input_buffer[0]==server_escape){
 			server_command=TRUE;
 			client_command=FALSE;
-		//client command	
+		//client command
 		}else if(input_buffer[0]==client_escape){
 			server_command=FALSE;
 			client_command=TRUE;
