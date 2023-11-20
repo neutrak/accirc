@@ -1114,6 +1114,11 @@ dlist_entry *load_rc_servers(char *rc_file){
 				snprintf(error_buffer,BUFFER_SIZE,"Info: added line \"%s\" to server_run_lines for rc_server \"%s\" ; number of server_run_lines is now %i",server_run_line,rc_server->server_name,dlist_length(rc_server->server_run_lines));
 				error_log(error_buffer);
 #endif
+			//if this would be a server_run_line except for the fact that we have no associated server
+			}else if(strnlen(rc_line,BUFFER_SIZE)>0 && is_server_run_line){
+				//then run it IMMEDIATELY, during this function call
+				//as it is meant to apply prior to any server connection commands
+				parse_input(rc_line,FALSE);
 			}
 		}
 		fclose(rc);
