@@ -1030,22 +1030,22 @@ dlist_entry *load_rc_servers(char *rc_file){
 				}
 				
 				//an rc file command to connect to a server, with or without encryption
-				if((!strncmp("connect",command,BUFFER_SIZE)) || (!strncpy("sconnect",command,BUFFER_SIZE))){
+				if((!strncmp("connect",command,BUFFER_SIZE)) || (!strncmp("sconnect",command,BUFFER_SIZE))){
 #ifdef DEBUG
 					snprintf(error_buffer,BUFFER_SIZE,"Info: found rc connection command \"%s\" with parameters \"%s\"",command,parameters);
 					error_log(error_buffer);
 #endif
 					//make a new server structure to store information about this server
-					irc_connection *server=(irc_connection*)(malloc(sizeof(irc_connection)));
+					irc_connection *rc_server=(irc_connection*)(malloc(sizeof(irc_connection)));
 					
 					//zero out the server structure to ensure no uninitialized data
-					memset(server,0,sizeof(irc_connection));
+					memset(rc_server,0,sizeof(irc_connection));
 					
 #ifdef _OPENSSL
 					//save encryption option
-					server->use_ssl=FALSE;
+					rc_server->use_ssl=FALSE;
 					if(!strncmp("sconnect",command,BUFFER_SIZE)){
-						server->use_ssl=TRUE;
+						rc_server->use_ssl=TRUE;
 					}
 #endif
 					
@@ -1061,13 +1061,23 @@ dlist_entry *load_rc_servers(char *rc_file){
 						substr(port_param,parameters,first_space+1,strlen(parameters)-(first_space+1));
 					}
 					
-					strncpy(server->server_name,host_param,BUFFER_SIZE);
-					server->port=atoi(port_param);
+					strncpy(rc_server->server_name,host_param,BUFFER_SIZE);
+					rc_server->port=atoi(port_param);
+					
+#ifdef DEBUG
+					snprintf(error_buffer,BUFFER_SIZE,"Info: saving rc server info for server \"%s\" on port %i",rc_server->server_name,rc_server->port);
+					error_log(error_buffer);
+#endif
 					
 					//add this server to the doubly-linked list of rc servers
 					//and update the index to reflect the new entry
 					rc_server_index=dlist_length(rc_servers);
-					rc_servers=dlist_append(rc_servers,server);
+					rc_servers=dlist_append(rc_servers,rc_server);
+					
+#ifdef DEBUG
+					snprintf(error_buffer,BUFFER_SIZE,"Info: added server to rc_servers list; dlist_length(rc_servers)=%i",dlist_length(rc_servers));
+					error_log(error_buffer);
+#endif
 				//TODO: ignore anything between /post and /no_post commands
 				//as those are already handled by the server post_commands structure
 				//and adding them to the server_run_lines as well would be redundant
@@ -1087,16 +1097,21 @@ dlist_entry *load_rc_servers(char *rc_file){
 				is_server_run_line=TRUE;
 			}
 			
-			//if this is a line that should be added to server_run_lines
+			//if this is a non-empty line that should be added to server_run_lines
 			//then add it now
-			if((rc_server_index>=0) && is_server_run_line){
+			if((strnlen(rc_line,BUFFER_SIZE)>0) && (rc_server_index>=0) && is_server_run_line){
+#ifdef DEBUG
+				snprintf(error_buffer,BUFFER_SIZE,"Info: updating rc_server at rc_server_index=%i from dlist of length %i",rc_server_index,dlist_length(rc_servers));
+				error_log(error_buffer);
+#endif
+				
 				char *server_run_line=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 				strncpy(server_run_line,rc_line,BUFFER_SIZE);
-				irc_connection *rc_server=((irc_connection*)dlist_get_entry(rc_servers,rc_server_index));
+				irc_connection *rc_server=((irc_connection*)(dlist_get_entry(rc_servers,rc_server_index)->data));
 				rc_server->server_run_lines=dlist_append(rc_server->server_run_lines,server_run_line);
 				
 #ifdef DEBUG
-				snprintf(error_buffer,BUFFER_SIZE,"Info: added line \"%s\" to server_run_lines for rc_server \"%s\"",server_run_line,rc_server->server_name);
+				snprintf(error_buffer,BUFFER_SIZE,"Info: added line \"%s\" to server_run_lines for rc_server \"%s\" ; number of server_run_lines is now %i",server_run_line,rc_server->server_name,dlist_length(rc_server->server_run_lines));
 				error_log(error_buffer);
 #endif
 			}
@@ -1110,19 +1125,29 @@ dlist_entry *load_rc_servers(char *rc_file){
 char load_rc(char *rc_file){
 	dlist_entry *rc_servers=load_rc_servers(rc_file);
 	
+#ifdef DEBUG
+	char error_buffer[BUFFER_SIZE];
+	strncpy(error_buffer,"",BUFFER_SIZE);
+#endif
+	
 	//for each server we're meant to connect to
-	for(int rc_server_index=0;rc_server_index<=dlist_length(rc_servers);rc_server_index++){
+	for(int rc_server_index=0;rc_server_index<dlist_length(rc_servers);rc_server_index++){
 		int connection_count=dlist_length(servers);
 		
-		irc_connection *rc_server=(irc_connection*)(dlist_get_entry(rc_servers,rc_server_index));
+		irc_connection *rc_server=(irc_connection*)(dlist_get_entry(rc_servers,rc_server_index)->data);
 		
 		//create the appropriate connect command
 		char input_buffer[BUFFER_SIZE];
-		strncpy("/connect %s %i",rc_server->server_name,rc_server->port);
+		snprintf(input_buffer,BUFFER_SIZE,"/connect %s %i",rc_server->server_name,rc_server->port);
 #ifdef _OPENSSL
 		if(rc_server->use_ssl){
-			strncpy("/sconnect %s %i",rc_server->server_name,rc_server->port);
+			snprintf(input_buffer,BUFFER_SIZE,"/sconnect %s %i",rc_server->server_name,rc_server->port);
 		}
+#endif
+		
+#ifdef DEBUG
+		snprintf(error_buffer,BUFFER_SIZE,"Info: running rc connection for rc_server with name \"%s\", connection command is \"%s\"",rc_server->server_name,input_buffer);
+		error_log(error_buffer);
 #endif
 		//run the connect command
 		//(yes, even though this is called parse_input it does in fact run the command, not just parse it)
@@ -1133,7 +1158,7 @@ char load_rc(char *rc_file){
 		
 		//if a connection actually was created
 		if(dlist_length(servers)>connection_count){
-			irc_connection *last_server=(irc_connection*)(dlist_get_entry(servers,dlist_length(servers)-1));
+			irc_connection *last_server=(irc_connection*)(dlist_get_entry(servers,dlist_length(servers)-1)->data);
 			
 			//and what we connected to was the server we expected to be connected to
 			//(i.e. the thing our rc_server lines are for)
@@ -1157,9 +1182,22 @@ char load_rc(char *rc_file){
 					
 					//for each server run line
 					for(int server_run_line_index=0;server_run_line_index<dlist_length(last_server->server_run_lines);server_run_line_index++){
+						strncpy(input_buffer,(const char*)(dlist_get_entry(last_server->server_run_lines,server_run_line_index)->data),BUFFER_SIZE);
+						
+#ifdef DEBUG
+						snprintf(error_buffer,BUFFER_SIZE,"Info: running server_run_line \"%s\" for server \"%s\"",input_buffer,last_server->server_name);
+						error_log(error_buffer);
+#endif
+						
 						//actually run it now that we're connected
-						parse_input((char*)dlist_get_entry(last_server->server_run_lines,server_run_line_index),FALSE);
+						parse_input(input_buffer,FALSE);
 					}
+					
+#ifdef DEBUG
+					snprintf(error_buffer,BUFFER_SIZE,"Info: load_rc successfully connected to server \"%s\"",last_server->server_name);
+					error_log(error_buffer);
+#endif
+
 #ifdef _OPENSSL
 				}
 #endif
@@ -1167,13 +1205,31 @@ char load_rc(char *rc_file){
 		}
 		
 		//reset the current_server to what it was before we started running server_run_lines
-		current_server=prev_current_server;
+		//if it was any valid value to start with
+		if(prev_current_server>=0){
+			current_server=prev_current_server;
+		}
+		
+#ifdef DEBUG
+		snprintf(error_buffer,BUFFER_SIZE,"Info: load_rc set current_server=%i",current_server);
+		error_log(error_buffer);
+#endif
 		
 		refresh_server_list();
 		refresh_channel_list();
 		refresh_channel_topic();
 		refresh_channel_text();
 	}
+	
+	//clean up memory from the config file servers
+	//since we're now done reading the rc file
+	//and everything that was successfully connected should be stored in the global servers list
+	dlist_free(rc_servers,TRUE);
+	
+#ifdef DEBUG
+	snprintf(error_buffer,BUFFER_SIZE,"Info: load_rc finished!");
+	error_log(error_buffer);
+#endif
 	
 	post_listen=FALSE;
 	return TRUE;
@@ -1633,7 +1689,8 @@ int properly_close(int server_index){
 			//for each server run line
 			for(int server_run_line_index=0;server_run_line_index<dlist_length(server->server_run_lines);server_run_line_index++){
 				//actually run it now that we're connected
-				parse_input((char*)dlist_get_entry(server->server_run_lines,server_run_line_index),FALSE);
+				strncpy(command_buffer,(const char*)(dlist_get_entry(server->server_run_lines,server_run_line_index)->data),BUFFER_SIZE);
+				parse_input(command_buffer,FALSE);
 			}
 			
 			//go back to whatever server you were on prior to the reconnection operation
