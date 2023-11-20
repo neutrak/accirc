@@ -322,6 +322,10 @@ struct irc_connection {
 	//everything to parse after a given server message is received
 	dlist_entry *post_commands;
 	
+	//a dlist of lines (commands, probably) that get run on connection
+	//for rc files and reconnects
+	dlist_entry *server_run_lines;
+	
 	//whether, on this server, to rejoin channels when kicked
 	char rejoin_on_kick;
 	//the nick to use if the user's nick is already in use
@@ -980,8 +984,71 @@ char load_rc(char *rc_file){
 		post_listen=FALSE;
 		return FALSE;
 	}else{
+		dlist_entry *rc_servers=NULL;
+		int rc_server_index=-1;
+		
 		//read in the .rc, parse_input each line until the end
 		char rc_line[BUFFER_SIZE];
+		while(!feof(rc)){
+			fgets(rc_line,BUFFER_SIZE,rc);
+			
+			char is_server_run_line=FALSE;
+			
+			//client command
+			if((strnlen(rc_line,BUFFER_SIZE)>0) && (rc_line[0]==client_escape)){
+				char command[BUFFER_SIZE];
+//				char parameters[BUFFER_SIZE];
+				int first_space=strfind(" ",rc_line);
+				
+				//space not found, command with no parameters
+				if(first_space<0){
+					strncpy(command,rc_line,BUFFER_SIZE);
+//					strncpy(parameters,"",BUFFER_SIZE);
+				}else{
+					substr(command,rc_line,0,first_space);
+//					substr(parameters,rc_line,first_space+1,strlen(rc_line)-(first_space+1));
+				}
+				
+				//an rc file command to connect to a server, with or without encryption
+				if((!strncmp("connect",command,BUFFER_SIZE)) || (!strncpy("sconnect",command,BUFFER_SIZE))){
+					//make a new server structure to store information about this server
+					irc_connection *server=(irc_connection*)(malloc(sizeof(irc_connection)));
+					
+					//zero out the server structure to ensure no uninitialized data
+					memset(server,0,sizeof(irc_connection));
+					
+					//save encryption option
+					server->use_ssl=FALSE;
+#ifdef _OPENSSL
+					if(!strncmp("sconnect",command,BUFFER_SIZE)){
+						server->use_ssl=TRUE;
+					}
+#endif
+					
+					//add this server to the doubly-linked list of rc servers
+					//and update the index to reflect the new entry
+					rc_server_index=dlist_length(rc_servers);
+					rc_servers=dlist_append(rc_servers,server);
+				//any other client commands get added to the server's server_run_lines structure
+				}else{
+					is_server_run_line=TRUE;
+				}
+			//any other lines before the next server get added to the server's server_run_lines structure
+			}else{
+				is_server_run_line=TRUE;
+			}
+			
+			if((rc_server_index>=0) && is_server_run_line){
+				char *server_run_line=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
+				strncpy(server_run_line,rc_line,BUFFER_SIZE);
+				dlist_append(((irc_connection*)dlist_get_entry(rc_servers,rc_server_index))->server_run_lines,server_run_line);
+			}
+		}
+
+		
+		
+		//read in the .rc, parse_input each line until the end
+//		char rc_line[BUFFER_SIZE];
 		while(!feof(rc)){
 			fgets(rc_line,BUFFER_SIZE,rc);
 			
@@ -1359,6 +1426,7 @@ int properly_close(int server_index){
 	dlist_free(server->ch,TRUE);
 	
 	dlist_free(server->post_commands,TRUE);
+	dlist_free(server->server_run_lines,TRUE);
 	
 	//delete this item from the global list of servers
 	servers=dlist_delete_entry(servers,server_index,TRUE);
@@ -2699,6 +2767,10 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	//clear out the post information
 	strncpy(server->post_type,"",BUFFER_SIZE);
 	server->post_commands=NULL;
+	
+	//initially at least there are no lines to run
+	//upon server connection completing
+	server->server_run_lines=NULL;
 	
 	//by default there is no new content on this server
 	//(because new server content is the OR of new channel content, and by default there is no new channel content)
