@@ -3074,9 +3074,19 @@ int find_output_channel(irc_connection *server, char *channel){
 //a helper function for join_new_channel
 //which applies the channel order as specified in the server->channel_order dlist
 //using dlist_swap after append because it seems like I currently don't have a dlist_insert function
-int apply_channel_order(irc_connection *server, char *channel, int new_ch_idx){
+int apply_channel_order(irc_connection *server, const char *channel){
 	//if we don't have enough connected channels for ordering to make sense
 	if(dlist_length(server->ch)<2){
+		//then the active channel is just the last one in the list
+		//and we perform no move operations
+		return dlist_length(server->ch)-1;
+	}
+	
+	//get the current index of this channel based on its name
+	int new_ch_idx=ch_idx_from_name(server,channel);
+	//if this channel isn't currently in the channel list
+	//and is therefore not joined
+	if(new_ch_idx<0){
 		//then the active channel is just the last one in the list
 		//and we perform no move operations
 		return dlist_length(server->ch)-1;
@@ -3198,7 +3208,7 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 	
 	//apply the server->channel_order setting here during insert
 	//using dlist_swap after append because it seems like I currently don't have a dlist_insert function
-	channel_index=apply_channel_order(server,channel,channel_index);
+	channel_index=apply_channel_order(server,channel);
 	
 	//set this to be the current channel, we must want to be here if we joined
 	server->current_channel=channel_index;
@@ -4452,10 +4462,34 @@ void set_channel_order_command(char *parameters){
 		server->channel_order=dlist_append(server->channel_order,channel_name);
 	}
 	
-	//TODO: in the case that the channels in question are ALREADY present in the server connection
+	//remember the name of the channel we had previously selected
+	//so we can make it active again after any re-ordering is applied
+	char current_ch_name[BUFFER_SIZE];
+	strncpy(current_ch_name,"",BUFFER_SIZE);
+	if(server->current_channel>0){
+		strncpy(current_ch_name,(const char *)(((channel_info *)(dlist_get_entry(server->ch,server->current_channel)->data))->name),BUFFER_SIZE);
+	}
+	
+	//in the case that the channels in question are ALREADY present in the server connection
 	//apply ordering to the existing items
 	//and put anything whose order was not specified at the end
-
+	//NOTE: we do NOT apply any ordering to the SERVER channel (at index 0)
+	for(int ch_idx=0;ch_idx<dlist_length(server->ch);ch_idx++){
+		channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,ch_idx)->data);
+		
+		int new_ch_idx=apply_channel_order(server,ch->name);
+	}
+	
+	//re-select the previously-selected current channel, if there was one
+	if(strnlen(current_ch_name,BUFFER_SIZE)>0){
+		int current_channel=ch_idx_from_name(server,current_ch_name);
+		if(current_channel>=0){
+			server->current_channel=current_channel;
+		}
+	}else if(dlist_length(server->ch)>0){
+		server->current_channel=0;
+	}
+	
 	//let the user know we saved channel order
 	char notify_buffer[BUFFER_SIZE];
 	snprintf(notify_buffer,BUFFER_SIZE,"accirc: Set channel order for server %s to be \"%s\" (will be applied during JOINs)",server->server_name,orig_params);
