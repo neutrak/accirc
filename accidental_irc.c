@@ -818,6 +818,9 @@ int nick_idx(channel_info *ch, const char *nick, int start_idx){
 }
 
 //find the index of the given channel in the given server's channel list
+//NOTE: this CANNOT easliy be combined with the below ch_order_from_name function
+//because they operate on different data types
+//(server->ch is a list of channel_info pointers, server->channel_order is a list of strings)
 int ch_idx_from_name(irc_connection *server, const char *ch_name){
 	//NOTE: some servers give channel names with leading : characters in some contexts
 	//such as for PART messages
@@ -859,6 +862,65 @@ int ch_idx_from_name(irc_connection *server, const char *ch_name){
 		//we haven't found it yet, so go to the next node and keep trying
 		ch_entry=ch_entry->next;
 		channel_index++;
+	}
+	
+	//if the channel wasn't found then signal that by returning a -1 to the calling code
+	return -1;
+}
+
+//find the intended (not current) order of the given channel in the given server's channel_order list
+//NOTE: this CANNOT easliy be combined with the above ch_idx_from_name function
+//because they operate on different data types
+//(server->ch is a list of channel_info pointers, server->channel_order is a list of strings)
+int ch_order_from_name(irc_connection *server, const char *ch_name){
+	//NOTE: some servers give channel names with leading : characters in some contexts
+	//such as for PART messages
+	//as far as I know this isn't compliant with the spec and shouldn't be done
+	//but nonetheless for compatibility we should be able to handle it
+	int offset=0;
+	if((strnlen(ch_name,BUFFER_SIZE)>0) && (ch_name[0]==':')){
+		offset=1;
+	}
+	
+	//channel names are case-insensitive
+	//so before we do anything else, make a lower-case copy
+	char channel[BUFFER_SIZE];
+	strncpy(channel,ch_name+offset,BUFFER_SIZE-offset);
+	strtolower(channel,BUFFER_SIZE);
+	
+	//go through the channels, searching for the given channel name
+	int ch_order_idx=0;
+	dlist_entry *ch_order_entry=server->channel_order;
+	while(ch_order_entry!=NULL){
+		//NOTE: while for server->ch we start at index 1
+		//for the ordering list we start at index 0
+		//this is a difference between ch_order_from_name and ch_idx_from_name
+		
+		char lower_case_channel[BUFFER_SIZE];
+		strncpy(lower_case_channel,(const char *)(ch_order_entry->data),BUFFER_SIZE);
+		strtolower(lower_case_channel,BUFFER_SIZE);
+		
+#ifdef DEBUG
+		char error_buffer[BUFFER_SIZE];
+		snprintf(error_buffer,BUFFER_SIZE,"Info: ch_order_from_name comparing given channel %s to ch_order_entry item %s",channel,lower_case_channel);
+		error_log(error_buffer);
+#endif
+		
+		//if we found the channel (case-insensitive)
+		if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
+#ifdef DEBUG
+			char error_buffer[BUFFER_SIZE];
+			snprintf(error_buffer,BUFFER_SIZE,"Info: ch_order_from_name found match at index %i",ch_order_idx);
+			error_log(error_buffer);
+#endif
+			
+			//then return the index of that channel in the list
+			return ch_order_idx;
+		}
+		
+		//we haven't found it yet, so go to the next node and keep trying
+		ch_order_entry=ch_order_entry->next;
+		ch_order_idx++;
 	}
 	
 	//if the channel wasn't found then signal that by returning a -1 to the calling code
@@ -3009,6 +3071,60 @@ int find_output_channel(irc_connection *server, char *channel){
 	return output_channel;
 }
 
+//a helper function for join_new_channel
+//which applies the channel order as specified in the server->channel_order dlist
+//using dlist_swap after append because it seems like I currently don't have a dlist_insert function
+int apply_channel_order(irc_connection *server, char *channel, int new_ch_idx){
+	//if we don't have enough connected channels for ordering to make sense
+	if(dlist_length(server->ch)<2){
+		//then the active channel is just the last one in the list
+		//and we perform no move operations
+		return dlist_length(server->ch)-1;
+	}
+	
+	//if there wasn't an explicit order specified for the new channel
+	//then it goes at the end, and we do no move operations
+	int new_ch_order_idx=ch_order_from_name(server,channel);
+	
+#ifdef DEBUG
+	char error_buffer[BUFFER_SIZE];
+	snprintf(error_buffer,BUFFER_SIZE,"Info: For server %s and channel %s got new_ch_order_idx=%i",server->server_name,channel,new_ch_order_idx);
+	error_log(error_buffer);
+#endif
+	
+	if(new_ch_order_idx<0){
+		//so return what we were given
+		return new_ch_idx;
+	}
+	
+	//NOTE: we intentionally always skip the SERVER channel, which should be always at index 0
+	//NOTE: we are counting backwards because this is essentially an online insertion sort
+	//and yes I know merge sort is faster but for our data structures and the number of items we have
+	//this is fine for now
+	for(int existing_ch_idx=dlist_length(server->ch)-1;existing_ch_idx>0;existing_ch_idx--){
+		int order_idx=ch_order_from_name(server,((channel_info *)(dlist_get_entry(server->ch,existing_ch_idx)->data))->name);
+		
+		//if an order_idx was present and the new_ch_order_idx says the new channel goes before this
+		//OR no order was specified for this channel
+		//(but per earlier checks we know that for the new channel an order WAS specified)
+		if(((order_idx>=0) && (new_ch_order_idx<order_idx)) || (order_idx<0)){
+			//swap the items at existing_ch_idx and new_ch_idx
+			server->ch=dlist_swap(server->ch,existing_ch_idx,new_ch_idx);
+			
+			//after the swap, the newly joined channel is now at the index
+			//that previously held the existing channel
+			//so update the new_ch_idx in case we need to do more swaps
+			//in the case that this item should be moved ahead of multiple other channels
+			new_ch_idx=existing_ch_idx;
+		}
+	}
+	
+	//after doing whatever swaps are needed
+	//return the now-updated new channel index
+	//where the channel can now be found
+	return new_ch_idx;
+}
+
 //join a new channel (used when join is received from the server, and for the hi command)
 //the pm_flag dictates whether this will be a PM or normal channel
 void join_new_channel(int server_index, char *channel, char *output_buffer, int *output_channel, char pm_flag){
@@ -3080,9 +3196,9 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 	//add this channel to the server-wide channel list
 	server->ch=dlist_append(server->ch,ch);
 	
-	//TODO: apply the server->channel_order setting here during insert
+	//apply the server->channel_order setting here during insert
 	//using dlist_swap after append because it seems like I currently don't have a dlist_insert function
-//	channel_index=apply_channel_order(server,channel,channel_index);
+	channel_index=apply_channel_order(server,channel,channel_index);
 	
 	//set this to be the current channel, we must want to be here if we joined
 	server->current_channel=channel_index;
@@ -4294,6 +4410,9 @@ void swap_server(int server_idx, int delta){
 //the "set_channel_order" command; sets the order of channels in the server
 //NOTE: this does NOT apply to the SERVER channel which is always at index 0 and is needed for some types of output
 void set_channel_order_command(char *parameters){
+	char orig_params[BUFFER_SIZE];
+	strncpy(orig_params,parameters,BUFFER_SIZE);
+	
 	irc_connection *server=get_server(current_server);
 	
 	//NOTE: set_channel_order is not cumulative
@@ -4324,12 +4443,23 @@ void set_channel_order_command(char *parameters){
 			strncpy(parameters,"",BUFFER_SIZE);
 		}
 		
+#ifdef DEBUG
+		char error_buffer[BUFFER_SIZE];
+		snprintf(error_buffer,BUFFER_SIZE,"Info: appending %s to channel_order list for server %s",channel_name,server->server_name);
+		error_log(error_buffer);
+#endif
+		
 		server->channel_order=dlist_append(server->channel_order,channel_name);
 	}
 	
 	//TODO: in the case that the channels in question are ALREADY present in the server connection
 	//apply ordering to the existing items
 	//and put anything whose order was not specified at the end
+
+	//let the user know we saved channel order
+	char notify_buffer[BUFFER_SIZE];
+	snprintf(notify_buffer,BUFFER_SIZE,"accirc: Set channel order for server %s to be \"%s\" (will be applied during JOINs)",server->server_name,orig_params);
+	scrollback_output(current_server,0,notify_buffer,TRUE);
 }
 
 //END parse_input HELPER FUNCTIONS
