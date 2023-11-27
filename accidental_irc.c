@@ -173,6 +173,7 @@ char *command_list[]={
 	"/r -> replies by pm to last user who PM'd you (or empty string if no PMs recieved)",
 	//reverse is an easter egg and so is not documented
 	//morse and unmorse aren't documented here for brevity, but are documented in the manual page
+	"/set_channel_order [#channel]+ -> defines the order in which joined channels should display; channels not included in this list will be displayed in the order they were joined",
 	"/hide_user_mode_changes <user modes to hide> -> makes the given user mode changes on the selected server not output in the console; set to empty string to make all user mode changes visible (default)",
 	"/usleep <microseconds> -> pauses program for given microsecond count",
 	"/comment -> ignores this line (for rc files)",
@@ -371,6 +372,10 @@ struct irc_connection {
 	//where you can specify a string, each character of which is a user mode whose changes should be hidden from the log
 	//and setting the empty string should re-set behaviour to cause no user mode changes to be hidden
 	char hidden_user_mode_changes[BUFFER_SIZE];
+	
+	//the order channels should be in post-join
+	//default null, meaning view channels in the order they were joined
+	dlist_entry *channel_order;
 };
 
 //this holds an "alias"
@@ -1581,6 +1586,7 @@ int properly_close(int server_index){
 		ch_entry=ch_entry->next;
 	}
 	dlist_free(server->ch,TRUE);
+	dlist_free(server->channel_order,TRUE);
 	
 	dlist_free(server->post_commands,TRUE);
 	dlist_free(server->server_run_lines,TRUE);
@@ -2924,6 +2930,9 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	//no other initialization needs to be done until a channel is joined
 	server->ch=dlist_append(server->ch,ch);
 	
+	//default channel order to null, meaning view channels in the order they were joined
+	server->channel_order=NULL;
+	
 	//clear out the post information
 	strncpy(server->post_type,"",BUFFER_SIZE);
 	server->post_commands=NULL;
@@ -3022,7 +3031,7 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 	channel_index=dlist_length(server->ch);
 	
 	channel_info *ch=(channel_info *)(malloc(sizeof(channel_info)));
-		
+	
 	//initialize the channel name to be what was joined
 	strncpy(ch->name,channel,BUFFER_SIZE);
 	
@@ -3070,6 +3079,10 @@ void join_new_channel(int server_index, char *channel, char *output_buffer, int 
 		
 	//add this channel to the server-wide channel list
 	server->ch=dlist_append(server->ch,ch);
+	
+	//TODO: apply the server->channel_order setting here during insert
+	//using dlist_swap after append because it seems like I currently don't have a dlist_insert function
+//	channel_index=apply_channel_order(server,channel,channel_index);
 	
 	//set this to be the current channel, we must want to be here if we joined
 	server->current_channel=channel_index;
@@ -4278,6 +4291,46 @@ void swap_server(int server_idx, int delta){
 	refresh_channel_list();
 }
 
+//the "set_channel_order" command; sets the order of channels in the server
+//NOTE: this does NOT apply to the SERVER channel which is always at index 0 and is needed for some types of output
+void set_channel_order_command(char *parameters){
+	irc_connection *server=get_server(current_server);
+	
+	//NOTE: set_channel_order is not cumulative
+	//if there is an existing channel_order we're over-writing it
+	//so clear out anything existing
+	dlist_free(server->channel_order,TRUE);
+	server->channel_order=NULL;
+	
+	//split by spaces (or by first space iteratively)
+	//and save each channel name in the list in server->channel_order
+	while(strnlen(parameters,BUFFER_SIZE)>0){
+		char *channel_name=(char *)(malloc(BUFFER_SIZE*sizeof(char)));
+		strncpy(channel_name,"",BUFFER_SIZE);
+		
+		//channels are space-separated
+		int space_idx=strfind(" ",parameters);
+		//if there's more than one channel present
+		if(space_idx>=0){
+			//channel_name is the first one in the remaining parameters
+			substr(channel_name,parameters,0,space_idx);
+			//and then we shift parameters over to get the remaining channel names
+			substr(parameters,parameters,space_idx+1,strnlen(parameters,BUFFER_SIZE)-(space_idx+1));
+		//if this is the only channel present
+		}else{
+			//then the whole parameters string is the channel_name
+			//and we want to set parameters to empty string to break the loop
+			strncpy(channel_name,parameters,BUFFER_SIZE);
+			strncpy(parameters,"",BUFFER_SIZE);
+		}
+		
+		server->channel_order=dlist_append(server->channel_order,channel_name);
+	}
+	
+	//TODO: in the case that the channels in question are ALREADY present in the server connection
+	//apply ordering to the existing items
+	//and put anything whose order was not specified at the end
+}
 
 //END parse_input HELPER FUNCTIONS
 
@@ -4651,6 +4704,8 @@ void parse_input(char *input_buffer, char keep_history){
 				
 				//don't keep the recursion in the history
 				parse_input(tmp_buffer,FALSE);
+			}else if(!strcmp(command,"set_channel_order")){
+				set_channel_order_command(parameters);
 			//hide user mode changes on this server
 			}else if(!strcmp(command,"hide_user_mode_changes")){
 				strncpy(server->hidden_user_mode_changes,parameters,BUFFER_SIZE);
