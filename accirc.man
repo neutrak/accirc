@@ -209,6 +209,11 @@ encodes the given text in morse code, with one space between each character; cha
 \fB/unmorse \fItext\fP
 decodes the given morse string into ascii; assumes the same input format as the output format of /morse
 .TP
+\fB/set_channel_order \fIchannels...\fP
+defines the order in which joined channels should display; channels not included in this list will be displayed in the order they were joined.  
+by default channel_order is "", meaning that all channels are displayed in the order they were joined.  
+channel names must be space-separated if more than one channel is to be have its order set.  
+.TP
 \fB/hide_user_mode_changes \fIuser_modes_to_hide\fP
 makes the given user mode changes on the selected server not output in the console; set to empty string to make all user mode changes visible (default)
 .SS "Key Bindings"
