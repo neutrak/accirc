@@ -53,9 +53,9 @@
 //switching to more typical semantic major.minor.patch versioning as of version 2.0; previous version was "0.13.1"
 //I'm counting at 2.0.0 rather than 1.0.0 for two reasons:
 //	a) the doubly-linked list library change counts as a substantial rewrite
-//	b) it's not the first public release so versoin 1 doesn't really make sense
+//	b) it's not the first public release so version 1 doesn't really make sense
 //hence going forward we'll be on 2.x.x for a bit
-#define VERSION "2.0.2"
+#define VERSION "2.0.3"
 
 //these are for ncurses' benefit
 #define KEY_ESCAPE 27
