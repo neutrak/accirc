@@ -1480,6 +1480,7 @@ void terminal_close(int signal){
 	parse_input(quit_buffer,FALSE);
 }
 
+//TODO: refactor this, as this function is currently over 200 lines long!
 //returns the new index of the server if a reconnection was made successfully
 //returns -1 if close completed without reconnection
 int properly_close(int server_index){
@@ -3022,13 +3023,6 @@ int apply_channel_order(irc_connection *server, const char *channel){
 	//if there wasn't an explicit order specified for the new channel
 	//then it goes at the end, and we do no move operations
 	int new_ch_order_idx=ch_order_from_name(server,channel);
-	
-#ifdef DEBUG
-	char error_buffer[BUFFER_SIZE];
-	snprintf(error_buffer,BUFFER_SIZE,"Info: For server %s and channel %s got new_ch_order_idx=%i",server->server_name,channel,new_ch_order_idx);
-	error_log(error_buffer);
-#endif
-	
 	if(new_ch_order_idx<0){
 		//so return what we were given
 		return new_ch_idx;
@@ -4380,12 +4374,6 @@ void set_channel_order_command(char *parameters){
 			strncpy(parameters,"",BUFFER_SIZE);
 		}
 		
-#ifdef DEBUG
-		char error_buffer[BUFFER_SIZE];
-		snprintf(error_buffer,BUFFER_SIZE,"Info: appending %s to channel_order list for server %s",channel_name,server->server_name);
-		error_log(error_buffer);
-#endif
-		
 		server->channel_order=dlist_append(server->channel_order,channel_name);
 	}
 	
@@ -4425,6 +4413,7 @@ void set_channel_order_command(char *parameters){
 
 //END parse_input HELPER FUNCTIONS
 
+//TODO: refactor this, as this function is currently many hundreds of lines long!
 //parse user's input (note this is conextual based on current server and channel)
 //because some input may be given recursively or from key bindings, there is a history flag to tell if we should actually consider this input in the history
 void parse_input(char *input_buffer, char keep_history){
