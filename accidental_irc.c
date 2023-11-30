@@ -900,20 +900,8 @@ int ch_order_from_name(irc_connection *server, const char *ch_name){
 		strncpy(lower_case_channel,(const char *)(ch_order_entry->data),BUFFER_SIZE);
 		strtolower(lower_case_channel,BUFFER_SIZE);
 		
-#ifdef DEBUG
-		char error_buffer[BUFFER_SIZE];
-		snprintf(error_buffer,BUFFER_SIZE,"Info: ch_order_from_name comparing given channel %s to ch_order_entry item %s",channel,lower_case_channel);
-		error_log(error_buffer);
-#endif
-		
 		//if we found the channel (case-insensitive)
 		if(!strncmp(channel,lower_case_channel,BUFFER_SIZE)){
-#ifdef DEBUG
-			char error_buffer[BUFFER_SIZE];
-			snprintf(error_buffer,BUFFER_SIZE,"Info: ch_order_from_name found match at index %i",ch_order_idx);
-			error_log(error_buffer);
-#endif
-			
 			//then return the index of that channel in the list
 			return ch_order_idx;
 		}
@@ -1055,10 +1043,6 @@ dlist_entry *load_rc_servers(char *rc_file){
 		error_log("Warn: rc file not found, not executing anything on startup");
 		return NULL;
 	}else{
-#ifdef DEBUG
-		char error_buffer[BUFFER_SIZE];
-#endif
-		
 		//read in the .rc, parse_input each line until the end
 		char rc_line[BUFFER_SIZE];
 		while(!feof(rc)){
@@ -1069,11 +1053,6 @@ dlist_entry *load_rc_servers(char *rc_file){
 			if(newline_index>=0){
 				substr(rc_line,rc_line,0,newline_index);
 			}
-			
-#ifdef DEBUG
-			snprintf(error_buffer,BUFFER_SIZE,"Info: parsing rc_line \"%s\"",rc_line);
-			error_log(error_buffer);
-#endif
 			
 			char is_server_run_line=FALSE;
 			
@@ -1098,10 +1077,6 @@ dlist_entry *load_rc_servers(char *rc_file){
 				
 				//an rc file command to connect to a server, with or without encryption
 				if((!strncmp("connect",command,BUFFER_SIZE)) || (!strncmp("sconnect",command,BUFFER_SIZE))){
-#ifdef DEBUG
-					snprintf(error_buffer,BUFFER_SIZE,"Info: found rc connection command \"%s\" with parameters \"%s\"",command,parameters);
-					error_log(error_buffer);
-#endif
 					//make a new server structure to store information about this server
 					irc_connection *rc_server=(irc_connection*)(malloc(sizeof(irc_connection)));
 					
@@ -1131,20 +1106,11 @@ dlist_entry *load_rc_servers(char *rc_file){
 					strncpy(rc_server->server_name,host_param,BUFFER_SIZE);
 					rc_server->port=atoi(port_param);
 					
-#ifdef DEBUG
-					snprintf(error_buffer,BUFFER_SIZE,"Info: saving rc server info for server \"%s\" on port %i",rc_server->server_name,rc_server->port);
-					error_log(error_buffer);
-#endif
-					
 					//add this server to the doubly-linked list of rc servers
 					//and update the index to reflect the new entry
 					rc_server_index=dlist_length(rc_servers);
 					rc_servers=dlist_append(rc_servers,rc_server);
 					
-#ifdef DEBUG
-					snprintf(error_buffer,BUFFER_SIZE,"Info: added server to rc_servers list; dlist_length(rc_servers)=%i",dlist_length(rc_servers));
-					error_log(error_buffer);
-#endif
 				//TODO: ignore anything between /post and /no_post commands
 				//as those are already handled by the server post_commands structure
 				//and adding them to the server_run_lines as well would be redundant
@@ -1167,20 +1133,10 @@ dlist_entry *load_rc_servers(char *rc_file){
 			//if this is a non-empty line that should be added to server_run_lines
 			//then add it now
 			if((strnlen(rc_line,BUFFER_SIZE)>0) && (rc_server_index>=0) && is_server_run_line){
-#ifdef DEBUG
-				snprintf(error_buffer,BUFFER_SIZE,"Info: updating rc_server at rc_server_index=%i from dlist of length %i",rc_server_index,dlist_length(rc_servers));
-				error_log(error_buffer);
-#endif
-				
 				char *server_run_line=(char*)(malloc(BUFFER_SIZE*sizeof(char)));
 				strncpy(server_run_line,rc_line,BUFFER_SIZE);
 				irc_connection *rc_server=((irc_connection*)(dlist_get_entry(rc_servers,rc_server_index)->data));
 				rc_server->server_run_lines=dlist_append(rc_server->server_run_lines,server_run_line);
-				
-#ifdef DEBUG
-				snprintf(error_buffer,BUFFER_SIZE,"Info: added line \"%s\" to server_run_lines for rc_server \"%s\" ; number of server_run_lines is now %i",server_run_line,rc_server->server_name,dlist_length(rc_server->server_run_lines));
-				error_log(error_buffer);
-#endif
 			//if this would be a server_run_line except for the fact that we have no associated server
 			}else if(strnlen(rc_line,BUFFER_SIZE)>0 && is_server_run_line){
 				//then run it IMMEDIATELY, during this function call
@@ -1197,11 +1153,6 @@ dlist_entry *load_rc_servers(char *rc_file){
 char load_rc(char *rc_file){
 	dlist_entry *rc_servers=load_rc_servers(rc_file);
 	
-#ifdef DEBUG
-	char error_buffer[BUFFER_SIZE];
-	strncpy(error_buffer,"",BUFFER_SIZE);
-#endif
-	
 	//for each server we're meant to connect to
 	for(int rc_server_index=0;rc_server_index<dlist_length(rc_servers);rc_server_index++){
 		int connection_count=dlist_length(servers);
@@ -1217,10 +1168,6 @@ char load_rc(char *rc_file){
 		}
 #endif
 		
-#ifdef DEBUG
-		snprintf(error_buffer,BUFFER_SIZE,"Info: running rc connection for rc_server with name \"%s\", connection command is \"%s\"",rc_server->server_name,input_buffer);
-		error_log(error_buffer);
-#endif
 		//run the connect command
 		//(yes, even though this is called parse_input it does in fact run the command, not just parse it)
 		parse_input(input_buffer,FALSE);
@@ -1256,20 +1203,10 @@ char load_rc(char *rc_file){
 					for(int server_run_line_index=0;server_run_line_index<dlist_length(last_server->server_run_lines);server_run_line_index++){
 						strncpy(input_buffer,(const char*)(dlist_get_entry(last_server->server_run_lines,server_run_line_index)->data),BUFFER_SIZE);
 						
-#ifdef DEBUG
-						snprintf(error_buffer,BUFFER_SIZE,"Info: running server_run_line \"%s\" for server \"%s\"",input_buffer,last_server->server_name);
-						error_log(error_buffer);
-#endif
-						
 						//actually run it now that we're connected
 						parse_input(input_buffer,FALSE);
 					}
 					
-#ifdef DEBUG
-					snprintf(error_buffer,BUFFER_SIZE,"Info: load_rc successfully connected to server \"%s\"",last_server->server_name);
-					error_log(error_buffer);
-#endif
-
 #ifdef _OPENSSL
 				}
 #endif
@@ -1282,11 +1219,6 @@ char load_rc(char *rc_file){
 			current_server=prev_current_server;
 		}
 		
-#ifdef DEBUG
-		snprintf(error_buffer,BUFFER_SIZE,"Info: load_rc set current_server=%i",current_server);
-		error_log(error_buffer);
-#endif
-		
 		refresh_server_list();
 		refresh_channel_list();
 		refresh_channel_topic();
@@ -1297,11 +1229,6 @@ char load_rc(char *rc_file){
 	//since we're now done reading the rc file
 	//and everything that was successfully connected should be stored in the global servers list
 	dlist_free(rc_servers,TRUE);
-	
-#ifdef DEBUG
-	snprintf(error_buffer,BUFFER_SIZE,"Info: load_rc finished!");
-	error_log(error_buffer);
-#endif
 	
 	post_listen=FALSE;
 	return TRUE;
