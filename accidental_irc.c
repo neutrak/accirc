@@ -6151,6 +6151,9 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	//(or a message like "accirc: Warn: terminal too small, make this window larger to see irc" if there is sufficient space to show it)
 	//instead of hard crashing and disconnecting everything
 	if((height<MIN_HEIGHT)||(width<MIN_WIDTH)){
+		ncurses_fullscreen_text=newwin(height,width,0,0);
+		wblank(ncurses_fullscreen_text,width,height);
+		
 		int error_line_cnt=3;
 		
 		char error_lines[error_line_cnt][BUFFER_SIZE];
@@ -6159,8 +6162,6 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 		snprintf(error_lines[2],BUFFER_SIZE,"accirc: Expand to see irc");
 		
 		if(height>error_line_cnt){
-			ncurses_fullscreen_text=newwin(height,width,0,0);
-			wblank(ncurses_fullscreen_text,width,height);
 			for(int err_line_idx=0;err_line_idx<error_line_cnt;err_line_idx++){
 				if(width>strnlen(error_lines[err_line_idx],BUFFER_SIZE)){
 					wmove(ncurses_fullscreen_text,err_line_idx,0);
