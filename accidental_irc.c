@@ -458,6 +458,8 @@ WINDOW *user_input;
 WINDOW *top_border;
 WINDOW *bottom_border;
 
+WINDOW *ncurses_fullscreen_text;
+
 //forward declarations (trying to be minimal with these)
 void scrollback_output(int server_index, int output_channel, char *to_output, char refresh);
 void parse_input(char *input_buffer, char keep_history);
@@ -1893,7 +1895,13 @@ void refresh_server_list(){
 	if((servers==NULL)||(current_server<0)){
 		return;
 	}
-
+	
+	//if an ncurses window doesn't exist for this display
+	//then we can't display anything
+	if(server_list==NULL){
+		return;
+	}
+	
 	//if we can't display everything
 	unsigned int server_list_chars=calc_server_list_chars();
 	if(server_list_chars>width){
@@ -2043,6 +2051,12 @@ void refresh_channel_list(){
 		return;
 	}
 	
+	//if an ncurses window doesn't exist for this display
+	//then we can't display anything
+	if(channel_list==NULL){
+		return;
+	}
+	
 	//if we can't display everything at once
 	unsigned int channel_list_chars=calc_channel_list_chars(server);
 	if(channel_list_chars>width){
@@ -2091,6 +2105,12 @@ void refresh_channel_topic(){
 		return;
 	}
 	
+	//if an ncurses window doesn't exist for this display
+	//then we can't display anything
+	if(channel_topic==NULL){
+		return;
+	}
+	
 	//get the relevant channel from the server's list of channels
 	channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,server->current_channel)->data);
 	
@@ -2136,7 +2156,13 @@ void refresh_channel_text(){
 	if(server==NULL){
 		return;
 	}
-
+	
+	//if an ncurses window doesn't exist for this display
+	//then we can't display anything
+	if(channel_text==NULL){
+		return;
+	}
+	
 	//get the relevant channel from the server's list of channels
 	channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,server->current_channel)->data);
 	
@@ -2402,6 +2428,12 @@ void refresh_channel_text(){
 
 //refresh the user's input, duh
 void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_start){
+	//if an ncurses window doesn't exist for this display
+	//then we can't display anything
+	if(user_input==NULL){
+		return;
+	}
+	
 	//output the most recent text from the user so they can see what they're typing
 	wblank(user_input,width,1);
 	wmove(user_input,0,0);
@@ -2492,6 +2524,12 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 
 //refresh the bottom bar above the input area
 void refresh_statusbar(time_t *persistent_old_time, char *time_buffer, char *user_status_buffer){
+	//if an ncurses window doesn't exist for this display
+	//then we can't display anything
+	if(bottom_border==NULL){
+		return;
+	}
+	
 	time_t old_time=(*persistent_old_time);
 
 	//store the previous user status so we know if a change occurred
@@ -6033,6 +6071,22 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 		delwin(channel_text);
 		delwin(bottom_border);
 		delwin(user_input);
+		
+		server_list=NULL;
+		channel_list=NULL;
+		channel_topic=NULL;
+		top_border=NULL;
+		channel_text=NULL;
+		bottom_border=NULL;
+		user_input=NULL;
+	}
+	
+	//if we were outputting fullscreen text
+	//then clear out that buffer now since the screen sized changed
+	//and we may or may not output fullscreen text again
+	if(ncurses_fullscreen_text!=NULL){
+		delwin(ncurses_fullscreen_text);
+		ncurses_fullscreen_text=NULL;
 	}
 	
 	//restart ncurses interface
@@ -6081,13 +6135,48 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
 	getmaxyx(stdscr,height,width);
 	
-	//TODO: in this case just show a blank display
-	//(or a single line that says "accirc: Warn: terminal too small, make this window larger to see irc" if there is sufficient space to show it)
+#ifdef DEBUG
+	char error_buffer[BUFFER_SIZE];
+	snprintf(error_buffer,BUFFER_SIZE,"Info: force_resize got resize event with height=%i and width=%i",height,width);
+//	error_log(error_buffer);
+	
+	//TODO: figure out why when we size below MIN_HEIGHT and then resize back up, the accirc display doesn't come back
+	//also, when resizing below MIN_HEIGHT, the error message isn't printed after the first resize event
+	//but I've verified using the above debug output that this function IS getting called for all resize events
+	//however for some reason the display isn't refreshing when it should
+#endif
+	
+	//if the window is too small to display the interface
+	//just show a blank display
+	//(or a message like "accirc: Warn: terminal too small, make this window larger to see irc" if there is sufficient space to show it)
 	//instead of hard crashing and disconnecting everything
 	if((height<MIN_HEIGHT)||(width<MIN_WIDTH)){
-		endwin();
-		fprintf(stderr,"Err: Window too small, would segfault if I stayed, exiting...\n");
-		exit(1);
+		int error_line_cnt=3;
+		
+		char error_lines[error_line_cnt][BUFFER_SIZE];
+		snprintf(error_lines[0],BUFFER_SIZE,"accirc: Warn: terminal too small");
+		snprintf(error_lines[1],BUFFER_SIZE,"accirc: Warn: need width>=%i and height>=%i",MIN_WIDTH,MIN_HEIGHT);
+		snprintf(error_lines[2],BUFFER_SIZE,"accirc: Expand to see irc");
+		
+		if(height>error_line_cnt){
+			ncurses_fullscreen_text=newwin(height,width,0,0);
+			wblank(ncurses_fullscreen_text,width,height);
+			for(int err_line_idx=0;err_line_idx<error_line_cnt;err_line_idx++){
+				if(width>strnlen(error_lines[err_line_idx],BUFFER_SIZE)){
+					wmove(ncurses_fullscreen_text,err_line_idx,0);
+					wprintw(ncurses_fullscreen_text,error_lines[err_line_idx]);
+				}
+			}
+			wmove(ncurses_fullscreen_text,(height-1),0);
+			wrefresh(ncurses_fullscreen_text);
+		}
+		//TODO: set timeouts for non-blocking?
+		//TODO: figure out why the window size isn't re-detected and the error message isn't cleared when the window once again becomes sufficiently large
+		keypad(ncurses_fullscreen_text,TRUE);
+		//set timeouts for non-blocking
+		timeout(1);
+		wtimeout(ncurses_fullscreen_text,5);
+		return;
 	}
 	
 	//allocate windows for our toolbars and the main chat
@@ -6095,7 +6184,7 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	channel_list=newwin(1,width,1,0);
 	channel_topic=newwin(1,width,2,0);
 	top_border=newwin(1,width,3,0);
-	channel_text=newwin((height-6),width,4,0);
+	channel_text=newwin((height-RESERVED_LINES),width,4,0);
 	bottom_border=newwin(1,width,(height-2),0);
 	user_input=newwin(1,width,(height-1),0);
 	
@@ -6521,7 +6610,13 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_pos, int *pers
 	char old_input_buffer[BUFFER_SIZE];
 	strncpy(old_input_buffer,input_buffer,BUFFER_SIZE);
 	
-	c=wgetch(user_input);
+	c=-1;
+	if(user_input!=NULL){
+		c=wgetch(user_input);
+	}else if(ncurses_fullscreen_text!=NULL){
+		c=wgetch(ncurses_fullscreen_text);
+	}
+	
 	if(c>=0){
 		switch(c){
 			//handle for resize events
@@ -6993,6 +7088,10 @@ int main(int argc, char *argv[]){
 	channel_text=NULL;
 	bottom_border=NULL;
 	user_input=NULL;
+	
+	//in case the window is too small to display irc
+	//allocate a buffer for an error message to show
+	ncurses_fullscreen_text=NULL;
 	
 	//force a re-detection of the window and a re-allocation of resources
 	force_resize("",0,0);
