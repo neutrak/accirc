@@ -7071,7 +7071,7 @@ int main(int argc, char *argv[]){
 	//start ncurses interface
 	initscr();
 	
-	//allocate windows for our toolbars and the main chat
+	//initialize windows for our toolbars and the main chat
 	server_list=NULL;
 	channel_list=NULL;
 	channel_topic=NULL;
@@ -7081,7 +7081,7 @@ int main(int argc, char *argv[]){
 	user_input=NULL;
 	
 	//in case the window is too small to display irc
-	//allocate a buffer for an error message to show
+	//initialize the buffer for an error message to show
 	ncurses_fullscreen_text=NULL;
 	
 	//force a re-detection of the window and a re-allocation of resources
