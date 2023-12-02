@@ -6135,17 +6135,6 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
 	getmaxyx(stdscr,height,width);
 	
-#ifdef DEBUG
-	char error_buffer[BUFFER_SIZE];
-	snprintf(error_buffer,BUFFER_SIZE,"Info: force_resize got resize event with height=%i and width=%i",height,width);
-//	error_log(error_buffer);
-	
-	//TODO: figure out why when we size below MIN_HEIGHT and then resize back up, the accirc display doesn't come back
-	//also, when resizing below MIN_HEIGHT, the error message isn't printed after the first resize event
-	//but I've verified using the above debug output that this function IS getting called for all resize events
-	//however for some reason the display isn't refreshing when it should
-#endif
-	
 	//if the window is too small to display the interface
 	//just show a blank display
 	//(or a message like "accirc: Warn: terminal too small, make this window larger to see irc" if there is sufficient space to show it)
@@ -6171,8 +6160,9 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 			wmove(ncurses_fullscreen_text,(height-1),0);
 			wrefresh(ncurses_fullscreen_text);
 		}
-		//TODO: set timeouts for non-blocking?
-		//TODO: figure out why the window size isn't re-detected and the error message isn't cleared when the window once again becomes sufficiently large
+		
+		//we want to make sure we get resize events,
+		//so keep listening even when we can't display anything
 		keypad(ncurses_fullscreen_text,TRUE);
 		//set timeouts for non-blocking
 		timeout(1);
