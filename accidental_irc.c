@@ -48,7 +48,7 @@
 
 //the smallest terminal we can actually use (smaller than this and we exit with error)
 #define MIN_HEIGHT 7
-#define MIN_WIDTH 12
+#define MIN_WIDTH 32
 
 //switching to more typical semantic major.minor.patch versioning as of version 2.0; previous version was "0.13.1"
 //I'm counting at 2.0.0 rather than 1.0.0 for two reasons:
