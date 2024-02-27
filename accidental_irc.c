@@ -1754,7 +1754,7 @@ void wprintw_ping_effects(WINDOW *ncurses_win, const char *outstr, char was_ping
 		}
 		
 		wattron(ncurses_win,A_UNDERLINE);
-		wprintw(ncurses_win,outstr);
+		wprintw(ncurses_win,"%s",outstr);
 		wattroff(ncurses_win,A_UNDERLINE);
 		
 		if(was_pingged==TRUE){
@@ -1762,7 +1762,7 @@ void wprintw_ping_effects(WINDOW *ncurses_win, const char *outstr, char was_ping
 		}
 	//otherwise just display it regularly
 	}else{
-		wprintw(ncurses_win,outstr);
+		wprintw(ncurses_win,"%s",outstr);
 	}
 }
 
@@ -1790,7 +1790,7 @@ void refresh_server_title(irc_connection *server, char is_active, char add_delim
 	//if it's the active server bold it
 	if(is_active==TRUE){
 		wattron(server_list,A_BOLD);
-		wprintw(server_list,server->server_name);
+		wprintw(server_list,"%s",server->server_name);
 		wattroff(server_list,A_BOLD);
 		
 		//if we're viewing this server any content that would be considered "new" is no longer there
@@ -1804,7 +1804,7 @@ void refresh_server_title(irc_connection *server, char is_active, char add_delim
 	//and display the nickname we're using for that server
 	if(strcmp(server->nick,"")!=0){
 		wprintw(server_list," (");
-		wprintw(server_list,server->nick);
+		wprintw(server_list,"%s",server->nick);
 		wprintw(server_list,")");
 	}
 	
@@ -1952,7 +1952,7 @@ void refresh_channel_title(channel_info *ch, char is_active, char add_delimiter)
 	//if it's the active channel then bold it
 	if(is_active==TRUE){
 		wattron(channel_list,A_BOLD);
-		wprintw(channel_list,ch->name);
+		wprintw(channel_list,"%s",ch->name);
 		wattroff(channel_list,A_BOLD);
 		
 		//if we're viewing this channel any content that would be considered "new" is no longer there
@@ -2123,7 +2123,7 @@ void refresh_channel_topic(){
 	char topic[BUFFER_SIZE];
 	strncpy(topic,ch->topic,BUFFER_SIZE);
 	if(strlen(topic)<width){
-		wprintw(channel_topic,topic);
+		wprintw(channel_topic,"%s",topic);
 	}else{
 		//NOTE: although we're not outputting the full line here, the full line WILL be in the logs for the user to view
 		//and WILL be in the server information should the user resize the window
@@ -2141,7 +2141,7 @@ void refresh_channel_topic(){
 			topic[n]=line_overflow_error[n-width+strlen(line_overflow_error)];
 		}
 		topic[width]='\0';
-		wprintw(channel_topic,topic);
+		wprintw(channel_topic,"%s",topic);
 	}
 	
 	//refresh the channel topic window
@@ -2382,7 +2382,7 @@ void refresh_channel_text(){
 						utf8_char[n-utf_start]='\0';
 						
 						//display the unicode
-						wprintw(channel_text,utf8_char);
+						wprintw(channel_text,"%s",utf8_char);
 						
 						//pad the input area so cursor movement works nicely
 						utf_start++;
@@ -2498,7 +2498,7 @@ void refresh_user_input(char *input_buffer, int cursor_pos, int input_display_st
 				utf8_char[n-utf_start]='\0';
 				
 				//display the unicode
-				wprintw(user_input,utf8_char);
+				wprintw(user_input,"%s",utf8_char);
 				
 				//pad the input area so cursor movement works nicely
 				utf_start++;
@@ -2585,14 +2585,14 @@ void refresh_statusbar(time_t *persistent_old_time, char *time_buffer, char *use
 			wblank(bottom_border,width,1);
 			
 			wmove(bottom_border,0,0);
-			wprintw(bottom_border,time_buffer);
+			wprintw(bottom_border,"%s",time_buffer);
 			
 			int n;
 			for(n=strlen(time_buffer);n<(width-strlen(user_status_buffer)-strlen(scroll_status));n++){
 				wprintw(bottom_border,"-");
 			}
-			wprintw(bottom_border,user_status_buffer);
-			wprintw(bottom_border,scroll_status);
+			wprintw(bottom_border,"%s",user_status_buffer);
+			wprintw(bottom_border,"%s",scroll_status);
 			//refresh the window from the buffer
 			wrefresh(bottom_border);
 			
@@ -4430,7 +4430,12 @@ void set_channel_order_command(char *parameters){
 	for(int ch_idx=0;ch_idx<dlist_length(server->ch);ch_idx++){
 		channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,ch_idx)->data);
 		
-		int new_ch_idx=apply_channel_order(server,ch->name);
+		//NOTE: this function (apply_channel_order) returns the updated channel index for the channel that we were ordering
+		//i.e. the channel named ch->name
+		//however in this context we don't need the return value
+		//and clang complains that we would have an unused variable if we stored that value
+		//so we're intentionally ignoring the return value of this function during this call
+		apply_channel_order(server,ch->name);
 	}
 	
 	//re-select the previously-selected current channel, if there was one
@@ -4594,10 +4599,10 @@ void parse_input(char *input_buffer, char keep_history){
 					if((n+2)<(height-RESERVED_LINES)){
 						snprintf(notify_buffer,BUFFER_SIZE,"accirc: command: %s",command_list[n]);
 						wmove(channel_text,(n+1),0);
-						wprintw(channel_text,notify_buffer,TRUE);
+						wprintw(channel_text,"%s",notify_buffer);
 					}else if((n+1)<(height-RESERVED_LINES)){
 						wmove(channel_text,(n+1),0);
-						wprintw(channel_text,"accirc: Warn: help cut off because your terminal is too small!",TRUE);
+						wprintw(channel_text,"%s","accirc: Warn: help cut off because your terminal is too small!");
 					}
 				}
 				
@@ -4616,7 +4621,7 @@ void parse_input(char *input_buffer, char keep_history){
 			}else{
 				wblank(channel_text,width,height-RESERVED_LINES);
 				wmove(channel_text,0,0);
-				wprintw(channel_text,"accirc: sconnect can't work, this was compiled without SSL support!");
+				wprintw(channel_text,"%s","accirc: sconnect can't work, this was compiled without SSL support!");
 				wrefresh(channel_text);
 			}
 #endif
@@ -6154,7 +6159,7 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 			for(int err_line_idx=0;err_line_idx<error_line_cnt;err_line_idx++){
 				if(width>strnlen(error_lines[err_line_idx],BUFFER_SIZE)){
 					wmove(ncurses_fullscreen_text,err_line_idx,0);
-					wprintw(ncurses_fullscreen_text,error_lines[err_line_idx]);
+					wprintw(ncurses_fullscreen_text,"%s",error_lines[err_line_idx]);
 				}
 			}
 			wmove(ncurses_fullscreen_text,(height-1),0);
@@ -6231,7 +6236,7 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	char time_buffer[BUFFER_SIZE];
 	time_t old_time=time(NULL);
 	custom_format_time(time_buffer,old_time);
-	wprintw(bottom_border,time_buffer);
+	wprintw(bottom_border,"%s",time_buffer);
 	
 	for(n=strlen(time_buffer);n<width;n++){
 		wprintw(bottom_border,"-");
