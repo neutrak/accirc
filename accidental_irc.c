@@ -5776,6 +5776,11 @@ int parse_server(int server_index){
 	//because we just got a message from this server (of course)
 	server->last_msg_time=time(NULL);
 	
+	//TODO: update this parsing to account for the optional (but not required) prefix parameter
+	//which is just when the line starts with a : then it has a prefix, otherwise it doesn't
+	//I can't believe I didn't do this properly; it's right there in the RFC
+	// https://www.rfc-editor.org/rfc/rfc1459#section-2.3
+	
 	//parse in whatever the server sent and display it appropriately
 	int first_delimiter=strfind(" :",server->read_buffer);
 	//the command
@@ -5802,7 +5807,7 @@ int parse_server(int server_index){
 		//whether or not this is a JOIN, PART, or QUIT message
 		//because in some circumstances we hide those
 		char is_join_part_quit=FALSE;
-				
+		
 		//set this to show as having new data, it must since we're getting something on it
 		//(this is done automatically as a result of new_content being set true in scrollback_output)
 		refresh_server_list();
