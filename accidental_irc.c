@@ -4985,6 +4985,9 @@ void parse_input(char *input_buffer, char keep_history){
 //BEGIN parse_server HELPER FUNCTIONS
 
 //handle the "001" server command (a welcome message)
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//and then the nick should be everything in that before the first space
+//same goes for all of these server_###_command functions!
 void server_001_command(irc_connection *server, char *tmp_buffer, int first_space){
 	//rather than make a new buffer just use the one it'll ulitmately be stored in
 	char *user_nick=server->nick;
@@ -5772,288 +5775,282 @@ int parse_server(int server_index){
 		server->read_buffer[n]='\0';
 	}
 	
+	//take out the trailing newline (accounting for the possibility of windows newlines)
+	int newline_index=strfind("\r\n",server->read_buffer);
+	if(newline_index<0){
+		//the possibility, not the necessity; proper newlines are accepted also
+		newline_index=strfind("\n",server->read_buffer);
+	}
+	//NOTE: I can set this to be a substring of itself since I'm not overwriting anything during copy that I'll need
+	substr(server->read_buffer,server->read_buffer,0,newline_index);
+	
+	//whether or not this is a JOIN, PART, or QUIT message
+	//because in some circumstances we hide those
+	char is_join_part_quit=FALSE;
+
+	//a flag to say if we already output within the handling
+	//(if so don't output again at the end)
+	char special_output=FALSE;
+	
+	//what gets shown in logs and user scrollback, which may differ from the raw server data
+	char output_buffer[BUFFER_SIZE];
+	strncpy(output_buffer,server->read_buffer,BUFFER_SIZE);
+	
+	//the channel to output to, by default the SYSTEM channel
+	int output_channel=0;
+	
+	//declarations for various things worth parsing out from the prefix
+	//initialized as empty string
+	char nick[BUFFER_SIZE];
+	strncpy(nick,"",BUFFER_SIZE);
+	char real_name[BUFFER_SIZE];
+	strncpy(real_name,"",BUFFER_SIZE);
+	char hostmask[BUFFER_SIZE];
+	strncpy(hostmask,"",BUFFER_SIZE);
+	
+	//a temporary buffer to store intermediate results during parsing
+	char tmp_buffer[BUFFER_SIZE];
+	strncpy(tmp_buffer,server->read_buffer,BUFFER_SIZE);
+	
 	//update the timestamp of the last message from this server
 	//because we just got a message from this server (of course)
 	server->last_msg_time=time(NULL);
 	
-	//TODO: update this parsing to account for the optional (but not required) prefix parameter
+	//do this parsing to account for the optional (but not required) prefix parameter
 	//which is just when the line starts with a : then it has a prefix, otherwise it doesn't
-	//I can't believe I didn't do this properly; it's right there in the RFC
+	//I can't believe I didn't do this properly in earlier versions; it's right there in the RFC
 	// https://www.rfc-editor.org/rfc/rfc1459#section-2.3
 	
+	//an example message (complete server line) is ":naos.foonetic.net 001 accirc_user :Welcome to the Foonetic IRC Network nick!realname@hostname.could.be.ipv6"
+	//an example message WITHOUT the OPTIONAL prefix is "PING :64646464"
+	
+	//a prefix is present iff the line starts with a colon, per the RFC
+	//NOTE: we don't need to check strlen here because null isn't equal to colon
+	//and the memory is always allocated because we have a fixed-size buffer
+	char is_prefix_present=server->read_buffer[0]==':';
+	
 	//parse in whatever the server sent and display it appropriately
-	int first_delimiter=strfind(" :",server->read_buffer);
+	int first_space=strfind(" ",tmp_buffer);
+	
+	//if we had a prefix, read in the prefix
+	char prefix[BUFFER_SIZE];
+	strncpy(prefix,"",BUFFER_SIZE);
+	if(is_prefix_present){
+		substr(prefix,server->read_buffer,0,first_space);
+		substr(tmp_buffer,server->read_buffer,first_space+strlen(" "),strlen(server->read_buffer)-first_space);
+		
+		//and then go on to read the command after this
+		first_space=strfind(" ",tmp_buffer);
+
+		//NOTE: parsing out the prefix in this (correct) way
+		//lets us handle uncommon MODE commands that don't contain all the normal parts
+		//	normal: ":ChanServ!bot@localhost MODE #FaiD3.0 +o MonkeyofDoom"
+		//	weird: ":*.DE MODE #imgurians +o Nick"
+		//	weird: ":bitlbee.local MODE &bitlbee +v Nick"
+	}
+	
 	//the command
 	char command[BUFFER_SIZE];
 	//the parameters, note that this includes the trailing newline
 	char parameters[BUFFER_SIZE];
-	if(first_delimiter>0){
-		substr(command,server->read_buffer,0,first_delimiter);
-		substr(parameters,server->read_buffer,first_delimiter+strlen(" :"),strlen(server->read_buffer)-first_delimiter);
+	
+	if(first_space>0){
+		substr(command,tmp_buffer,0,first_space);
+		substr(parameters,tmp_buffer,first_space+strlen(" "),strlen(tmp_buffer)-first_space);
 	}else{
 		strncpy(command,"",BUFFER_SIZE);
 		strncpy(parameters,"",BUFFER_SIZE);
 	}
 	
+	//not necessary, was just for testing
+//	char error_buffer[BUFFER_SIZE];
+//	snprintf(error_buffer,BUFFER_SIZE,"Dbg: received server line \"%s\" as prefix=\"%s\" command=\"%s\" parameters=\"%s\"",server->read_buffer,prefix,command,parameters);
+//	error_log(error_buffer);
+	
+	//the text is the same as the parameters with the leading : (if present) removed
+	char text[BUFFER_SIZE];
+	strncpy(text,parameters,BUFFER_SIZE);
+	if((strlen(text)>0) && (text[0]==':')){
+		substr(text,text,1,strlen(text)-1);
+	}
+	
 	//respond to server pings, silently
 	if(!strcmp(command,"PING")){
 		char to_send[BUFFER_SIZE];
-		snprintf(to_send,BUFFER_SIZE,"PONG :%s",parameters);
+		snprintf(to_send,BUFFER_SIZE,"PONG %s\n",parameters);
 		server_write(server_index,to_send);
+		
+		special_output=TRUE;
 	//if we got an error, close the link and clean up the structures
 	}else if(!strcmp(command,"ERROR")){
 		server_index=properly_close(server_index);
 	}else{
-		//whether or not this is a JOIN, PART, or QUIT message
-		//because in some circumstances we hide those
-		char is_join_part_quit=FALSE;
-		
 		//set this to show as having new data, it must since we're getting something on it
 		//(this is done automatically as a result of new_content being set true in scrollback_output)
 		refresh_server_list();
 		
-		//take out the trailing newline (accounting for the possibility of windows newlines)
-		int newline_index=strfind("\r\n",server->read_buffer);
-		if(newline_index<0){
-			//the possibility, not the necessity; proper newlines are accepted also
-			newline_index=strfind("\n",server->read_buffer);
+		//if a prefix is present
+		if(strnlen(prefix,BUFFER_SIZE)>0){
+			//examples of things we might parse out as a prefix
+			//	":ChanServ!bot@localhost"
+			//	":*.DE"
+			//	":bitlbee.local"
+			
+			//initialized to be the value of the prefix without the leading ':' character
+			substr(tmp_buffer,prefix,strlen(":"),strlen(prefix)-1);
+			
+			//NOTE: substr never allows operations on negative-length substrings
+			//and essentially ignores it and treats the result as a null string if given a negative length
+			//so these substr calls are safe despite not explicitly verifying that the indicies are positive
+			
+			//user's nickname is delimeted by "!"
+			int exclam_index=strfind("!",tmp_buffer);
+			//start at 1 to cut off the leading ":"
+			substr(nick,tmp_buffer,1,exclam_index-1);
+			
+			//move past that point so we have a tmp_buffer after it (we'll be doing this a lot)
+			//I CAN set tmp_buffer to a substring of itself here BECAUSE it'll just shift everything left and never overwrite what it needs to use
+			substr(tmp_buffer,tmp_buffer,exclam_index+1,strlen(server->read_buffer)-exclam_index-1);
+			
+			//user's real name is delimeted by "@"
+			int at_index=strfind("@",tmp_buffer);
+			substr(real_name,tmp_buffer,0,at_index);
+			
+			//I CAN set tmp_buffer to a substring of itself here BECAUSE it'll just shift everything left and never overwrite what it needs to use
+			substr(tmp_buffer,tmp_buffer,at_index+1,strlen(tmp_buffer)-at_index-1);
+			
+			//hostmask is whatever remains from the prefix at this point
+			substr(hostmask,tmp_buffer,0,strlen(tmp_buffer));
 		}
-		//NOTE: I can set this to be a substring of itself since I'm not overwriting anything during copy that I'll need
-		substr(server->read_buffer,server->read_buffer,0,newline_index);
 		
-		//a flag to say if we already output within the handling
-		//(if so don't output again at the end)
-		char special_output=FALSE;
+		//HACK: reset the tmp_buffer to the value of the read buffer
+		//because other code currently depends on that (it shouldn't but I haven't gotten to updating it yet)
+		strncpy(tmp_buffer,server->read_buffer,BUFFER_SIZE);
 		
-		//what gets shown in logs and user scrollback, which may differ from the raw server data
-		char output_buffer[BUFFER_SIZE];
-		strncpy(output_buffer,server->read_buffer,BUFFER_SIZE);
-		
-		//the channel to output to, by default the SYSTEM channel
-		int output_channel=0;
-		
-		//seperate server messages from PMs
-		int first_space=strfind(" ",server->read_buffer);
-		if(first_space>=0){
-			//the start at 1 is to cut off the preceding ":"
-			//remember the second arguement to substr is a LENGTH, not an index
-			substr(command,server->read_buffer,1,first_space-1);
+		//firstly, if this is something we were waiting on, then start sending the text we were waiting to send
+		//(as it is now "hammertime")
+		if(!strncmp(command,server->post_type,BUFFER_SIZE)){
+			//remember what server the user was on, because we need to hop over to the one that just sent us a message
+			int old_server=current_server;
+			current_server=server_index;
 			
-			//TODO: make this less hacky, it works but... well, hacky
-			//NOTE: checking for the literal server name was giving me issues because sometimes a server will re-direct to another one, so this just checks in general "is it any valid server name?"
+			//let the user know we are going to do something
+			char notify_buffer[BUFFER_SIZE];
+			snprintf(notify_buffer,BUFFER_SIZE,"accirc: Sending %i post-%s commands now...",dlist_length(server->post_commands),server->post_type);
+			scrollback_output(current_server,0,notify_buffer,TRUE);
 			
-//			//if this message started with the server's name
-//			if(!strncmp(command,server->server_name,BUFFER_SIZE)){
+			//send the post commands (which are stored in a doubly-linekd list)
+			//NOTE: this +1 is important because post_command_entry->data
+			//(from server->post_commands) is malloc'd to BUFFER_SIZE+1
+			char tmp_command_buffer[BUFFER_SIZE+1];
+			dlist_entry *post_command_entry=server->post_commands;
 			
-			//check that it is NOT a user (meaning it must not have the delimiter chars for a username)
-			if(strfind("@",command)==-1){
-				//these messages have the form ":naos.foonetic.net 001 accirc_user :Welcome to the Foonetic IRC Network nick!realname@hostname.could.be.ipv6"
-				substr(command,server->read_buffer,1,strlen(server->read_buffer)-1);
+			//loop through the post commands
+			while(post_command_entry!=NULL){
+				//send one at a time
+				strncpy(tmp_command_buffer,(char *)(post_command_entry->data),BUFFER_SIZE+1);
+				parse_input(tmp_command_buffer,FALSE);
 				
-				first_space=strfind(" ",command);
-				char tmp_buffer[BUFFER_SIZE];
-				substr(tmp_buffer,command,first_space+1,strlen(command)-first_space-1);
-				substr(command,tmp_buffer,0,strfind(" ",tmp_buffer));
-				
-				//firstly, if this is something we were waiting on, then start sending the text we were waiting to send
-				//(as it is now "hammertime")
-				if(!strncmp(command,server->post_type,BUFFER_SIZE)){
-					//remember what server the user was on, because we need to hop over to the one that just sent us a message
-					int old_server=current_server;
-					current_server=server_index;
-
-					//let the user know we are going to do something
-					char notify_buffer[BUFFER_SIZE];
-					snprintf(notify_buffer,BUFFER_SIZE,"accirc: Sending %i post-%s commands now...",dlist_length(server->post_commands),server->post_type);
-					scrollback_output(current_server,0,notify_buffer,TRUE);
-					
-					//send the post commands (which are stored in a doubly-linekd list)
-					//NOTE: this +1 is important because post_command_entry->data
-					//(from server->post_commands) is malloc'd to BUFFER_SIZE+1
-					char tmp_command_buffer[BUFFER_SIZE+1];
-					dlist_entry *post_command_entry=server->post_commands;
-					
-					//loop through the post commands
-					while(post_command_entry!=NULL){
-						//send one at a time
-						strncpy(tmp_command_buffer,(char *)(post_command_entry->data),BUFFER_SIZE+1);
-						parse_input(tmp_command_buffer,FALSE);
-						
-						post_command_entry=post_command_entry->next;
-					}
-					
-					//go back to the user-specified server now that we're done parsing
-					current_server=old_server;
-					
-					//refresh the channel text display since we just switched servers and switched back
-					refresh_channel_text();
-				}
-				
-				//welcome message (we set the server NICK data here since it's clearly working for us)
-				if(!strcmp(command,"001")){
-					server_001_command(server,tmp_buffer,first_space);
-				//current channel topic
-				}else if(!strcmp(command,"332")){
-					server_332_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
-				//handle time set information for a channel topic
-				}else if(!strcmp(command,"333")){
-					server_333_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
-				//names list
-				//(like this: ":naos.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user @neutrak @NieXS @cheese @MonkeyofDoom @L @Data @Spock ~Shishichi davean")
-				//(or this: ":naos.foonetic.net 353 neutrak = #FaiD :neutrak mo0 Decarabia Gelsamel_ NieXS JoeyJo0 cheese")
-				}else if(!strcmp(command,"353")){
-					server_353_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel);
-				//end of names list
-				}else if(!strcmp(command,"366")){
-					server_366_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
-				//end of message of the day (useful as a delimiter)
-				}else if(!strcmp(command,"376")){
-					
-				//nick already in use, so try a new one
-				}else if(!strcmp(command,"433")){
-					char new_nick[BUFFER_SIZE];
-					snprintf(new_nick,BUFFER_SIZE,"%s_",server->fallback_nick);
-					//in case this fails again start with another _ for the next try
-					strncpy(server->fallback_nick,new_nick,BUFFER_SIZE);
-					
-					snprintf(new_nick,BUFFER_SIZE,"NICK %s\n",server->fallback_nick);
-					server_write(server_index,new_nick);
-				}
-			//a message from another user
-			}else{
-				//a temporary buffer to store intermediate results during parsing
-				char tmp_buffer[BUFFER_SIZE];
-				//initialized to be the value of server->read_buffer
-				strncpy(tmp_buffer,server->read_buffer,BUFFER_SIZE);
-				
-				//NOTE: we parse out command_and_args and split on space BEFORE anything else
-				//to handle uncommon MODE commands that don't contain all the normal parts
-				//	normal: ":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
-				//	weird: ":*.DE MODE #imgurians +o Nick"
-				//	weird: ":bitlbee.local MODE &bitlbee +v Nick"
-				
-				//the most important character to parse first is " "
-				//everything that's prior to that is all the user and hostmask information we got
-				//which is sometimes not much at all
-				int space_index=strfind(" ",tmp_buffer);
-				
-				char command_and_args[BUFFER_SIZE];
-				substr(command_and_args,tmp_buffer,space_index+1,strlen(tmp_buffer)-space_index-1);
-				
-				//declarations for various things worth parsing out
-				char nick[BUFFER_SIZE];
-				char real_name[BUFFER_SIZE];
-				char hostmask[BUFFER_SIZE];
-				char command[BUFFER_SIZE];
-				char text[BUFFER_SIZE];
-				
-				//NOTE: substr never allows operations on negative-length substrings
-				//and essentially ignores it and treats the result as a null string if given a negative length
-				//so these substr calls are safe despite not explicitly verifying that the indicies are positive
-				
-				//user's nickname is delimeted by "!"
-				int exclam_index=strfind("!",tmp_buffer);
-				//start at 1 to cut off the leading ":"
-				substr(nick,tmp_buffer,1,exclam_index-1);
-				
-				//move past that point so we have a tmp_buffer after it (we'll be doing this a lot)
-				//I CAN set tmp_buffer to a substring of itself here BECAUSE it'll just shift everything left and never overwrite what it needs to use
-				substr(tmp_buffer,tmp_buffer,exclam_index+1,strlen(server->read_buffer)-exclam_index-1);
-				
-				//user's real name is delimeted by "@"
-				int at_index=strfind("@",tmp_buffer);
-				substr(real_name,tmp_buffer,0,at_index);
-				
-				//I CAN set tmp_buffer to a substring of itself here BECAUSE it'll just shift everything left and never overwrite what it needs to use
-				substr(tmp_buffer,tmp_buffer,at_index+1,strlen(tmp_buffer)-at_index-1);
-				
-				//hostmask is delimited by " "
-				space_index=strfind(" ",tmp_buffer);
-				substr(hostmask,tmp_buffer,0,space_index);
-				
-				substr(tmp_buffer,tmp_buffer,space_index+1,strlen(tmp_buffer)-space_index-1);
-				
-				//NOTE: we are using command_and_args here, parsed out earlier in this function
-				//and NOT tmp_buffer
-				//to account for unusual formats (MODEs)
-				//e.g.
-				//":*.DE MODE #imgurians +o Nick"
-				//":bitlbee.local MODE &bitlbee +v Nick"
-				
-				//command is delimeted by " "
-				space_index=strfind(" ",command_and_args);
-				substr(command,command_and_args,0,space_index);
-				
-				//and then we copy FROM command_and_args into the tmp_buffer
-				//since that contains everything after the first space in the original line
-				substr(tmp_buffer,command_and_args,space_index+1,strlen(command_and_args)-space_index-1);
-				
-				//the rest of the string is the text
-				strncpy(text,tmp_buffer,BUFFER_SIZE);
-				
-				//start of command handling
-				//the most common message, the PM
-				//":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
-				if(!strcmp(command,"PRIVMSG")){
-					server_privmsg_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
-				//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
-				}else if(!strcmp(command,"JOIN")){
-					server_join_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
-					is_join_part_quit=TRUE;
-				//or ":neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz"
-				}else if(!strcmp(command,"PART")){
-					server_part_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
-					is_join_part_quit=TRUE;
-				//or ":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
-				}else if(!strcmp(command,"KICK")){
-					server_kick_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,text);
-				//":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
-				//handle for NICK changes, especially the special case of our own, where server[server_index]->nick should get reset
-				//NICK changes are server-wide so I'll only be able to handle this better once I have a list of users in each channel
-				}else if(!strcmp(command,"NICK")){
-					server_nick_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text,&special_output);
-				//handle for topic changes
-				//":accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking"
-				}else if(!strcmp(command,"TOPIC")){
-					server_topic_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
-				//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
-				//":*.DE MODE #imgurians +o Nick"
-				//":bitlbee.local MODE &bitlbee +v Nick"
-				}else if(!strcmp(command,"MODE")){
-					special_output=server_mode_command(server,server_index,text,&output_channel);
-				//proper NOTICE handling is to output to the correct channel if it's a channel-wide notice, and like a PM otherwise
-				}else if(!strcmp(command,"NOTICE")){
-					//parse out the channel
-					char channel[BUFFER_SIZE];
-					int space_colon_index=strfind(" :",tmp_buffer);
-					substr(channel,tmp_buffer,0,space_colon_index);
-					
-					substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
-					
-					strncpy(text,tmp_buffer,BUFFER_SIZE);
-					
-					//output to the correct place
-					output_channel=find_output_channel(server,channel);
-				//using channel names lists, output quits to the correct channel
-				//(this will require outputting multiple times, which I don't have the faculties for at the moment)
-				}else if(!strcmp(command,"QUIT")){
-					server_quit_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text,&special_output);
-					is_join_part_quit=TRUE;
-				}
+				post_command_entry=post_command_entry->next;
 			}
+			
+			//go back to the user-specified server now that we're done parsing
+			current_server=old_server;
+			
+			//refresh the channel text display since we just switched servers and switched back
+			refresh_channel_text();
 		}
 		
-		//if this is something we're supposed to hide based on server settings
-		if((is_join_part_quit) && (server->hide_joins_quits)){
-			//then that's special too
-			special_output=TRUE;
+		//welcome message (we set the server NICK data here since it's clearly working for us)
+		if(!strcmp(command,"001")){
+			server_001_command(server,tmp_buffer,first_space);
+		//current channel topic
+		}else if(!strcmp(command,"332")){
+			server_332_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
+		//handle time set information for a channel topic
+		}else if(!strcmp(command,"333")){
+			server_333_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
+		//names list
+		//(like this: ":naos.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user @neutrak @NieXS @cheese @MonkeyofDoom @L @Data @Spock ~Shishichi davean")
+		//(or this: ":naos.foonetic.net 353 neutrak = #FaiD :neutrak mo0 Decarabia Gelsamel_ NieXS JoeyJo0 cheese")
+		}else if(!strcmp(command,"353")){
+			server_353_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel);
+		//end of names list
+		}else if(!strcmp(command,"366")){
+			server_366_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
+		//end of message of the day (useful as a delimiter)
+		}else if(!strcmp(command,"376")){
+			
+		//nick already in use, so try a new one
+		}else if(!strcmp(command,"433")){
+			char new_nick[BUFFER_SIZE];
+			snprintf(new_nick,BUFFER_SIZE,"%s_",server->fallback_nick);
+			//in case this fails again start with another _ for the next try
+			strncpy(server->fallback_nick,new_nick,BUFFER_SIZE);
+			
+			snprintf(new_nick,BUFFER_SIZE,"NICK %s\n",server->fallback_nick);
+			server_write(server_index,new_nick);
+		//start of command handling
+		//the most common message, the PM
+		//":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
+		}else if(!strcmp(command,"PRIVMSG")){
+			server_privmsg_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+		//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
+		}else if(!strcmp(command,"JOIN")){
+			server_join_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+			is_join_part_quit=TRUE;
+		//or ":neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz"
+		}else if(!strcmp(command,"PART")){
+			server_part_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+			is_join_part_quit=TRUE;
+		//or ":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
+		}else if(!strcmp(command,"KICK")){
+			server_kick_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,text);
+		//":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
+		//handle for NICK changes, especially the special case of our own, where server[server_index]->nick should get reset
+		//NICK changes are server-wide so I'll only be able to handle this better once I have a list of users in each channel
+		}else if(!strcmp(command,"NICK")){
+			server_nick_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text,&special_output);
+		//handle for topic changes
+		//":accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking"
+		}else if(!strcmp(command,"TOPIC")){
+			server_topic_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+		//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
+		//":*.DE MODE #imgurians +o Nick"
+		//":bitlbee.local MODE &bitlbee +v Nick"
+		}else if(!strcmp(command,"MODE")){
+			special_output=server_mode_command(server,server_index,text,&output_channel);
+		//proper NOTICE handling is to output to the correct channel if it's a channel-wide notice, and like a PM otherwise
+		}else if(!strcmp(command,"NOTICE")){
+			//parse out the channel
+			char channel[BUFFER_SIZE];
+			int space_colon_index=strfind(" :",tmp_buffer);
+			substr(channel,tmp_buffer,0,space_colon_index);
+			
+			substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
+			
+			strncpy(text,tmp_buffer,BUFFER_SIZE);
+			
+			//output to the correct place
+			output_channel=find_output_channel(server,channel);
+		//using channel names lists, output quits to the correct channel
+		//(this will require outputting multiple times, which I don't have the faculties for at the moment)
+		}else if(!strcmp(command,"QUIT")){
+			server_quit_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text,&special_output);
+			is_join_part_quit=TRUE;
 		}
+	}
 		
-		//if we haven't already done some crazy kind of output
-		if(!special_output){
-			//do the normal kind of output
-			scrollback_output(server_index,output_channel,output_buffer,TRUE);
-		}
+	//if this is something we're supposed to hide based on server settings
+	if((is_join_part_quit) && (server->hide_joins_quits)){
+		//then that's special too
+		special_output=TRUE;
+	}
+	
+	//if we haven't already done some crazy kind of output
+	if(!special_output){
+		//do the normal kind of output
+		scrollback_output(server_index,output_channel,output_buffer,TRUE);
 	}
 	
 	//if we didn't close the connection up there
