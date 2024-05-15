@@ -5153,14 +5153,14 @@ void server_366_command(irc_connection *server, char *tmp_buffer, int first_spac
 
 
 //handle the "privmsg" server command
-void server_privmsg_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
+void server_privmsg_command(irc_connection *server, int server_index, char *parameters, char *output_buffer, int *output_channel, char *nick){
 	char channel[BUFFER_SIZE];
-	int space_colon_index=strfind(" :",tmp_buffer);
-	substr(channel,tmp_buffer,0,space_colon_index);
+	int space_colon_index=strfind(" :",parameters);
+	substr(channel,parameters,0,space_colon_index);
 	
-	substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
-	
-	strncpy(text,tmp_buffer,BUFFER_SIZE);
+	//the text is the portion after the channel
+	char text[BUFFER_SIZE];
+	substr(text,parameters,space_colon_index+2,strlen(parameters)-space_colon_index-2);
 	
 	//set the correct output channel
 	*output_channel=find_output_channel(server,channel);
@@ -5862,11 +5862,6 @@ int parse_server(int server_index){
 		strncpy(parameters,"",BUFFER_SIZE);
 	}
 	
-	//not necessary, was just for testing
-//	char error_buffer[BUFFER_SIZE];
-//	snprintf(error_buffer,BUFFER_SIZE,"Dbg: received server line \"%s\" as prefix=\"%s\" command=\"%s\" parameters=\"%s\"",server->read_buffer,prefix,command,parameters);
-//	error_log(error_buffer);
-	
 	//the text is the same as the parameters with the leading : (if present) removed
 	char text[BUFFER_SIZE];
 	strncpy(text,parameters,BUFFER_SIZE);
@@ -5905,8 +5900,7 @@ int parse_server(int server_index){
 			
 			//user's nickname is delimeted by "!"
 			int exclam_index=strfind("!",tmp_buffer);
-			//start at 1 to cut off the leading ":"
-			substr(nick,tmp_buffer,1,exclam_index-1);
+			substr(nick,tmp_buffer,0,exclam_index-1);
 			
 			//move past that point so we have a tmp_buffer after it (we'll be doing this a lot)
 			//I CAN set tmp_buffer to a substring of itself here BECAUSE it'll just shift everything left and never overwrite what it needs to use
@@ -5961,6 +5955,11 @@ int parse_server(int server_index){
 			refresh_channel_text();
 		}
 		
+		//not necessary, was just for testing
+//		char error_buffer[BUFFER_SIZE];
+//		snprintf(error_buffer,BUFFER_SIZE,"Dbg: received server line \"%s\" as prefix=\"%s\" command=\"%s\" parameters=\"%s\" text=\"%s\"",server->read_buffer,prefix,command,parameters,text);
+//		error_log(error_buffer);
+		
 		//welcome message (we set the server NICK data here since it's clearly working for us)
 		if(!strcmp(command,"001")){
 			server_001_command(server,tmp_buffer,first_space);
@@ -5994,7 +5993,7 @@ int parse_server(int server_index){
 		//the most common message, the PM
 		//":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
 		}else if(!strcmp(command,"PRIVMSG")){
-			server_privmsg_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+			server_privmsg_command(server,server_index,parameters,output_buffer,&output_channel,nick);
 		//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 		}else if(!strcmp(command,"JOIN")){
 			server_join_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
