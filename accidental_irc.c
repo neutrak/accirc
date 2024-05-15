@@ -5900,7 +5900,7 @@ int parse_server(int server_index){
 			
 			//user's nickname is delimeted by "!"
 			int exclam_index=strfind("!",tmp_buffer);
-			substr(nick,tmp_buffer,0,exclam_index-1);
+			substr(nick,tmp_buffer,0,exclam_index);
 			
 			//move past that point so we have a tmp_buffer after it (we'll be doing this a lot)
 			//I CAN set tmp_buffer to a substring of itself here BECAUSE it'll just shift everything left and never overwrite what it needs to use
