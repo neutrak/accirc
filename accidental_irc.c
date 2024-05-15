@@ -5960,6 +5960,10 @@ int parse_server(int server_index){
 //		snprintf(error_buffer,BUFFER_SIZE,"Dbg: received server line \"%s\" as prefix=\"%s\" command=\"%s\" parameters=\"%s\" text=\"%s\"",server->read_buffer,prefix,command,parameters,text);
 //		error_log(error_buffer);
 		
+		//TODO: go through all of these command cases, figure out what's actually needed
+		//remove references to tmp_buffer and don't redo any parsing in these functions for anything that was previously parsed out
+		//I /think/ in most cases what's meant by tmp_buffer is actually parameters
+		
 		//welcome message (we set the server NICK data here since it's clearly working for us)
 		if(!strcmp(command,"001")){
 			server_001_command(server,tmp_buffer,first_space);
