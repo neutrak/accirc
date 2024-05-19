@@ -1483,6 +1483,7 @@ void terminal_close(int signal){
 }
 
 //TODO: refactor this, as this function is currently over 200 lines long!
+//I think we should be able to separate out the reconnect logic into its own function...
 //returns the new index of the server if a reconnection was made successfully
 //returns -1 if close completed without reconnection
 int properly_close(int server_index){
@@ -2943,8 +2944,14 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	//by default don't rejoin on kick
 	server->rejoin_on_kick=FALSE;
 	
-	//by default the fallback nick is null
-	strncpy(server->fallback_nick,"",BUFFER_SIZE);
+	//NOTE: when initially connecting to a server the nick we want to use might already be taken
+	//and if we initialize fallback_nick to empty string then we can't account for that and the server may disconnect us
+	//so we initialize this value to the desired nick with an underscore suffix
+	if(easy_mode){
+		snprintf(server->fallback_nick,BUFFER_SIZE,"%s_",DEFAULT_NICK);
+	}else{
+		snprintf(server->fallback_nick,BUFFER_SIZE,"_");
+	}
 	
 	//there are no users in the SERVER channel
 	ch->user_names=NULL;
@@ -4998,6 +5005,13 @@ void server_001_command(irc_connection *server, char *parameters){
 		strncpy(user_nick,parameters,BUFFER_SIZE);
 	}
 	
+	//if no fallback_nick was set
+	//or it was set to the default almost-null value
+	if((strnlen(server->fallback_nick,BUFFER_SIZE)==0) || (strncmp(server->fallback_nick,"_",BUFFER_SIZE)==0)){
+		//then set this nick as the fallback_nick for right now
+		strncpy(server->fallback_nick,user_nick,BUFFER_SIZE);
+	}
+	
 	//let the user know his nick is recognized
 	refresh_server_list();
 }
@@ -5991,6 +6005,7 @@ int parse_server(int server_index){
 		//handle time set information for a channel topic
 		}else if(!strcmp(command,"333")){
 			server_333_command(server,parameters,output_buffer,&output_channel);
+		//TODO: update everything below this point to account for the new and updated parsing structure
 		//names list
 		//(like this: ":naos.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user @neutrak @NieXS @cheese @MonkeyofDoom @L @Data @Spock ~Shishichi davean")
 		//(or this: ":naos.foonetic.net 353 neutrak = #FaiD :neutrak mo0 Decarabia Gelsamel_ NieXS JoeyJo0 cheese")
@@ -6004,13 +6019,17 @@ int parse_server(int server_index){
 			
 		//nick already in use, so try a new one
 		}else if(!strcmp(command,"433")){
+			//user the configured fallback_nick from the server
 			char new_nick[BUFFER_SIZE];
-			snprintf(new_nick,BUFFER_SIZE,"%s_",server->fallback_nick);
-			//in case this fails again start with another _ for the next try
-			strncpy(server->fallback_nick,new_nick,BUFFER_SIZE);
+			snprintf(new_nick,BUFFER_SIZE,"%s",server->fallback_nick);
 			
-			snprintf(new_nick,BUFFER_SIZE,"NICK %s\n",server->fallback_nick);
-			server_write(server_index,new_nick);
+			//send a server message to set this as our nick
+			char nick_change_buffer[BUFFER_SIZE];
+			snprintf(nick_change_buffer,BUFFER_SIZE,"NICK %s\n",new_nick);
+			server_write(server_index,nick_change_buffer);
+			
+			//in case this fails again add another _ for the next try
+			snprintf(server->fallback_nick,BUFFER_SIZE,"%s_",new_nick);
 		//start of command handling
 		//the most common message, the PM
 		//":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
