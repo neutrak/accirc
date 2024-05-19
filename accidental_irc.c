@@ -5568,6 +5568,8 @@ void server_nick_command(irc_connection *server, int server_index, char *tmp_buf
 			
 			//TODO: if there was a is_pm channel named after this user it should be changed
 			//(because there are files open for logs and things this isn't done now, it's a major pain)
+			//maybe we could make this just a /bye <old_nick> and then /hi <new_nick> to re-use existing handling for that?
+			//we would need to restore the channel order though...
 			
 			//don't actually change the name in the list if it's a PM
 			//since PMs aren't channels and the nick is the defining characteristic of a PM channel
