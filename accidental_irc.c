@@ -5444,15 +5444,12 @@ void server_join_command(irc_connection *server, int server_index, char *text, c
 //if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
 
 //handle the "part" command from the server
-void server_part_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
+//example: :neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz
+void server_part_command(irc_connection *server, int server_index, char *output_buffer, int *output_channel, char *nick, char *text){
+	//first get the channel name
+	//NOTE: text already has the leading : character removed (but parameters would not)
 	char channel[BUFFER_SIZE];
-	
-	int space_colon_index=strfind(" :",text);
-	if(space_colon_index<0){
-		strncpy(channel,text,BUFFER_SIZE);
-	}else{
-		substr(channel,text,0,space_colon_index);
-	}
+	strncpy(channel,text,BUFFER_SIZE);
 	
 	//if it was us doing the part
 	if(!strncmp(server->nick,nick,BUFFER_SIZE)){
@@ -5468,6 +5465,7 @@ void server_part_command(irc_connection *server, int server_index, char *tmp_buf
 }
 
 //handle the "kick" command from the server
+//example: :Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick
 void server_kick_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *text){
 	char channel[BUFFER_SIZE];
 	substr(channel,text,0,strfind(" ",text));
@@ -6034,18 +6032,16 @@ int parse_server(int server_index){
 		//":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
 		}else if(!strcmp(command,"PRIVMSG")){
 			server_privmsg_command(server,server_index,parameters,output_buffer,&output_channel,nick);
-		
-		//TODO: update everything below this point to account for the new and updated parsing structure
-		
 		//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 		}else if(!strcmp(command,"JOIN")){
 			server_join_command(server,server_index,text,output_buffer,&output_channel,nick);
 			is_join_part_quit=TRUE;
-		//or ":neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz"
+		//":neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz"
 		}else if(!strcmp(command,"PART")){
-			server_part_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+			server_part_command(server,server_index,output_buffer,&output_channel,nick,text);
 			is_join_part_quit=TRUE;
-		//or ":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
+		//TODO: update everything below this point to account for the new and updated parsing structure
+		//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
 		}else if(!strcmp(command,"KICK")){
 			server_kick_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,text);
 		//":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
