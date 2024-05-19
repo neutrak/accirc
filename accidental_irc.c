@@ -5410,20 +5410,13 @@ void server_privmsg_command(irc_connection *server, int server_index, char *para
 	}
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
-
 //handle the "join" command from the server
-void server_join_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
+//example: :accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0
+void server_join_command(irc_connection *server, int server_index, char *text, char *output_buffer, int *output_channel, char *nick){
 	//first get the channel name
+	//NOTE: text already has the leading : character removed (but parameters would not)
 	char channel[BUFFER_SIZE];
-	
-	//cut the leading : from the channel name, if there is one
-	if(text[0]==':'){
-		substr(channel,text,1,strlen(text)-1);
-	}else{
-		substr(channel,text,0,strlen(text));
-	}
+	strncpy(channel,text,BUFFER_SIZE);
 	
 	//if it was us doing the join-ing
 	if(!strncmp(server->nick,nick,BUFFER_SIZE)){
@@ -5446,6 +5439,9 @@ void server_join_command(irc_connection *server, int server_index, char *tmp_buf
 		}
 	}
 }
+
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
 
 //handle the "part" command from the server
 void server_part_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
@@ -6043,7 +6039,7 @@ int parse_server(int server_index){
 		
 		//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 		}else if(!strcmp(command,"JOIN")){
-			server_join_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+			server_join_command(server,server_index,text,output_buffer,&output_channel,nick);
 			is_join_part_quit=TRUE;
 		//or ":neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz"
 		}else if(!strcmp(command,"PART")){
