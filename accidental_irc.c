@@ -5002,32 +5002,34 @@ void server_001_command(irc_connection *server, char *parameters){
 	refresh_server_list();
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//and then the nick should be everything in that before the first space
-//same goes for all of these server_###_command functions!
 //handle the "332" server command (channel topic)
-void server_332_command(irc_connection *server, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
+//parameters have the syntax "<nick> <channel> :<topic>"
+//where <nick> in this context is the nick of the user who set the topic text
+//example: :hostname 332 <nick> <channel> :<topic>
+void server_332_command(irc_connection *server, char *parameters, char *output_buffer, int *output_channel){
+	char topic_set_nick[BUFFER_SIZE];
 	char channel[BUFFER_SIZE];
 	char topic[BUFFER_SIZE];
 	
-	//pull out the topic right away, because it's delimted by " :" and so is easy
-	int space_colon_index=strfind(" :",server->read_buffer);
-	substr(topic,server->read_buffer,space_colon_index+2,strlen(server->read_buffer)-space_colon_index-2);
+	strncpy(topic_set_nick,"",BUFFER_SIZE);
+	strncpy(channel,"",BUFFER_SIZE);
+	strncpy(topic,"",BUFFER_SIZE);
 	
-	strncpy(tmp_buffer,server->read_buffer,BUFFER_SIZE);
-	
-	//go a space at a time until we get to the relevant field
-	int n;
-	for(n=0;n<3;n++){
-		//note I can set tmp_buffer to a substring of itself here because I'm never overwriting data I'll later need
-		//it's just a left shift
-		first_space=strfind(" ",tmp_buffer);
-		substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
+	//the nick of the setting user; everything in parameters before the first space
+	int first_space_idx=strfind(" ",parameters);
+	if(first_space_idx>=0){
+		substr(topic_set_nick,parameters,0,first_space_idx);
+		substr(parameters,parameters,first_space_idx+strlen(" "),strlen(parameters)-first_space_idx-strlen(" "));
 	}
 	
-	//now we're at the channel, get its name
-	//we don't need to lower-case here because ch_idx_from_name does that already
-	substr(channel,tmp_buffer,0,strfind(" ",tmp_buffer));
+	//the channel name is everything before the " :" in the parameters
+	//and the topic is everything after that delimiter
+	int space_colon_idx=strfind(" :",parameters);
+	if(space_colon_idx>=0){
+		//NOTE: we don't need to lower-case here because ch_idx_from_name does that already
+		substr(channel,parameters,0,space_colon_idx);
+		substr(topic,parameters,space_colon_idx+strlen(" :"),strlen(parameters)-space_colon_idx-strlen(" :"));
+	}
 	
 	//go through the channels, find out the one to output to, set "output_channel" to that index
 	//note that if we never find the channel output_channel stays at its default, which is the SERVER channel
@@ -5046,6 +5048,9 @@ void server_332_command(irc_connection *server, char *tmp_buffer, int first_spac
 	}
 }
 
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//and then the nick should be everything in that before the first space
+//same goes for all of these server_###_command functions!
 //handle the "333" server command (channel topic timestamp)
 void server_333_command(irc_connection *server, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
 	char channel[BUFFER_SIZE];
@@ -5083,7 +5088,7 @@ void server_333_command(irc_connection *server, char *tmp_buffer, int first_spac
 	}else{
 		*output_channel=0;
 	}
-		
+	
 	snprintf(output_buffer,BUFFER_SIZE,"Topic for %s set by %s at %s",channel,setting_user,ctime(&timestamp));
 	
 	//and output
@@ -5971,7 +5976,7 @@ int parse_server(int server_index){
 			server_001_command(server,parameters);
 		//current channel topic
 		}else if(!strcmp(command,"332")){
-			server_332_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
+			server_332_command(server,parameters,output_buffer,&output_channel);
 		//handle time set information for a channel topic
 		}else if(!strcmp(command,"333")){
 			server_333_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
