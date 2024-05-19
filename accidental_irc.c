@@ -5440,9 +5440,6 @@ void server_join_command(irc_connection *server, int server_index, char *text, c
 	}
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
-
 //handle the "part" command from the server
 //example: :neutrak_accirc!1@sirc-8B6227B6.device.mst.edu PART #randomz
 void server_part_command(irc_connection *server, int server_index, char *output_buffer, int *output_channel, char *nick, char *text){
@@ -5466,7 +5463,7 @@ void server_part_command(irc_connection *server, int server_index, char *output_
 
 //handle the "kick" command from the server
 //example: :Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick
-void server_kick_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *text){
+void server_kick_command(irc_connection *server, int server_index, char *output_buffer, int *output_channel, char *text){
 	char channel[BUFFER_SIZE];
 	substr(channel,text,0,strfind(" ",text));
 	
@@ -5474,7 +5471,7 @@ void server_kick_command(irc_connection *server, int server_index, char *tmp_buf
 	int space_index=strfind(" ",text);
 	substr(kicked_user,text,space_index+1,strlen(text)-space_index-1);
 	
-	//if there was a kick message tear that out of the name (it'll still be in output buffer)
+	//if there was a kick message tear that out of the name (it'll still be in text buffer)
 	int space_colon_index=strfind(" :",kicked_user);
 	if(space_colon_index>=0){
 		substr(kicked_user,kicked_user,0,space_colon_index);
@@ -5507,6 +5504,9 @@ void server_kick_command(irc_connection *server, int server_index, char *tmp_buf
 		}
 	}
 }
+
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
 
 //handle the "nick" command from the server
 void server_nick_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
@@ -6040,10 +6040,10 @@ int parse_server(int server_index){
 		}else if(!strcmp(command,"PART")){
 			server_part_command(server,server_index,output_buffer,&output_channel,nick,text);
 			is_join_part_quit=TRUE;
-		//TODO: update everything below this point to account for the new and updated parsing structure
 		//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
 		}else if(!strcmp(command,"KICK")){
-			server_kick_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,text);
+			server_kick_command(server,server_index,output_buffer,&output_channel,text);
+		//TODO: update everything below this point to account for the new and updated parsing structure
 		//":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
 		//handle for NICK changes, especially the special case of our own, where server[server_index]->nick should get reset
 		//NICK changes are server-wide so I'll only be able to handle this better once I have a list of users in each channel
