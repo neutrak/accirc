@@ -5117,21 +5117,19 @@ void server_333_command(irc_connection *server, char *parameters, char *output_b
 	refresh_channel_topic();
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//and then the nick should be everything in that before the first space
-//same goes for all of these server_###_command functions!
 //handle the "353" server command (names list)
-void server_353_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
-	strncpy(tmp_buffer,server->read_buffer,BUFFER_SIZE);
+//example: :naos.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user @neutrak @NieXS @cheese @MonkeyofDoom @L @Data @Spock ~Shishichi davean
+//example: :naos.foonetic.net 353 neutrak = #FaiD :neutrak mo0 Decarabia Gelsamel_ NieXS JoeyJo0 cheese
+void server_353_command(irc_connection *server, int server_index, char *parameters, char *output_buffer, int *output_channel){
 	char channel[BUFFER_SIZE];
-	int space_colon_index=strfind(" :",tmp_buffer);
+	int space_colon_index=strfind(" :",parameters);
 	int channel_start_index=space_colon_index-1;
-	while(tmp_buffer[channel_start_index]!=' '){
+	while(parameters[channel_start_index]!=' '){
 		channel_start_index--;
 	}
 	channel_start_index++;
 	
-	substr(channel,tmp_buffer,channel_start_index,space_colon_index-channel_start_index);
+	substr(channel,parameters,channel_start_index,space_colon_index-channel_start_index);
 	
 	//set the correct output channel
 	*output_channel=find_output_channel(server,channel);
@@ -5139,7 +5137,7 @@ void server_353_command(irc_connection *server, int server_index, char *tmp_buff
 	//if we found this channel in our list
 	if(output_channel>0){
 		char names[BUFFER_SIZE];
-		substr(names,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
+		substr(names,parameters,space_colon_index+strlen(" :"),strlen(parameters)-space_colon_index-strlen(" :"));
 		while(strlen(names)>0){
 			char this_name[BUFFER_SIZE];
 			int space_index=strfind(" ",names);
@@ -5150,7 +5148,7 @@ void server_353_command(irc_connection *server, int server_index, char *tmp_buff
 			}
 			
 			substr(this_name,names,0,space_index);
-			substr(names,names,space_index+1,strlen(names)-space_index-1);
+			substr(names,names,space_index+strlen(" "),strlen(names)-space_index-strlen(" "));
 			
 			//trim this user's name to remove the mode modifier, if applicable
 			char mode_prefix[BUFFER_SIZE];
@@ -5166,23 +5164,25 @@ void server_353_command(irc_connection *server, int server_index, char *tmp_buff
 }
 
 //handle the "366" server command (end of names list)
-void server_366_command(irc_connection *server, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
+//example: :hostname 366 <nick> <channel> :End of NAMES list
+void server_366_command(irc_connection *server, char *parameters, char *output_buffer, int *output_channel){
 	//just output to the right channel
-	strncpy(tmp_buffer,server->read_buffer,BUFFER_SIZE);
 	char channel[BUFFER_SIZE];
-	int space_colon_index=strfind(" :",tmp_buffer);
+	int space_colon_index=strfind(" :",parameters);
 	int channel_start_index=space_colon_index-1;
-	while(tmp_buffer[channel_start_index]!=' '){
+	while(parameters[channel_start_index]!=' '){
 		channel_start_index--;
 	}
 	channel_start_index++;
 	
-	substr(channel,tmp_buffer,channel_start_index,space_colon_index-channel_start_index);
+	substr(channel,parameters,channel_start_index,space_colon_index-channel_start_index);
 	
 	//set the correct output channel
 	*output_channel=find_output_channel(server,channel);
 }
 
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
 
 //handle the "privmsg" server command
 void server_privmsg_command(irc_connection *server, int server_index, char *parameters, char *output_buffer, int *output_channel, char *nick){
@@ -6005,15 +6005,14 @@ int parse_server(int server_index){
 		//handle time set information for a channel topic
 		}else if(!strcmp(command,"333")){
 			server_333_command(server,parameters,output_buffer,&output_channel);
-		//TODO: update everything below this point to account for the new and updated parsing structure
 		//names list
 		//(like this: ":naos.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user @neutrak @NieXS @cheese @MonkeyofDoom @L @Data @Spock ~Shishichi davean")
 		//(or this: ":naos.foonetic.net 353 neutrak = #FaiD :neutrak mo0 Decarabia Gelsamel_ NieXS JoeyJo0 cheese")
 		}else if(!strcmp(command,"353")){
-			server_353_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel);
+			server_353_command(server,server_index,parameters,output_buffer,&output_channel);
 		//end of names list
 		}else if(!strcmp(command,"366")){
-			server_366_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
+			server_366_command(server,parameters,output_buffer,&output_channel);
 		//end of message of the day (useful as a delimiter)
 		}else if(!strcmp(command,"376")){
 			
@@ -6030,6 +6029,9 @@ int parse_server(int server_index){
 			
 			//in case this fails again add another _ for the next try
 			snprintf(server->fallback_nick,BUFFER_SIZE,"%s_",new_nick);
+		
+		//TODO: update everything below this point to account for the new and updated parsing structure
+		
 		//start of command handling
 		//the most common message, the PM
 		//":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
