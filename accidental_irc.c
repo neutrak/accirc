@@ -4985,24 +4985,26 @@ void parse_input(char *input_buffer, char keep_history){
 //BEGIN parse_server HELPER FUNCTIONS
 
 //handle the "001" server command (a welcome message)
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//and then the nick should be everything in that before the first space
-//same goes for all of these server_###_command functions!
-void server_001_command(irc_connection *server, char *tmp_buffer, int first_space){
+//example: :hostname 001 neutrak :Welcome to the IRC Network neutrak!neutrak@localhost
+void server_001_command(irc_connection *server, char *parameters){
 	//rather than make a new buffer just use the one it'll ulitmately be stored in
 	char *user_nick=server->nick;
 	
-	//go a space at a time until we get to the nick portion, then leave because it's set
-	first_space=strfind(" ",server->read_buffer);
-	substr(user_nick,server->read_buffer,first_space+1,strlen(server->read_buffer)-first_space);
-	first_space=strfind(" ",user_nick);
-	substr(tmp_buffer,user_nick,first_space+1,strlen(user_nick)-first_space);
-	substr(user_nick,tmp_buffer,0,strfind(" ",tmp_buffer));
+	//get the user nick as the first parameter to this command
+	int first_space_idx=strfind(" ",parameters);
+	if(first_space_idx>=0){
+		substr(user_nick,parameters,0,first_space_idx);
+	}else{
+		strncpy(user_nick,parameters,BUFFER_SIZE);
+	}
 	
 	//let the user know his nick is recognized
 	refresh_server_list();
 }
 
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//and then the nick should be everything in that before the first space
+//same goes for all of these server_###_command functions!
 //handle the "332" server command (channel topic)
 void server_332_command(irc_connection *server, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
 	char channel[BUFFER_SIZE];
@@ -5966,7 +5968,7 @@ int parse_server(int server_index){
 		
 		//welcome message (we set the server NICK data here since it's clearly working for us)
 		if(!strcmp(command,"001")){
-			server_001_command(server,tmp_buffer,first_space);
+			server_001_command(server,parameters);
 		//current channel topic
 		}else if(!strcmp(command,"332")){
 			server_332_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
