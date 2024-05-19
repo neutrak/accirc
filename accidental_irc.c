@@ -5003,9 +5003,8 @@ void server_001_command(irc_connection *server, char *parameters){
 }
 
 //handle the "332" server command (channel topic)
-//parameters have the syntax "<nick> <channel> :<topic>"
-//where <nick> in this context is the nick of the user who set the topic text
-//example: :hostname 332 <nick> <channel> :<topic>
+//parameters have the syntax "<topic_set_nick> <channel> :<topic>"
+//example: :hostname 332 <topic_set_nick> <channel> :<topic>
 void server_332_command(irc_connection *server, char *parameters, char *output_buffer, int *output_channel){
 	char topic_set_nick[BUFFER_SIZE];
 	char channel[BUFFER_SIZE];
@@ -5048,37 +5047,46 @@ void server_332_command(irc_connection *server, char *parameters, char *output_b
 	}
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//and then the nick should be everything in that before the first space
-//same goes for all of these server_###_command functions!
 //handle the "333" server command (channel topic timestamp)
-void server_333_command(irc_connection *server, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
+//example: :hostname 333 <topic_set_nick> <channel> <topic_set_user_prefix> <topic_set_timestamp>
+//where timestamps are unix epoch format
+void server_333_command(irc_connection *server, char *parameters, char *output_buffer, int *output_channel){
+	char topic_set_nick[BUFFER_SIZE];
 	char channel[BUFFER_SIZE];
+	char topic_set_prefix[BUFFER_SIZE];
+	char topic_set_timestamp[BUFFER_SIZE];
 	
-	//go a space at a time until we get to the relevant field
-	int n;
-	for(n=0;n<2;n++){
-		//note I can set tmp_buffer to a substring of itself here because I'm never overwriting data I'll later need
-		//it's just a left shift
-		first_space=strfind(" ",tmp_buffer);
-		substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
+	strncpy(topic_set_nick,"",BUFFER_SIZE);
+	strncpy(channel,"",BUFFER_SIZE);
+	strncpy(topic_set_prefix,"",BUFFER_SIZE);
+	strncpy(topic_set_timestamp,"",BUFFER_SIZE);
+	
+	time_t timestamp=0;
+	
+	int space_idx=strfind(" ",parameters);
+	if(space_idx>=0){
+		substr(topic_set_nick,parameters,0,space_idx);
+		substr(parameters,parameters,space_idx+strlen(" "),strlen(parameters)-space_idx-strlen(" "));
 	}
 	
-	//now we're at the channel, get its name
-	first_space=strfind(" ",tmp_buffer);
-	substr(channel,tmp_buffer,0,first_space);
+	space_idx=strfind(" ",parameters);
+	if(space_idx>=0){
+		substr(channel,parameters,0,space_idx);
+		substr(parameters,parameters,space_idx+strlen(" "),strlen(parameters)-space_idx-strlen(" "));
+	}
 	
-	substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
-	
-	//now we're at the user who set this topic
-	first_space=strfind(" ",tmp_buffer);
-	char setting_user[BUFFER_SIZE];
-	substr(setting_user,tmp_buffer,0,first_space);
-	
-	substr(tmp_buffer,tmp_buffer,first_space+1,strlen(tmp_buffer)-first_space-1);
-	
-	//now we're at the timestamp
-	time_t timestamp=atoi(tmp_buffer);
+	space_idx=strfind(" ",parameters);
+	if(space_idx>=0){
+		substr(topic_set_prefix,parameters,0,space_idx);
+		substr(parameters,parameters,space_idx+strlen(" "),strlen(parameters)-space_idx-strlen(" "));
+		
+		//NOTE: at this point the only remaining parameter should be the timestamp
+		//so no need to search for spaces, just store that directly
+		strncpy(topic_set_timestamp,parameters,BUFFER_SIZE);
+		
+		//convert the timestamp into a time_t type
+		timestamp=atoi(topic_set_timestamp);
+	}
 	
 	//go through the channels, find out the one to output to, set "output_channel" to that index
 	//note that if we never find the channel, we output to index 0 (the SERVER channel)
@@ -5089,12 +5097,15 @@ void server_333_command(irc_connection *server, char *tmp_buffer, int first_spac
 		*output_channel=0;
 	}
 	
-	snprintf(output_buffer,BUFFER_SIZE,"Topic for %s set by %s at %s",channel,setting_user,ctime(&timestamp));
+	snprintf(output_buffer,BUFFER_SIZE,"Topic for %s set by %s at %s",channel,topic_set_nick,ctime(&timestamp));
 	
 	//and output
 	refresh_channel_topic();
 }
 
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//and then the nick should be everything in that before the first space
+//same goes for all of these server_###_command functions!
 //handle the "353" server command (names list)
 void server_353_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel){
 	strncpy(tmp_buffer,server->read_buffer,BUFFER_SIZE);
@@ -5979,7 +5990,7 @@ int parse_server(int server_index){
 			server_332_command(server,parameters,output_buffer,&output_channel);
 		//handle time set information for a channel topic
 		}else if(!strcmp(command,"333")){
-			server_333_command(server,tmp_buffer,first_space,output_buffer,&output_channel);
+			server_333_command(server,parameters,output_buffer,&output_channel);
 		//names list
 		//(like this: ":naos.foonetic.net 353 accirc_user @ #FaiD3.0 :accirc_user @neutrak @NieXS @cheese @MonkeyofDoom @L @Data @Spock ~Shishichi davean")
 		//(or this: ":naos.foonetic.net 353 neutrak = #FaiD :neutrak mo0 Decarabia Gelsamel_ NieXS JoeyJo0 cheese")
