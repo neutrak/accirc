@@ -5181,10 +5181,10 @@ void server_366_command(irc_connection *server, char *parameters, char *output_b
 	*output_channel=find_output_channel(server,channel);
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
+//TODO: refactor server_privmsg_command; it's over 200 lines long
 
 //handle the "privmsg" server command
+//example: :neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test
 void server_privmsg_command(irc_connection *server, int server_index, char *parameters, char *output_buffer, int *output_channel, char *nick){
 	char channel[BUFFER_SIZE];
 	int space_colon_index=strfind(" :",parameters);
@@ -5192,7 +5192,7 @@ void server_privmsg_command(irc_connection *server, int server_index, char *para
 	
 	//the text is the portion after the channel
 	char text[BUFFER_SIZE];
-	substr(text,parameters,space_colon_index+2,strlen(parameters)-space_colon_index-2);
+	substr(text,parameters,space_colon_index+strlen(" :"),strlen(parameters)-space_colon_index-strlen(" :"));
 	
 	//set the correct output channel
 	*output_channel=find_output_channel(server,channel);
@@ -5409,6 +5409,9 @@ void server_privmsg_command(irc_connection *server, int server_index, char *para
 		snprintf(output_buffer,BUFFER_SIZE,"<%s%s> %s",nick_mode_str,nick,text);
 	}
 }
+
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
 
 //handle the "join" command from the server
 void server_join_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
@@ -6029,14 +6032,15 @@ int parse_server(int server_index){
 			
 			//in case this fails again add another _ for the next try
 			snprintf(server->fallback_nick,BUFFER_SIZE,"%s_",new_nick);
-		
-		//TODO: update everything below this point to account for the new and updated parsing structure
-		
+			
 		//start of command handling
 		//the most common message, the PM
 		//":neutrak!neutrak@hide-F99E0499.device.mst.edu PRIVMSG accirc_user :test"
 		}else if(!strcmp(command,"PRIVMSG")){
 			server_privmsg_command(server,server_index,parameters,output_buffer,&output_channel,nick);
+		
+		//TODO: update everything below this point to account for the new and updated parsing structure
+		
 		//":accirc_2!1@hide-68F46812.device.mst.edu JOIN :#FaiD3.0"
 		}else if(!strcmp(command,"JOIN")){
 			server_join_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
