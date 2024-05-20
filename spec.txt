@@ -26,4 +26,5 @@ TODO for version 3.0.0:
 		allow input behaviour to act like it does for any other character, no weird backspace issues, etc.
 	handle nick changes in faux-channel (PM channel) handling
 		I think this will just be an alias to /bye <old_nick> and /hi <new_nick>, but maybe due to ordering it would get more complicated
+	clean up comments, todos, error_log output, etc. to reflect the current state
 

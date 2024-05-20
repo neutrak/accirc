@@ -5619,9 +5619,6 @@ void server_topic_command(irc_connection *server, int server_index, char *output
 	refresh_channel_topic();
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
-
 //handle the "mode" command from the server
 //returns TRUE for special_output, otherwise FALSE
 //accepts formats:
@@ -5631,16 +5628,17 @@ void server_topic_command(irc_connection *server, int server_index, char *output
 char server_mode_command(irc_connection *server, int server_index, char *text, int *output_channel){
 	char special_output=FALSE;
 	char channel[BUFFER_SIZE];
-	substr(channel,text,0,strfind(" ",text));
+	int space_idx=strfind(" ",text);
+	substr(channel,text,0,space_idx);
 	
 	//output to the correct place
+	//NOTE: find_output_channel is case-insensitive (via ch_idx_from_name)
 	*output_channel=find_output_channel(server,channel);
 	
 	//update user modes as needed
 	
 	char tmp_text[BUFFER_SIZE];
-	int space_idx=strfind(" ",text);
-	substr(tmp_text,text,space_idx+1,strlen(text)-1-space_idx);
+	substr(tmp_text,text,space_idx+strlen(" "),strlen(text)-space_idx-strlen(" "));
 	
 	//get the +o -o +v -v +ooo +h etc. string
 	char mode_ctrl_str[BUFFER_SIZE];
@@ -5663,8 +5661,8 @@ char server_mode_command(irc_connection *server, int server_index, char *text, i
 	
 	//get the string of nicks to apply the mode_ctrl_str to
 	char nicks[BUFFER_SIZE];
-	substr(nicks,tmp_text,space_idx+1,strlen(tmp_text)-1-space_idx);
-
+	substr(nicks,tmp_text,space_idx+strlen(" "),strlen(tmp_text)-space_idx-strlen(" "));
+	
 	/*
 	fprintf(error_file,"dbg: Got MODE command \"%s\"; mode_ctrl_str=\"%s\"; tmp_text=\"%s\", nicks=\"%s\"\n",
 		text,mode_ctrl_str,tmp_text,nicks);
@@ -5682,7 +5680,7 @@ char server_mode_command(irc_connection *server, int server_index, char *text, i
 		}else{
 			substr(nick,nicks,0,space_idx);
 			char tmp_buffer[BUFFER_SIZE];
-			substr(tmp_buffer,nicks,space_idx+1,strlen(nicks)-1);
+			substr(tmp_buffer,nicks,space_idx+strlen(" "),strlen(nicks)-strlen(" "));
 			strncpy(nicks,tmp_buffer,BUFFER_SIZE);
 		}
 		
@@ -5759,6 +5757,9 @@ char server_mode_command(irc_connection *server, int server_index, char *text, i
 	
 	return special_output;
 }
+
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
 
 //handle the "quit" command from the server
 void server_quit_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
@@ -6059,12 +6060,12 @@ int parse_server(int server_index){
 		//":accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking"
 		}else if(!strcmp(command,"TOPIC")){
 			server_topic_command(server,server_index,output_buffer,&output_channel,nick,text);
-		//TODO: update everything below this point to account for the new and updated parsing structure
 		//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
 		//":*.DE MODE #imgurians +o Nick"
 		//":bitlbee.local MODE &bitlbee +v Nick"
 		}else if(!strcmp(command,"MODE")){
 			special_output=server_mode_command(server,server_index,text,&output_channel);
+		//TODO: update everything below this point to account for the new and updated parsing structure
 		//proper NOTICE handling is to output to the correct channel if it's a channel-wide notice, and like a PM otherwise
 		}else if(!strcmp(command,"NOTICE")){
 			//parse out the channel
