@@ -5587,18 +5587,21 @@ void server_nick_command(irc_connection *server, int server_index, char *output_
 	}
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
-
 //handle the "topic" command from the server
-void server_topic_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
+//example: :accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking
+void server_topic_command(irc_connection *server, int server_index, char *output_buffer, int *output_channel, char *nick, char *text){
 	char channel[BUFFER_SIZE];
-	int space_colon_index=strfind(" :",tmp_buffer);
-	substr(channel,tmp_buffer,0,space_colon_index);
-	
-	substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
-	
-	strncpy(text,tmp_buffer,BUFFER_SIZE);
+	int space_colon_index=strfind(" :",text);
+	if(space_colon_index>=0){
+		substr(channel,text,0,space_colon_index);
+		
+		//shift text over to be everything after the channel name and delimiter
+		//so text is now the new topic
+		substr(text,text,space_colon_index+strlen(" :"),strlen(text)-space_colon_index-strlen(" :"));
+	}else{
+		substr(channel,text,0,strlen(text));
+		strncpy(text,"",BUFFER_SIZE);
+	}
 	
 	//lower case the channel so we can do a case-insensitive string match against it
 	strtolower(channel,BUFFER_SIZE);
@@ -5607,14 +5610,17 @@ void server_topic_command(irc_connection *server, int server_index, char *tmp_bu
 	*output_channel=find_output_channel(server,channel);
 	
 	//update the topic for this channel on this server
-	//leaving out the leading ":", if there is one
-	unsigned int offset=(text[0]==':')?1:0;
 	channel_info *ch=(channel_info *)(dlist_get_entry(server->ch,*output_channel)->data);
-	substr(ch->topic,text,offset,strlen(text)-offset);
+	if((ch!=NULL) && (space_colon_index>=0)){
+		strncpy(ch->topic,text,BUFFER_SIZE);
+	}
 	
 	//update the display
 	refresh_channel_topic();
 }
+
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
 
 //handle the "mode" command from the server
 //returns TRUE for special_output, otherwise FALSE
@@ -6049,11 +6055,11 @@ int parse_server(int server_index){
 		//NICK changes are server-wide so I'll only be able to handle this better once I have a list of users in each channel
 		}else if(!strcmp(command,"NICK")){
 			server_nick_command(server,server_index,output_buffer,&output_channel,nick,text,&special_output);
-		//TODO: update everything below this point to account for the new and updated parsing structure
 		//handle for topic changes
 		//":accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking"
 		}else if(!strcmp(command,"TOPIC")){
-			server_topic_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text);
+			server_topic_command(server,server_index,output_buffer,&output_channel,nick,text);
+		//TODO: update everything below this point to account for the new and updated parsing structure
 		//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com MODE #FaiD3.0 +o MonkeyofDoom"
 		//":*.DE MODE #imgurians +o Nick"
 		//":bitlbee.local MODE &bitlbee +v Nick"
