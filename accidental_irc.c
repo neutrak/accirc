@@ -5505,20 +5505,13 @@ void server_kick_command(irc_connection *server, int server_index, char *output_
 	}
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
-
 //handle the "nick" command from the server
-void server_nick_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
+//example: :accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2
+void server_nick_command(irc_connection *server, int server_index, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
 	//if we changed our nick
 	if(!strncmp(nick,server->nick,BUFFER_SIZE)){
 		//change it in relevant data structures
-		//leaving out the leading ":", if there is one
-		if(text[0]==':'){
-			substr(server->nick,text,1,strlen(text)-1);
-		}else{
-			substr(server->nick,text,0,strlen(text));
-		}
+		strncpy(server->nick,text,BUFFER_SIZE);
 		
 		//and update the display to reflect this change
 		refresh_server_list();
@@ -5555,11 +5548,7 @@ void server_nick_command(irc_connection *server, int server_index, char *tmp_buf
 			scrollback_output(server_index,channel_index,output_buffer,TRUE);
 			
 			char new_nick[BUFFER_SIZE];
-			if(text[0]==':'){
-				substr(new_nick,text,1,strlen(text)-1);
-			}else{
-				substr(new_nick,text,0,strlen(text));
-			}
+			strncpy(new_nick,text,BUFFER_SIZE);
 			
 			//if we were pm-ing with this user, update that reference
 			if(update_pm_user){
@@ -5568,8 +5557,15 @@ void server_nick_command(irc_connection *server, int server_index, char *tmp_buf
 			
 			//TODO: if there was a is_pm channel named after this user it should be changed
 			//(because there are files open for logs and things this isn't done now, it's a major pain)
-			//maybe we could make this just a /bye <old_nick> and then /hi <new_nick> to re-use existing handling for that?
-			//we would need to restore the channel order though...
+			//I think what we want to do is the following (in a separate function, if auto_hi is set):
+			//	save current_server and server->current_channel to variables so we can re-focus later
+			//	set current_server to be the server where we received this NICK command
+			//	/hi <new_nick> (opening a new log file as part of this)
+			//	/swcl repeatedly until the channel immediately to the left of the new channel is the /hi <old_nick> channel
+			//	focus the /hi <old_nick> channel
+			//	/bye (closing /hi <old_nick> and the associated log file)
+			//	output the nick change information to the new faux-pm channel, so the user knows what happened and who they're talking to
+			//	restore current_server and server->current_channel and any other active/focus context that was lost during this process
 			
 			//don't actually change the name in the list if it's a PM
 			//since PMs aren't channels and the nick is the defining characteristic of a PM channel
@@ -5590,6 +5586,9 @@ void server_nick_command(irc_connection *server, int server_index, char *tmp_buf
 		channel_index++;
 	}
 }
+
+//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
+//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
 
 //handle the "topic" command from the server
 void server_topic_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text){
@@ -6045,12 +6044,12 @@ int parse_server(int server_index){
 		//":Shishichi!notIRCuser@hide-4C94998D.fidnet.com KICK #FaiD3.0 accirc_user :accirc_user: I need a kick message real quick"
 		}else if(!strcmp(command,"KICK")){
 			server_kick_command(server,server_index,output_buffer,&output_channel,text);
-		//TODO: update everything below this point to account for the new and updated parsing structure
 		//":accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2"
 		//handle for NICK changes, especially the special case of our own, where server[server_index]->nick should get reset
 		//NICK changes are server-wide so I'll only be able to handle this better once I have a list of users in each channel
 		}else if(!strcmp(command,"NICK")){
-			server_nick_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text,&special_output);
+			server_nick_command(server,server_index,output_buffer,&output_channel,nick,text,&special_output);
+		//TODO: update everything below this point to account for the new and updated parsing structure
 		//handle for topic changes
 		//":accirc_user!1@hide-68F46812.device.mst.edu TOPIC #FaiD3.0 :Welcome to #winfaid 4.0, now with grammar checking"
 		}else if(!strcmp(command,"TOPIC")){
@@ -6080,7 +6079,7 @@ int parse_server(int server_index){
 			is_join_part_quit=TRUE;
 		}
 	}
-		
+	
 	//if this is something we're supposed to hide based on server settings
 	if((is_join_part_quit) && (server->hide_joins_quits)){
 		//then that's special too
