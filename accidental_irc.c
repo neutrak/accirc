@@ -473,6 +473,22 @@ void privmsg_command(char *input_buffer);
 
 //helper functions for common tasks
 
+//get the length of a utf-8 string in units of utf-8 characters (not bytes)
+int ustrnlen(char *string, unsigned int buffer_size){
+	int char_idx=0;
+	int byte_idx=0;
+	
+	while((byte_idx<buffer_size) && (string[byte_idx]!='\0')){
+		//ignore utf-8 continuation bytes for the character length calculation
+		if((string[byte_idx]&0xC0)!=0xC0){
+			char_idx++;
+		}
+		
+		byte_idx++;
+	}
+	return char_idx;
+}
+
 //find the first instance of needle in haystack
 //if needle is not in haystack, return -1
 //otherwise returns the index in haystack where the first instance of needle was found
@@ -2193,9 +2209,11 @@ void refresh_channel_text(){
 	int n;
 	for(n=0;n<output_end;n++){
 		overflow_lines[n]=0;
-		if(strlen(scrollback[n])>w_width){
+		//handle width by CHAR here and not by BYTE
+		//these are different when using extended (utf-8) characters that aren't regular ascii
+		if(ustrnlen(scrollback[n],BUFFER_SIZE)>w_width){
 			//note this is integer division, which is floor of regular division
-			overflow_lines[n]+=(strlen(scrollback[n])/width);
+			overflow_lines[n]+=(ustrnlen(scrollback[n],BUFFER_SIZE)/width);
 		}
 	}
 	
@@ -2337,66 +2355,61 @@ void refresh_channel_text(){
 				wattrset(channel_text,0);
 				wcoloron(channel_text,MIRC_WHITE,MIRC_BLACK);
 			}else{
-				int n;
 #endif
+				int byte_idx=0;
+				int char_idx=0;
+				
 				//whether or not we are displaying in bold
 				char bold_on=FALSE;
 				//instead of a line overflow error, WRAP! (this is a straight-up character wrap)
 				int wrapped_line=0;
-				for(n=0;n<strlen(output_text);n++){
+				for(byte_idx=0;byte_idx<strnlen(output_text,BUFFER_SIZE);byte_idx++){
 					//output 0x03 here as bold '^' and 0x01 as bold '\' so they don't break line wrapping
 					//the MIRC color code is not output like other characters (make it a bolded ^)
-					if(output_text[n]==0x03){
+					if(output_text[byte_idx]==0x03){
 						wattron(channel_text,A_BOLD);
 						wprintw(channel_text,"^");
 						if(!bold_on){
 							wattroff(channel_text,A_BOLD);
 						}
 					//the CTCP escape is also output specially, as a bold "\\"
-					}else if(output_text[n]==0x01){
+					}else if(output_text[byte_idx]==0x01){
 						wattron(channel_text,A_BOLD);
 						wprintw(channel_text,"\\");
 						if(!bold_on){
 							wattroff(channel_text,A_BOLD);
 						}
 					//a literal tab is output specially, as a bold "_", so that one character == one cursor position
-					}else if(output_text[n]=='\t'){
+					}else if(output_text[byte_idx]=='\t'){
 						wattron(channel_text,A_BOLD);
 						wprintw(channel_text,"_");
 						if(!bold_on){
 							wattroff(channel_text,A_BOLD);
 						}
 					//unicode support (requires -lncursesw)
-					}else if((output_text[n] & 128)>0){
+					}else if((output_text[byte_idx] & 0x80)>0){
 						//TODO: fix this; unicode handling is BROKEN and never worked that well to start with!
 						
 						//realistically a unicode character will only be like 4 or 5 bytes max
 						//but modern systems have enough memory we can take a whole buffer
 						//for just a second
 						char utf8_char[BUFFER_SIZE];
-						int utf_start=n;
-						while((output_text[n] & 128)>0){
-							utf8_char[(n-utf_start)]=output_text[n];
-							n++;
+						int utf_start=byte_idx;
+						while((output_text[byte_idx] & 0x80)>0){
+							utf8_char[(byte_idx-utf_start)]=output_text[byte_idx];
+							byte_idx++;
 						}
 						//null-terminate
-						utf8_char[n-utf_start]='\0';
+						utf8_char[byte_idx-utf_start]='\0';
 						
 						//display the unicode
 						wprintw(channel_text,"%s",utf8_char);
 						
-						//pad the input area so cursor movement works nicely
-						utf_start++;
-						while(utf_start<n){
-							wprintw(channel_text," ");
-							utf_start++;
-						}
-						
-						//because n++ occurs during the loop
-						//decrement here to output correctly
-						n--;
+						//update the byte_idx because the above while loop went until the unicode character ended
+						//and that's where the next character starts and we don't want to miss anything
+						byte_idx--;
 					//don't output a ^B, instead use it to toggle bold or not bold
-					}else if(output_text[n]==0x02){
+					}else if(output_text[byte_idx]==0x02){
 						if(bold_on){
 							wattroff(channel_text,A_BOLD);
 							bold_on=FALSE;
@@ -2406,13 +2419,17 @@ void refresh_channel_text(){
 						}
 					//if this is not a special escape output it normally
 					}else{
-						wprintw(channel_text,"%c",output_text[n]);
+						wprintw(channel_text,"%c",output_text[byte_idx]);
 					}
 					
-					if(((n+1)<strlen(output_text))&&((n+1)%width==0)){
+					if(((char_idx+1)<ustrnlen(output_text,BUFFER_SIZE))&&((char_idx+1)%width==0)){
 						wrapped_line++;
 						wmove(channel_text,(y_start+wrapped_line),0);
 					}
+					
+					//each iteration of this loop outputs a single character
+					//even when utf-8 characters which have multiple bytes are present
+					char_idx++;
 				}
 				//if we still had bold on at the end of output then turn it off now
 				if(bold_on){
