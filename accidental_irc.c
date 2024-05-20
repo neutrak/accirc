@@ -2249,195 +2249,83 @@ void refresh_channel_text(){
 			//instead of a line overflow error, WRAP! (this is a straight-up character wrap)
 			strncpy(output_text,scrollback[output_line],BUFFER_SIZE);
 			
-#ifdef MIRC_COLOR
-			if(has_colors()){
-				int wrapped_line=0;
-				
-				//handle MIRC colors
-				//a data structure for colors that must persist outside the loop
-				int colors[2];
-				colors[FOREGROUND]=MIRC_WHITE;
-				colors[BACKGROUND]=MIRC_BLACK;
-				wcoloron(channel_text,MIRC_WHITE,MIRC_BLACK);
-				
-				char was_ping=FALSE;
-				
-				//timestamps are prepended to all lines
-				//(unhandled lines no longer start with :, they start with <timestamp> :)
-				char timestamp[BUFFER_SIZE];
-				int space_index=strfind(" ",output_text);
-				substr(timestamp,output_text,0,space_index);
-				
-				//if this line was a ping or included MIRC colors treat it specially (set attributes before output)
-				int ping_check=strfind(server->nick,output_text);
-				//if our name was in the message and we didn't send the message and it's not an unhandled message type (those start with ":")
-				if((ping_check>=0)&&(strfind(">>",output_text)!=(space_index+1))&&(strfind(":",scrollback[output_line])!=(space_index+1))){
-					was_ping=TRUE;
-				}
-				
-				if(was_ping){
-					wcoloron(channel_text,MIRC_GREEN,MIRC_BLACK);
-				}
-				
-				//output the string a character at a time, taking into consideration MIRC colors
-				int n;
-				for(n=0;n<strlen(output_text);n++){
-					//the CTCP escape is also output specially, as a bold "\\"
-					if(output_text[n]==0x01){
-						wattron(channel_text,A_BOLD);
-						wprintw(channel_text,"\\");
+			int byte_idx=0;
+			int char_idx=0;
+			
+			//whether or not we are displaying in bold
+			char bold_on=FALSE;
+			//instead of a line overflow error, WRAP! (this is a straight-up character wrap)
+			int wrapped_line=0;
+			for(byte_idx=0;byte_idx<strnlen(output_text,BUFFER_SIZE);byte_idx++){
+				//output 0x03 here as bold '^' and 0x01 as bold '\' so they don't break line wrapping
+				//the MIRC color code is not output like other characters (make it a bolded ^)
+				if(output_text[byte_idx]==0x03){
+					wattron(channel_text,A_BOLD);
+					wprintw(channel_text,"^");
+					if(!bold_on){
 						wattroff(channel_text,A_BOLD);
-					//if this is not a special escape output it normally
-					}else if(output_text[n]!=0x03){
-						wprintw(channel_text,"%c",output_text[n]);
+					}
+				//the CTCP escape is also output specially, as a bold "\\"
+				}else if(output_text[byte_idx]==0x01){
+					wattron(channel_text,A_BOLD);
+					wprintw(channel_text,"\\");
+					if(!bold_on){
+						wattroff(channel_text,A_BOLD);
+					}
+				//a literal tab is output specially, as a bold "_", so that one character == one cursor position
+				}else if(output_text[byte_idx]=='\t'){
+					wattron(channel_text,A_BOLD);
+					wprintw(channel_text,"_");
+					if(!bold_on){
+						wattroff(channel_text,A_BOLD);
+					}
+				//unicode support (requires -lncursesw)
+				}else if((output_text[byte_idx] & 0x80)>0){
+					//realistically a unicode character will only be like 4 or 5 bytes max
+					//but modern systems have enough memory we can take a whole buffer
+					//for just a second
+					char utf8_char[BUFFER_SIZE];
+					int utf_start=byte_idx;
+					while((output_text[byte_idx] & 0x80)>0){
+						utf8_char[(byte_idx-utf_start)]=output_text[byte_idx];
+						byte_idx++;
+					}
+					//null-terminate
+					utf8_char[byte_idx-utf_start]='\0';
+					
+					//display the unicode
+					wprintw(channel_text,"%s",utf8_char);
+					
+					//update the byte_idx because the above while loop went until the unicode character ended
+					//and that's where the next character starts and we don't want to miss anything
+					byte_idx--;
+				//don't output a ^B, instead use it to toggle bold or not bold
+				}else if(output_text[byte_idx]==0x02){
+					if(bold_on){
+						wattroff(channel_text,A_BOLD);
+						bold_on=FALSE;
 					}else{
-						n++;
-						int color_start=n;
-						
-						char input_background=FALSE;
-						while((output_text[n]!='\0')&&(isdigit(output_text[n])||(output_text[n]==','))){
-							//if we should start checking for a background color
-							if((output_text[n]==',')&&(!input_background)){
-								input_background=TRUE;
-							//if we've already gotten a background color then this is the end of our handling, break the loop
-							}else if(output_text[n]==','){
-								break;
-							//get the foreground
-							}else if(!input_background){
-								colors[FOREGROUND]*=10;
-								colors[FOREGROUND]+=(output_text[n]-'0');
-							//get the background
-							}else{
-								colors[BACKGROUND]*=10;
-								colors[BACKGROUND]+=(output_text[n]-'0');
-							}
-							n++;
-						}
-						
-						//if we never got a background
-						if(!input_background){
-							//treat it as MIRC code black
-							colors[BACKGROUND]=MIRC_BLACK;
-						}
-						
-						//if not one iteration of the loop was successful this is a reset escape, so reset
-						if(color_start==n){
-							wattrset(channel_text,0);
-							wcoloron(channel_text,0,1);
-							//and decrement n because the next character is something we want to display as a normal char
-							n--;
-						}else{
-							if((colors[FOREGROUND]>=0)&&(colors[FOREGROUND]<MIRC_COLOR_MAX)&&(colors[BACKGROUND]>=0)&&(colors[BACKGROUND]<MIRC_COLOR_MAX)){
-								//ignore anything previously set
-								wattrset(channel_text,0);
-								
-								//okay, we know what we're setting now so set it and display
-								wcoloron(channel_text,colors[FOREGROUND],colors[BACKGROUND]);
-								wprintw(channel_text,"%c",output_text[n]);
-//								wcoloroff(channel_text,colors[FOREGROUND],colors[BACKGROUND]);
-							}else{
-								wprintw(channel_text,"%c",output_text[n]);
-							}
-						}
+						wattron(channel_text,A_BOLD);
+						bold_on=TRUE;
 					}
-					
-					if(((n+1)<strlen(output_text))&&((n+1)%width==0)){
-						wrapped_line++;
-						wmove(channel_text,(y_start+wrapped_line),0);
-					}
+				//if this is not a special escape output it normally
+				}else{
+					wprintw(channel_text,"%c",output_text[byte_idx]);
 				}
 				
-				if(was_ping){
-					wcoloroff(channel_text,MIRC_GREEN,MIRC_BLACK);
+				if(((char_idx+1)<ustrnlen(output_text,BUFFER_SIZE))&&((char_idx+1)%width==0)){
+					wrapped_line++;
+					wmove(channel_text,(y_start+wrapped_line),0);
 				}
 				
-				//reset all attributes before we start outputting the next line in case they didn't properly terminate their colors
-				wattrset(channel_text,0);
-				wcoloron(channel_text,MIRC_WHITE,MIRC_BLACK);
-			}else{
-#endif
-				int byte_idx=0;
-				int char_idx=0;
-				
-				//whether or not we are displaying in bold
-				char bold_on=FALSE;
-				//instead of a line overflow error, WRAP! (this is a straight-up character wrap)
-				int wrapped_line=0;
-				for(byte_idx=0;byte_idx<strnlen(output_text,BUFFER_SIZE);byte_idx++){
-					//output 0x03 here as bold '^' and 0x01 as bold '\' so they don't break line wrapping
-					//the MIRC color code is not output like other characters (make it a bolded ^)
-					if(output_text[byte_idx]==0x03){
-						wattron(channel_text,A_BOLD);
-						wprintw(channel_text,"^");
-						if(!bold_on){
-							wattroff(channel_text,A_BOLD);
-						}
-					//the CTCP escape is also output specially, as a bold "\\"
-					}else if(output_text[byte_idx]==0x01){
-						wattron(channel_text,A_BOLD);
-						wprintw(channel_text,"\\");
-						if(!bold_on){
-							wattroff(channel_text,A_BOLD);
-						}
-					//a literal tab is output specially, as a bold "_", so that one character == one cursor position
-					}else if(output_text[byte_idx]=='\t'){
-						wattron(channel_text,A_BOLD);
-						wprintw(channel_text,"_");
-						if(!bold_on){
-							wattroff(channel_text,A_BOLD);
-						}
-					//unicode support (requires -lncursesw)
-					}else if((output_text[byte_idx] & 0x80)>0){
-						//TODO: fix this; unicode handling is BROKEN and never worked that well to start with!
-						
-						//realistically a unicode character will only be like 4 or 5 bytes max
-						//but modern systems have enough memory we can take a whole buffer
-						//for just a second
-						char utf8_char[BUFFER_SIZE];
-						int utf_start=byte_idx;
-						while((output_text[byte_idx] & 0x80)>0){
-							utf8_char[(byte_idx-utf_start)]=output_text[byte_idx];
-							byte_idx++;
-						}
-						//null-terminate
-						utf8_char[byte_idx-utf_start]='\0';
-						
-						//display the unicode
-						wprintw(channel_text,"%s",utf8_char);
-						
-						//update the byte_idx because the above while loop went until the unicode character ended
-						//and that's where the next character starts and we don't want to miss anything
-						byte_idx--;
-					//don't output a ^B, instead use it to toggle bold or not bold
-					}else if(output_text[byte_idx]==0x02){
-						if(bold_on){
-							wattroff(channel_text,A_BOLD);
-							bold_on=FALSE;
-						}else{
-							wattron(channel_text,A_BOLD);
-							bold_on=TRUE;
-						}
-					//if this is not a special escape output it normally
-					}else{
-						wprintw(channel_text,"%c",output_text[byte_idx]);
-					}
-					
-					if(((char_idx+1)<ustrnlen(output_text,BUFFER_SIZE))&&((char_idx+1)%width==0)){
-						wrapped_line++;
-						wmove(channel_text,(y_start+wrapped_line),0);
-					}
-					
-					//each iteration of this loop outputs a single character
-					//even when utf-8 characters which have multiple bytes are present
-					char_idx++;
-				}
-				//if we still had bold on at the end of output then turn it off now
-				if(bold_on){
-					wattroff(channel_text,A_BOLD);
-				}
-#ifdef MIRC_COLOR
+				//each iteration of this loop outputs a single character
+				//even when utf-8 characters which have multiple bytes are present
+				char_idx++;
 			}
-#endif
+			//if we still had bold on at the end of output then turn it off now
+			if(bold_on){
+				wattroff(channel_text,A_BOLD);
+			}
 		}
 	}
 	//refresh the channel text window
@@ -6252,41 +6140,6 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	clear();
 	//set some common options
 	noecho();
-	if(has_colors()){
-#ifdef MIRC_COLOR
-		start_color();
-		//init colors (for MIRC color support, among other things)
-		init_color(MIRC_WHITE,1000,1000,1000);
-		init_color(MIRC_BLACK,0,0,0);
-		init_color(MIRC_BLUE,0,0,1000);
-		init_color(MIRC_GREEN,0,1000,0);
-		init_color(MIRC_RED,1000,0,0);
-		init_color(MIRC_BROWN,400,400,0);
-		init_color(MIRC_PURPLE,600,300,900);
-		init_color(MIRC_ORANGE,900,400,0);
-		init_color(MIRC_YELLOW,1000,1000,0);
-		init_color(MIRC_LIGHT_GREEN,400,900,400);
-		init_color(MIRC_TEAL,0,1000,1000);
-		init_color(MIRC_LIGHT_CYAN,600,1000,1000);
-		init_color(MIRC_LIGHT_BLUE,400,400,1000);
-		init_color(MIRC_PINK,1000,200,1000);
-		init_color(MIRC_GREY,400,400,400);
-		init_color(MIRC_LIGHT_GREY,700,700,700);
-		
-		int n0;
-		for(n0=0;n0<MIRC_COLOR_MAX;n0++){
-			int n1;
-			for(n1=0;n1<MIRC_COLOR_MAX;n1++){
-				int foreground=n0;
-				int background=n1;
-				init_pair((foreground<<4)|(background<<0),n0,n1);
-			}
-		}
-		
-		//start with a sane default color
-		wcoloron(stdscr,MIRC_WHITE,MIRC_BLACK);
-#endif
-	}
 	//get raw input
 	raw();
 	//set the correct terminal size constraints before we go crazy and allocate windows with the wrong ones
@@ -6335,17 +6188,6 @@ void force_resize(char *input_buffer, int cursor_pos, int input_display_start){
 	channel_text=newwin((height-RESERVED_LINES),width,4,0);
 	bottom_border=newwin(1,width,(height-2),0);
 	user_input=newwin(1,width,(height-1),0);
-	
-#ifdef MIRC_COLOR
-	//set sane default colors
-	wcoloron(server_list,MIRC_WHITE,MIRC_BLACK);
-	wcoloron(channel_list,MIRC_WHITE,MIRC_BLACK);
-	wcoloron(channel_topic,MIRC_WHITE,MIRC_BLACK);
-	wcoloron(top_border,MIRC_WHITE,MIRC_BLACK);
-	wcoloron(channel_text,MIRC_WHITE,MIRC_BLACK);
-	wcoloron(bottom_border,MIRC_WHITE,MIRC_BLACK);
-	wcoloron(user_input,MIRC_WHITE,MIRC_BLACK);
-#endif
 	
 	keypad(user_input,TRUE);
 	//set timeouts for non-blocking
