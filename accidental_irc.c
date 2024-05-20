@@ -5181,6 +5181,16 @@ void server_366_command(irc_connection *server, char *parameters, char *output_b
 	*output_channel=find_output_channel(server,channel);
 }
 
+//handle the "401" server command (no such nick/channel)
+//example: :hostname 401 <nick> <channel> :No such nick/channel
+void server_401_command(irc_connection *server, char *parameters, char *output_buffer, int *output_channel){
+	//NOTE: in both this and the 366 case we parse out the same thing and do the same thing
+	//namely, we determine the channel and send the raw and unedited message to that channel
+	//and since both 401 and 366 have the exact same format
+	//as long as all that remains true this can just be an alias
+	server_366_command(server,parameters,output_buffer,output_channel);
+}
+
 //TODO: refactor server_privmsg_command; it's over 200 lines long
 
 //handle the "privmsg" server command
@@ -6019,6 +6029,10 @@ int parse_server(int server_index){
 		//end of message of the day (useful as a delimiter)
 		}else if(!strcmp(command,"376")){
 			
+		//no such nick/channel message
+		//which we want to show in the appropriate place
+		}else if(!strcmp(command,"401")){
+			server_401_command(server,parameters,output_buffer,&output_channel);
 		//nick already in use, so try a new one
 		}else if(!strcmp(command,"433")){
 			//user the configured fallback_nick from the server
@@ -6086,7 +6100,6 @@ int parse_server(int server_index){
 			is_join_part_quit=TRUE;
 		}
 	}
-	//TODO: update everything below this point to account for the new and updated parsing structure
 	
 	//if this is something we're supposed to hide based on server settings
 	if((is_join_part_quit) && (server->hide_joins_quits)){
