@@ -2336,7 +2336,7 @@ void refresh_channel_text(){
 }
 
 //refresh the user's input, duh
-void refresh_user_input(char *input_buffer, int cursor_char_pos, int input_display_start){
+void refresh_user_input(char *input_buffer, int cursor_char_pos, int input_display_start_byte, int input_display_start_char){
 	//if an ncurses window doesn't exist for this display
 	//then we can't display anything
 	if(user_input==NULL){
@@ -2352,87 +2352,84 @@ void refresh_user_input(char *input_buffer, int cursor_char_pos, int input_displ
 	//if we can output the whole string just do that no matter what
 	int length=ustrnlen(input_buffer,BUFFER_SIZE);
 	if(length<width){
-		input_display_start=0;
+		input_display_start_byte=0;
+		input_display_start_char=0;
 		if(cursor_char_pos>=width){
 			cursor_char_pos=width-1;
 		}
 	}
 	if(cursor_char_pos<width){
-		input_display_start=0;
+		input_display_start_byte=0;
+		input_display_start_char=0;
 	}
 	
 	//if we're at the end of the line don't display the last char, leave that for the cursor
-	if((cursor_char_pos-input_display_start)>=(width)){
+	if((cursor_char_pos-input_display_start_char)>=(width)){
 		manual_offset=-1;
-		input_display_start++;
+		input_display_start_char++;
+		input_display_start_byte++;
+		while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+			input_display_start_byte++;
+			manual_offset--;
+		}
 	}
 	
-	//TODO: separate out input_display_start into input_display_start_byte and input_display_start_char
-	//and in this loop use byte_idx and char_idx to interact with the input area accordingly
-	//and fully and correctly support utf-8
-	
-	int n;
-	for(n=input_display_start;(n<(input_display_start+width+manual_offset))&&(n<BUFFER_SIZE);n++){
+	int byte_idx=input_display_start_byte;
+	int char_idx=input_display_start_char;
+	for(byte_idx=input_display_start_byte;(char_idx<(input_display_start_char+width+manual_offset))&&(byte_idx<BUFFER_SIZE);byte_idx++){
 		//if we hit the end of the string before the end of the window stop outputting early
-		if(input_buffer[n]!='\0'){
+		if(input_buffer[byte_idx]!='\0'){
 			//the MIRC color code is not output like other characters (make it a bolded ^)
-			if(input_buffer[n]==0x03){
+			if(input_buffer[byte_idx]==0x03){
 				wattron(user_input,A_BOLD);
 				wprintw(user_input,"^");
 				wattroff(user_input,A_BOLD);
 			//the CTCP escape is also output specially, as a bold "\\"
-			}else if(input_buffer[n]==0x01){
+			}else if(input_buffer[byte_idx]==0x01){
 				wattron(user_input,A_BOLD);
 				wprintw(user_input,"\\");
 				wattroff(user_input,A_BOLD);
 			//a ^B is used for bolding in some cases
 			//output it as a bold !
-			}else if(input_buffer[n]==0x02){
+			}else if(input_buffer[byte_idx]==0x02){
 				wattron(user_input,A_BOLD);
 				wprintw(user_input,"!");
 				wattroff(user_input,A_BOLD);
 			//a literal tab is output specially, as a bold "_", so that one character == one cursor position
-			}else if(input_buffer[n]=='\t'){
+			}else if(input_buffer[byte_idx]=='\t'){
 				wattron(user_input,A_BOLD);
 				wprintw(user_input,"_");
 				wattroff(user_input,A_BOLD);
-			//TODO: update this to reflect the same changes we made to refresh_channel_text earlier
 			//unicode support (requires -lncursesw)
-			}else if((input_buffer[n] & 128)>0){
+			}else if((input_buffer[byte_idx] & 0x80)>0){
 				//realistically a unicode character will only be like 4 or 5 bytes max
 				//but modern systems have enough memory we can take a whole buffer
 				//for just a second
 				char utf8_char[BUFFER_SIZE];
-				int utf_start=n;
-				while((input_buffer[n] & 128)>0){
-					utf8_char[(n-utf_start)]=input_buffer[n];
-					n++;
+				int utf_start=byte_idx;
+				while((input_buffer[byte_idx] & 0x80)>0){
+					utf8_char[(byte_idx-utf_start)]=input_buffer[byte_idx];
+					byte_idx++;
 				}
 				//null-terminate
-				utf8_char[n-utf_start]='\0';
+				utf8_char[byte_idx-utf_start]='\0';
 				
 				//display the unicode
 				wprintw(user_input,"%s",utf8_char);
 				
-				//pad the input area so cursor movement works nicely
-				utf_start++;
-				while(utf_start<n){
-					wprintw(user_input," ");
-					utf_start++;
-				}
-				
-				//because n++ occurs during the loop
-				//decrement here to output correctly
-				n--;
+				//update the byte_idx because the above while loop went until the unicode character ended
+				//and that's where the next character starts and we don't want to miss anything
+				byte_idx--;
 			//if this is not a special escape output it normally
 			}else{
-				wprintw(user_input,"%c",input_buffer[n]);
+				wprintw(user_input,"%c",input_buffer[byte_idx]);
 			}
 		}else{
-			n=input_display_start+width;
+			break;
 		}
+		char_idx++;
 	}
-	wmove(user_input,0,cursor_char_pos-input_display_start);
+	wmove(user_input,0,cursor_char_pos-input_display_start_char);
 	wrefresh(user_input);
 }
 
@@ -6104,7 +6101,7 @@ int parse_server(int server_index){
 }
 
 //force resize detection
-void force_resize(char *input_buffer, int cursor_char_pos, int input_display_start){
+void force_resize(char *input_buffer, int cursor_char_pos, int input_display_start_byte, int input_display_start_char){
 	//if we had windows allocated to start with
 	if(server_list!=NULL){
 		//de-allocate existing windows so as not to waste RAM
@@ -6243,7 +6240,7 @@ void force_resize(char *input_buffer, int cursor_char_pos, int input_display_sta
 	wrefresh(bottom_border);
 	wrefresh(user_input);
 	
-	refresh_user_input(input_buffer,cursor_char_pos,input_display_start);
+	refresh_user_input(input_buffer,cursor_char_pos,input_display_start_byte,input_display_start_char);
 }
 
 //check every server we're connected to for new data and handle it accordingly
@@ -6368,7 +6365,7 @@ void read_server_data(){
 //tab completion of names in current channel
 //returns the count of unsuccessful tab completions
 //note cursor_byte_pos and cursor_char_pos will be re-set after a successful completion
-int name_complete(char *input_buffer, int *cursor_byte_pos, int *cursor_char_pos, int input_display_start, int tab_completions){
+int name_complete(char *input_buffer, int *cursor_byte_pos, int *cursor_char_pos, int input_display_start_byte, int input_display_start_char, int tab_completions){
 	if(current_server>=0){
 		irc_connection *server=get_server(current_server);
 		
@@ -6444,9 +6441,13 @@ int name_complete(char *input_buffer, int *cursor_byte_pos, int *cursor_char_pos
 					}
 					
 					//if we would go off the end
-					if(((*cursor_char_pos)-input_display_start)>width){
+					if(((*cursor_char_pos)-input_display_start_char)>width){
 						//make the end one char further down
-						input_display_start++;
+						input_display_start_char++;
+						input_display_start_byte++;
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+							input_display_start_byte++;
+						}
 					}
 				}
 			}
@@ -6505,9 +6506,13 @@ int name_complete(char *input_buffer, int *cursor_byte_pos, int *cursor_char_pos
 						(*cursor_byte_pos)++;
 						
 						//if we would go off the end
-						if(((*cursor_char_pos)-input_display_start)>width){
+						if(((*cursor_char_pos)-input_display_start_char)>width){
 							//make the end one char further down
-							input_display_start++;
+							input_display_start_char++;
+							input_display_start_byte++;
+							while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+								input_display_start_byte++;
+							}
 						}
 					}
 				}
@@ -6562,10 +6567,11 @@ int name_complete(char *input_buffer, int *cursor_byte_pos, int *cursor_char_pos
 }
 
 //C-w bash-style line edit to delete a word from current position to start
-void kill_word(char *input_buffer, int *persistent_cursor_byte_pos, int *persistent_cursor_char_pos, int *persistent_input_display_start){
+void kill_word(char *input_buffer, int *persistent_cursor_byte_pos, int *persistent_cursor_char_pos, int *persistent_input_display_start_byte, int *persistent_input_display_start_char){
 	int cursor_byte_pos=(*persistent_cursor_byte_pos);
 	int cursor_char_pos=(*persistent_cursor_char_pos);
-	int input_display_start=(*persistent_input_display_start);
+	int input_display_start_byte=(*persistent_input_display_start_byte);
+	int input_display_start_char=(*persistent_input_display_start_char);
 	
 	while((cursor_byte_pos>0) && (input_buffer[cursor_byte_pos-1]!=' ') && (input_buffer[cursor_byte_pos-1]!='\t')){
 		while((input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK)==UTF8CONT_MASK){
@@ -6576,26 +6582,32 @@ void kill_word(char *input_buffer, int *persistent_cursor_byte_pos, int *persist
 			//and update the cursor position upon success
 			cursor_byte_pos--;
 			cursor_char_pos--;
-			if(cursor_char_pos<input_display_start){
-				input_display_start--;
+			if(cursor_char_pos<input_display_start_char){
+				input_display_start_char--;
+				input_display_start_byte--;
+				while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+					input_display_start_byte--;
+				}
 			}
 		}
 	}
 	
 	(*persistent_cursor_byte_pos)=cursor_byte_pos;
 	(*persistent_cursor_char_pos)=cursor_char_pos;
-	(*persistent_input_display_start)=input_display_start;
+	(*persistent_input_display_start_byte)=input_display_start_byte;
+	(*persistent_input_display_start_char)=input_display_start_char;
 }
 
 //listen for the next relevant thing to happen and handle it accordingly
 //this may be a user input or network read from any connected network
 //this is the body of the "main" loop, called from main
-void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int *persistent_cursor_char_pos, int *persistent_input_display_start, int *persistent_tab_completions, time_t *persistent_old_time, char *time_buffer, char *user_status_buffer, char *key_combo_buffer, char *pre_history){
+void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int *persistent_cursor_char_pos, int *persistent_input_display_start_byte, int *persistent_input_display_start_char, int *persistent_tab_completions, time_t *persistent_old_time, char *time_buffer, char *user_status_buffer, char *key_combo_buffer, char *pre_history){
 	//make local variables out of the persistent variables from higher scopes
 	//note the persistent vars will be re-set to these values at the end of this function
 	int cursor_byte_pos=(*persistent_cursor_byte_pos);
 	int cursor_char_pos=(*persistent_cursor_char_pos);
-	int input_display_start=(*persistent_input_display_start);
+	int input_display_start_byte=(*persistent_input_display_start_byte);
+	int input_display_start_char=(*persistent_input_display_start_char);
 	int tab_completions=(*persistent_tab_completions);
 	time_t old_time=(*persistent_old_time);
 	
@@ -6628,7 +6640,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 			case KEY_RESIZE:
 				//if we were scrolled back we're not anymore!
 				scrollback_end=-1;
-				force_resize(input_buffer,cursor_char_pos,input_display_start);
+				force_resize(input_buffer,cursor_char_pos,input_display_start_byte,input_display_start_char);
 				break;
 			//NOTE: f7 now adds ^C=0x03 to the buffer for MIRC colors
 			//so ctrl+c /could/ be used for a break command
@@ -6664,12 +6676,16 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 					//alt+tab is a literal tab character, since tab-completion is done on regular tab
 					case '\t':
 						if(strinsert(input_buffer,(char)(c),cursor_byte_pos,BUFFER_SIZE)){
-							cursor_byte_pos++;
 							cursor_char_pos++;
+							cursor_byte_pos++;
 							//if we would go off the end
-							if((cursor_char_pos-input_display_start)>width){
+							if((cursor_char_pos-input_display_start_char)>width){
 								//make the end one char further down
-								input_display_start++;
+								input_display_start_char++;
+								input_display_start_byte++;
+								while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+									input_display_start_byte++;
+								}
 							}
 						}
 					//-1 is ERROR, meaning the escape was /just/ an escape and nothing more
@@ -6727,7 +6743,8 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 				cursor_byte_pos=0;
 				cursor_char_pos=0;
 				//and the input display start
-				input_display_start=0;
+				input_display_start_byte=0;
+				input_display_start_char=0;
 				break;
 			//movement within the input line
 			case KEY_RIGHT:
@@ -6737,11 +6754,15 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
 						cursor_byte_pos++;
 					}
-					if((cursor_char_pos-input_display_start)>=width){
-						input_display_start++;
+					if((cursor_char_pos-input_display_start_char)>=width){
+						input_display_start_char++;
+						input_display_start_byte++;
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+							input_display_start_byte++;
+						}
 					}
 				}
-				refresh_user_input(input_buffer,cursor_char_pos,input_display_start);
+				refresh_user_input(input_buffer,cursor_char_pos,input_display_start_byte,input_display_start_char);
 				break;
 			case KEY_LEFT:
 				if(cursor_char_pos>0){
@@ -6750,11 +6771,15 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
 						cursor_byte_pos--;
 					}
-					if((input_display_start>0) && (cursor_char_pos<input_display_start)){
-						input_display_start--;
+					if((input_display_start_byte>0) && (cursor_char_pos<input_display_start_byte)){
+						input_display_start_char--;
+						input_display_start_byte--;
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+							input_display_start_byte--;
+						}
 					}
 				}
-				refresh_user_input(input_buffer,cursor_char_pos,input_display_start);
+				refresh_user_input(input_buffer,cursor_char_pos,input_display_start_byte,input_display_start_char);
 				break;
 //			case KEY_PGUP:
 			case 339:
@@ -6771,7 +6796,8 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 				//reset cursor position always, since the strings in history are probably not the same length as the current input string
 				cursor_byte_pos=0;
 				cursor_char_pos=0;
-				input_display_start=0;
+				input_display_start_byte=0;
+				input_display_start_char=0;
 				
 				if(input_line>0){
 					input_line--;
@@ -6792,14 +6818,15 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 						strncpy(input_buffer,input_history[input_line],BUFFER_SIZE);
 					}
 				}
-				refresh_user_input(input_buffer,cursor_char_pos,input_display_start);
+				refresh_user_input(input_buffer,cursor_char_pos,input_display_start_byte,input_display_start_char);
 				break;
 			//handle text entry history
 			case KEY_DOWN:
 				//reset cursor position always, since the strings in history are probably not the same length as the current input string
 				cursor_byte_pos=0;
 				cursor_char_pos=0;
-				input_display_start=0;
+				input_display_start_byte=0;
+				input_display_start_char=0;
 				
 				//if there is valid history below this go there
 				if((input_line>=0)&&(input_line<(MAX_SCROLLBACK-1))&&(input_history[input_line+1]!=NULL)){
@@ -6812,19 +6839,20 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 					//note we are now not viewing history
 					input_line=-1;
 				}
-				refresh_user_input(input_buffer,cursor_char_pos,input_display_start);
+				refresh_user_input(input_buffer,cursor_char_pos,input_display_start_byte,input_display_start_char);
 				break;
 			//handle user name completion
 			case '\t':
-				tab_completions=name_complete(input_buffer,&cursor_byte_pos,&cursor_char_pos,input_display_start,tab_completions);
+				tab_completions=name_complete(input_buffer,&cursor_byte_pos,&cursor_char_pos,input_display_start_byte,input_display_start_char,tab_completions);
 				break;
 			//1 is C-a, added for emacs-style line editing
 			case 1:
 			case KEY_HOME:
 				cursor_byte_pos=0;
 				cursor_char_pos=0;
-				input_display_start=0;
-				refresh_user_input(input_buffer,cursor_char_pos,input_display_start);
+				input_display_start_byte=0;
+				input_display_start_char=0;
+				refresh_user_input(input_buffer,cursor_char_pos,input_display_start_byte,input_display_start_char);
 				break;
 			//5 is C-e, added for emacs-style line editing
 			case 5:
@@ -6832,18 +6860,27 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 				cursor_byte_pos=strlen(input_buffer);
 				cursor_char_pos=ustrnlen(input_buffer,BUFFER_SIZE);
 				if(ustrnlen(input_buffer,BUFFER_SIZE)>width){
-					input_display_start=ustrnlen(input_buffer,BUFFER_SIZE)-width;
+					input_display_start_char=ustrnlen(input_buffer,BUFFER_SIZE)-1;
+					input_display_start_byte=strnlen(input_buffer,BUFFER_SIZE)-1;
+					for(int n=0;n<width;n++){
+						input_display_start_char--;
+						input_display_start_byte--;
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+							input_display_start_byte--;
+						}
+					}
 				}else{
-					input_display_start=0;
+					input_display_start_byte=0;
+					input_display_start_char=0;
 				}
-				refresh_user_input(input_buffer,cursor_char_pos,input_display_start);
+				refresh_user_input(input_buffer,cursor_char_pos,input_display_start_byte,input_display_start_char);
 				break;
 			//this accounts for some odd-ness in terminals, it's just backspace (^H)
 			case 127:
 			//user wants to destroy something they entered
 			case KEY_BACKSPACE:
 				if(cursor_char_pos>0){
-					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
+					while((input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK)==UTF8CONT_MASK){
 						strremove(input_buffer,cursor_byte_pos-1);
 						cursor_byte_pos--;
 					}
@@ -6851,8 +6888,13 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 						//and update the cursor position upon success
 						cursor_byte_pos--;
 						cursor_char_pos--;
-						if(cursor_char_pos<input_display_start){
-							input_display_start--;
+						
+						if(cursor_char_pos<input_display_start_char){
+							input_display_start_char--;
+							input_display_start_byte--;
+							while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+								input_display_start_byte--;
+							}
 						}
 					}
 				}
@@ -6875,7 +6917,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 				break;
 			//23 is C-w, added for bash and emacs-style line editing
 			case 23:
-				kill_word(input_buffer,&cursor_byte_pos,&cursor_char_pos,&input_display_start);
+				kill_word(input_buffer,&cursor_byte_pos,&cursor_char_pos,&input_display_start_byte,&input_display_start_char);
 				break;
 			//f5 is refresh left (previous unread, cycle through in order if no unreads remain)
 			case 269:
@@ -6905,15 +6947,21 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 			//normal input
 			default:
 				if(strinsert(input_buffer,(char)(c),cursor_byte_pos,BUFFER_SIZE)){
-					cursor_byte_pos++;
-					if((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)!=UTF8CONT_MASK){
+					if((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
+						cursor_byte_pos++;
+					}else{
 						cursor_char_pos++;
+						cursor_byte_pos++;
 					}
 					
 					//if we would go off the end
-					if((cursor_char_pos-input_display_start)>width){
+					if((cursor_char_pos-input_display_start_char)>width){
 						//make the end one char further down
-						input_display_start++;
+						input_display_start_char++;
+						input_display_start_byte++;
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+							input_display_start_byte++;
+						}
 					}
 				}
 				
@@ -6960,9 +7008,10 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 	if(strncmp(input_buffer,old_input_buffer,BUFFER_SIZE)!=0){
 		//if the string is not as wide as the display allows re-set the input display starting point to show the whole string always
 		if(ustrnlen(input_buffer,BUFFER_SIZE)<width){
-			input_display_start=0;
+			input_display_start_byte=0;
+			input_display_start_char=0;
 		}
-		refresh_user_input(input_buffer,cursor_char_pos,input_display_start);
+		refresh_user_input(input_buffer,cursor_char_pos,input_display_start_byte,input_display_start_char);
 	}
 	
 	//update persistent variables (pointers) for the next iteration of the event polling loop
@@ -6970,7 +7019,8 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 	//anyway, consider this essentially a set of return values
 	(*persistent_cursor_byte_pos)=cursor_byte_pos;
 	(*persistent_cursor_char_pos)=cursor_char_pos;
-	(*persistent_input_display_start)=input_display_start;
+	(*persistent_input_display_start_byte)=input_display_start_byte;
+	(*persistent_input_display_start_char)=input_display_start_char;
 	(*persistent_tab_completions)=tab_completions;
 	(*persistent_old_time)=old_time;
 }
@@ -7127,7 +7177,7 @@ int main(int argc, char *argv[]){
 	ncurses_fullscreen_text=NULL;
 	
 	//force a re-detection of the window and a re-allocation of resources
-	force_resize("",0,0);
+	force_resize("",0,0,0);
 	
 	//store config in ~/.config/accirc/config.rc unless otherwise specified
 	if(strlen(rc_file)<1){
@@ -7207,7 +7257,8 @@ int main(int argc, char *argv[]){
 	int cursor_byte_pos=0;
 	int cursor_char_pos=0;
 	//where in the string to start displaying (needed when the string being input is larger than the width of the window)
-	int input_display_start=0;
+	int input_display_start_byte=0;
+	int input_display_start_char=0;
 	//one character of input
 	int c=0;
 	//how many unsuccessful tab completions we've had since the last successful one or non-tab character
@@ -7218,7 +7269,7 @@ int main(int argc, char *argv[]){
 	//MAIN LOOP, everything between initialization and shutdown is HERE
 	while(!done){
 		//EVENT POLLING (tons of side-effects here, which is why we're passing a bunch of pointers)
-		event_poll(c,input_buffer,&cursor_byte_pos,&cursor_char_pos,&input_display_start,&tab_completions,&old_time,time_buffer,user_status_buffer,key_combo_buffer,pre_history);
+		event_poll(c,input_buffer,&cursor_byte_pos,&cursor_char_pos,&input_display_start_byte,&input_display_start_char,&tab_completions,&old_time,time_buffer,user_status_buffer,key_combo_buffer,pre_history);
 	}
 	
 	//now that we're done, close the error log file
