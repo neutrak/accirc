@@ -2990,8 +2990,8 @@ irc_connection *add_server(int new_socket_fd, char *host, int port){
 	//by default the quit message for this server is the generic quit string constant
 	strncpy(server->quit_msg,DEFAULT_QUIT_MESSAGE,BUFFER_SIZE);
 	
-	//by default don't show user mode strings
-	server->use_mode_str=FALSE;
+	//by default show user mode strings
+	server->use_mode_str=TRUE;
 	
 	//set the current server to be the one we just connected to
 	current_server=server_index;
