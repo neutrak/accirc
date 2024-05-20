@@ -5758,11 +5758,9 @@ char server_mode_command(irc_connection *server, int server_index, char *text, i
 	return special_output;
 }
 
-//TODO: update this function to just take the "parameters" part of the IRC line as an argument, since we parsed it out earlier
-//if we need the sender nick or related information, that was already parsed out separately so it should be taken as arguments
-
 //handle the "quit" command from the server
-void server_quit_command(irc_connection *server, int server_index, char *tmp_buffer, int first_space, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
+//example: :hostmask QUIT :Quit: client disconnect
+void server_quit_command(irc_connection *server, int server_index, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
 	//set the user's nick to be lower-case for case-insensitive string matching
 	strtolower(nick,BUFFER_SIZE);
 	
@@ -6081,14 +6079,14 @@ int parse_server(int server_index){
 			
 			//output to the correct place
 			output_channel=find_output_channel(server,channel);
-		//TODO: update everything below this point to account for the new and updated parsing structure
 		//using channel names lists, output quits to the correct channel
 		//(this will require outputting multiple times, which I don't have the faculties for at the moment)
 		}else if(!strcmp(command,"QUIT")){
-			server_quit_command(server,server_index,tmp_buffer,first_space,output_buffer,&output_channel,nick,text,&special_output);
+			server_quit_command(server,server_index,output_buffer,&output_channel,nick,text,&special_output);
 			is_join_part_quit=TRUE;
 		}
 	}
+	//TODO: update everything below this point to account for the new and updated parsing structure
 	
 	//if this is something we're supposed to hide based on server settings
 	if((is_join_part_quit) && (server->hide_joins_quits)){
