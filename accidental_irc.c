@@ -6065,20 +6065,23 @@ int parse_server(int server_index){
 		//":bitlbee.local MODE &bitlbee +v Nick"
 		}else if(!strcmp(command,"MODE")){
 			special_output=server_mode_command(server,server_index,text,&output_channel);
-		//TODO: update everything below this point to account for the new and updated parsing structure
 		//proper NOTICE handling is to output to the correct channel if it's a channel-wide notice, and like a PM otherwise
 		}else if(!strcmp(command,"NOTICE")){
 			//parse out the channel
 			char channel[BUFFER_SIZE];
-			int space_colon_index=strfind(" :",tmp_buffer);
-			substr(channel,tmp_buffer,0,space_colon_index);
+			int space_idx=strfind(" ",text);
+			substr(channel,text,0,space_idx);
 			
-			substr(tmp_buffer,tmp_buffer,space_colon_index+2,strlen(tmp_buffer)-space_colon_index-2);
+			substr(text,text,space_idx+strlen(" "),strlen(text)-space_idx-strlen(" "));
 			
-			strncpy(text,tmp_buffer,BUFFER_SIZE);
+			//trim leading : since it's usually written as "NOTICE <channel> :<text>"
+			if((strlen(text)>0) && (text[0]==':')){
+				substr(text,text,1,strlen(text)-1);
+			}
 			
 			//output to the correct place
 			output_channel=find_output_channel(server,channel);
+		//TODO: update everything below this point to account for the new and updated parsing structure
 		//using channel names lists, output quits to the correct channel
 		//(this will require outputting multiple times, which I don't have the faculties for at the moment)
 		}else if(!strcmp(command,"QUIT")){
