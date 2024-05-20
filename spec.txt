@@ -20,11 +20,11 @@ irc client (accidental IRC) (// indicates "tentatively done")
 //	scroll-by-search feature (center searched term where possible) //decided searched term should display at bottom
 
 TODO for version 3.0.0:
-	finish updating server_*_command functions and calls to reflect the new and more correct parsing structure
+//	finish updating server_*_command functions and calls to reflect the new and more correct parsing structure
+//	handle nick changes in faux-channel (PM channel) handling
+//		I think this will just be an alias to /bye <old_nick> and /hi <new_nick>, but maybe due to ordering it would get more complicated
 	update unicode handling
 		display in channel output without extra spaces and with wrapping that uses the full screen width
 		allow input behaviour to act like it does for any other character, no weird backspace issues, etc.
-	handle nick changes in faux-channel (PM channel) handling
-		I think this will just be an alias to /bye <old_nick> and /hi <new_nick>, but maybe due to ordering it would get more complicated
 	clean up comments, todos, error_log output, etc. to reflect the current state
 
