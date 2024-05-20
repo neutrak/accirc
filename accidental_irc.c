@@ -5515,6 +5515,68 @@ void server_kick_command(irc_connection *server, int server_index, char *output_
 	}
 }
 
+//helper function for server_nick_command, below
+//provides case-specific handling for the case where the user is in an active faux-pm channel
+//with another user, and that other user changes their nick
+void server_pm_nick_change(irc_connection *server, int server_index, char *output_buffer, int *output_channel, char *old_nick, char *new_nick){
+	//save current_server and server->current_channel to variables so we can re-focus later
+	int user_current_server=current_server;
+	int user_current_channel=server->current_channel;
+	
+	//set current_server to be the server where we received this NICK command
+	current_server=server_index;
+	
+	// /hi <new_nick> (opening a new log file as part of this)
+	char cmd_buffer[BUFFER_SIZE];
+	snprintf(cmd_buffer,BUFFER_SIZE,"%chi %s",client_escape,new_nick);
+	parse_input(cmd_buffer,FALSE);
+	
+	//find where the newly-created channel is in the channel list
+	//relative to the previous faux-pm channel for the same user
+	int old_nick_ch_idx=ch_idx_from_name(server,old_nick);
+	int new_nick_ch_idx=ch_idx_from_name(server,new_nick);
+	
+	//if there was an old PM faux-channel for this user
+	//and there is now a new one
+	//then we're going to put them in the same spot in the channel list
+	//by swapping things around
+	if((old_nick_ch_idx>=0) && (new_nick_ch_idx>=0) && (new_nick_ch_idx!=old_nick_ch_idx)){
+		server->current_channel=new_nick_ch_idx;
+		
+		int ch_idx_delta=(new_nick_ch_idx-old_nick_ch_idx);
+		if(ch_idx_delta>0){
+			for(int n=0;n<(ch_idx_delta-1);n++){
+				snprintf(cmd_buffer,BUFFER_SIZE,"%cswcl",client_escape);
+				parse_input(cmd_buffer,FALSE);
+			}
+		}else{ //ch_idx_delta<0
+			for(int n=0;n>(ch_idx_delta+1);n--){
+				snprintf(cmd_buffer,BUFFER_SIZE,"%cswcr",client_escape);
+				parse_input(cmd_buffer,FALSE);
+			}
+		}
+		
+		//NOTE: because we used -1 and +1 in our loop conditions above
+		//we didn't invalidate old_nick_ch_idx
+		server->current_channel=old_nick_ch_idx;
+		snprintf(cmd_buffer,BUFFER_SIZE,"%cbye",client_escape);
+		parse_input(cmd_buffer,FALSE);
+		
+		//output this nick change to the NEW pm faux-channel, after the nick change is applied
+		scrollback_output(server_index,ch_idx_from_name(server,new_nick),output_buffer,TRUE);
+		
+	//if there was no open PM to the old_nick user then we do nothing
+	}
+	
+	//upon reaching this point we've done all the handling we intended to
+	//so now we just need to restore the user's previous state
+	//NOTE: although we did modify channel indicies, we added the same number of channels we removed
+	//and we put the new_nick pm channel exactly where the old_nick pm channel was
+	//so the channel index should still be valid and never out of bounds
+	server->current_channel=user_current_channel;
+	current_server=user_current_server;
+}
+
 //handle the "nick" command from the server
 //example: :accirc!1@hide-68F46812.device.mst.edu NICK :accirc_2
 void server_nick_command(irc_connection *server, int server_index, char *output_buffer, int *output_channel, char *nick, char *text, char *special_output){
@@ -5565,22 +5627,33 @@ void server_nick_command(irc_connection *server, int server_index, char *output_
 				strncpy(server->last_pm_user,new_nick,BUFFER_SIZE);
 			}
 			
-			//TODO: if there was a is_pm channel named after this user it should be changed
-			//(because there are files open for logs and things this isn't done now, it's a major pain)
-			//I think what we want to do is the following (in a separate function, if auto_hi is set):
-			//	save current_server and server->current_channel to variables so we can re-focus later
-			//	set current_server to be the server where we received this NICK command
-			//	/hi <new_nick> (opening a new log file as part of this)
-			//	/swcl repeatedly until the channel immediately to the left of the new channel is the /hi <old_nick> channel
-			//	focus the /hi <old_nick> channel
-			//	/bye (closing /hi <old_nick> and the associated log file)
-			//	output the nick change information to the new faux-pm channel, so the user knows what happened and who they're talking to
-			//	restore current_server and server->current_channel and any other active/focus context that was lost during this process
-			
+			//if there was a is_pm channel named after this user it should be changed
+			if(ch->is_pm==TRUE){
+				//NOTE: we're about to effectively PART the current channel we're iterating over
+				//because we have a doubly-linked list data structure this is going to be BAD
+				//because we're about to free the memory that contains the pointer for the next channel
+				//SO, in order to work around that we're going to increment the ch_entry FIRST
+				//and then put a continue statement in this block
+				ch_entry=ch_entry->next;
+				
+				server_pm_nick_change(server,server_index,output_buffer,output_channel,nick,new_nick);
+				
+				//refresh the display
+				refresh_server_list();
+				refresh_channel_list();
+				refresh_channel_topic();
+				refresh_channel_text();
+				
+				//increment the channel index now to indicate that we're onto the next thing AFTER the faux-pm channel
+				channel_index++;
+				
+				//don't hit invalid memory because the prior ch_entry was cleared
+				//and we've already incremented to the next channel
+				continue;
 			//don't actually change the name in the list if it's a PM
 			//since PMs aren't channels and the nick is the defining characteristic of a PM channel
 			//and so shouldn't be changed
-			if(ch->is_pm==FALSE){
+			}else{
 				//update this user's entry in that channel's names array
 				strncpy(nick_content->user_name,new_nick,BUFFER_SIZE);
 				
