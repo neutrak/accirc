@@ -485,7 +485,7 @@ int ustrnlen(char *string, unsigned int buffer_size){
 	
 	while((byte_idx<buffer_size) && (string[byte_idx]!='\0')){
 		//ignore utf-8 continuation bytes for the character length calculation
-		if((string[byte_idx]&UTF8CONT_MASK)!=UTF8CONT_MASK){
+		if((string[byte_idx]&UTF8CONT_MASK)!=UTF8_MASK){
 			char_idx++;
 		}
 		
@@ -2382,7 +2382,7 @@ void refresh_user_input(char *input_buffer, int cursor_char_pos, int input_displ
 		manual_offset=-1;
 		input_display_start_char++;
 		input_display_start_byte++;
-		while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+		while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 			input_display_start_byte++;
 			manual_offset--;
 		}
@@ -6451,7 +6451,7 @@ int name_complete(char *input_buffer, int *cursor_byte_pos, int *cursor_char_pos
 			for(n=insert_start_pos;n<strlen(last_matching_nick);n++){
 				if(strinsert(input_buffer,last_matching_nick[n],(*cursor_byte_pos),BUFFER_SIZE)){
 					(*cursor_byte_pos)++;
-					if((last_matching_nick[n]&UTF8CONT_MASK)!=UTF8CONT_MASK){
+					if((last_matching_nick[n]&UTF8CONT_MASK)!=UTF8_MASK){
 						(*cursor_char_pos)++;
 					}
 					
@@ -6460,7 +6460,7 @@ int name_complete(char *input_buffer, int *cursor_byte_pos, int *cursor_char_pos
 						//make the end one char further down
 						input_display_start_char++;
 						input_display_start_byte++;
-						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 							input_display_start_byte++;
 						}
 					}
@@ -6515,7 +6515,7 @@ int name_complete(char *input_buffer, int *cursor_byte_pos, int *cursor_char_pos
 				if(agreement){
 					if(strinsert(input_buffer,next_char,(*cursor_byte_pos),BUFFER_SIZE)){
 						bytes_inserted++;
-						if((input_buffer[(*cursor_byte_pos)]&UTF8CONT_MASK)!=UTF8CONT_MASK){
+						if((input_buffer[(*cursor_byte_pos)]&UTF8CONT_MASK)!=UTF8_MASK){
 							(*cursor_char_pos)++;
 						}
 						(*cursor_byte_pos)++;
@@ -6525,7 +6525,7 @@ int name_complete(char *input_buffer, int *cursor_byte_pos, int *cursor_char_pos
 							//make the end one char further down
 							input_display_start_char++;
 							input_display_start_byte++;
-							while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+							while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 								input_display_start_byte++;
 							}
 						}
@@ -6591,10 +6591,10 @@ void kill_word(char *input_buffer, int *persistent_cursor_byte_pos, int *persist
 	while((cursor_byte_pos>0) && (input_buffer[cursor_byte_pos-1]!=' ') && (input_buffer[cursor_byte_pos-1]!='\t')){
 		//if we're currently selecting a utf-8 character, then shift cursor_byte_pos to the beginning of the current character
 		//rather than the end of it
-		while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
+		while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8_MASK){
 			cursor_byte_pos--;
 		}
-		while((input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK)==UTF8CONT_MASK){
+		while((input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK)==UTF8_MASK){
 			if(strremove(input_buffer,cursor_byte_pos-1)){
 				cursor_byte_pos--;
 			}
@@ -6606,7 +6606,7 @@ void kill_word(char *input_buffer, int *persistent_cursor_byte_pos, int *persist
 			if(cursor_char_pos<input_display_start_char){
 				input_display_start_char--;
 				input_display_start_byte--;
-				while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+				while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 					input_display_start_byte--;
 				}
 			}
@@ -6711,7 +6711,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 								//make the end one char further down
 								input_display_start_char++;
 								input_display_start_byte++;
-								while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+								while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 									input_display_start_byte++;
 								}
 							}
@@ -6785,7 +6785,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 					if((cursor_char_pos-input_display_start_char)>=width){
 						input_display_start_char++;
 						input_display_start_byte++;
-						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 							input_display_start_byte++;
 						}
 					}
@@ -6802,7 +6802,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 					if((input_display_start_byte>0) && (cursor_char_pos<input_display_start_byte)){
 						input_display_start_char--;
 						input_display_start_byte--;
-						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 							input_display_start_byte--;
 						}
 					}
@@ -6893,7 +6893,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 					for(int n=0;n<width;n++){
 						input_display_start_char--;
 						input_display_start_byte--;
-						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 							input_display_start_byte--;
 						}
 					}
@@ -6907,50 +6907,23 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 			case 127:
 			//user wants to destroy something they entered
 			case KEY_BACKSPACE:
-/*
-#ifdef DEBUG
-				char error_buffer[BUFFER_SIZE];
-				snprintf(error_buffer,BUFFER_SIZE,"Dbg: Got backspace on input_buffer=\"%s\", cursor_byte_pos=%i, cursor_char_pos=%i",input_buffer,cursor_byte_pos,cursor_char_pos);
-				error_log(error_buffer);
-#endif
-*/
-				
 				if(cursor_byte_pos>=1){
 					//if we're currently deleting a multi-byte utf-8 character, then shift cursor_byte_pos to the beginning of the current character
 					//rather than the end of it
 					while((input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK)==UTF8_MASK){
-/*
-#ifdef DEBUG
-						char error_buffer[BUFFER_SIZE];
-						snprintf(error_buffer,BUFFER_SIZE,"Dbg: input_buffer[cursor_byte_pos-1]=%#x, input_buffer[cursor_byte-1]&UTF8CONT_MASK=%#x",input_buffer[cursor_byte_pos-1],input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK);
-						error_log(error_buffer);
-#endif
-*/
 						if(strremove(input_buffer,cursor_byte_pos-1)){
 							cursor_byte_pos--;
 						}
 					}
-/*
-#ifdef DEBUG
-//					char error_buffer[BUFFER_SIZE];
-					snprintf(error_buffer,BUFFER_SIZE,"Dbg: after removing leading UTF8CONT_MASK characters, cursor_byte_pos=%i",cursor_byte_pos);
-					error_log(error_buffer);
-#endif
-*/
 					if(strremove(input_buffer,cursor_byte_pos-1)){
 						//and update the cursor position upon success
 						cursor_byte_pos--;
 						cursor_char_pos--;
 						
-						//if we're at the beginning of a UTF8 character, shift the cursor_byte_pos until it's at the end of that character
-//						while((cursor_byte_pos<strnlen(input_buffer,BUFFER_SIZE)) && (input_buffer[cursor_byte_pos+1]&UTF8CONT_MASK)==UTF8CONT_MASK){
-//							cursor_byte_pos++;
-//						}
-						
 						if(cursor_char_pos<input_display_start_char){
 							input_display_start_char--;
 							input_display_start_byte--;
-							while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+							while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 								input_display_start_byte--;
 							}
 						}
@@ -7011,15 +6984,15 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 				}
 			//normal input
 			default:
-/*
-#ifdef DEBUG
-				char error_buffer[BUFFER_SIZE];
-				snprintf(error_buffer,BUFFER_SIZE,"Dbg: inserting character into input_buffer=\"%s\" at cursor_byte_pos=%i, cursor_char_pos=%i, character to insert is %c",input_buffer,cursor_byte_pos,cursor_char_pos,c);
-				error_log(error_buffer);
-#endif
-*/
+				//ensure that we're at the end of any UTF-8 character that was in the input buffer
+				if(cursor_byte_pos>0){
+					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8_MASK){
+						cursor_byte_pos++;
+					}
+				}
+				
 				if(strinsert(input_buffer,(char)(c),cursor_byte_pos,BUFFER_SIZE)){
-					if((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
+					if((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8_MASK){
 						cursor_byte_pos++;
 					}else{
 						cursor_char_pos++;
@@ -7031,7 +7004,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 						//make the end one char further down
 						input_display_start_char++;
 						input_display_start_byte++;
-						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8CONT_MASK){
+						while((input_buffer[input_display_start_byte]&UTF8CONT_MASK)==UTF8_MASK){
 							input_display_start_byte++;
 						}
 					}
