@@ -57,6 +57,8 @@
 //hence going forward we'll be on 2.x.x for a bit
 #define VERSION "2.0.3"
 
+//the mask by which we can determine whether a given byte is utf-8 or ascii (the only encodings we support)
+#define UTF8_MASK 0x80
 //the mask by which we can determine whether a given byte is a continuation of a utf-8 unicode character
 #define UTF8CONT_MASK 0xC0
 
@@ -571,9 +573,17 @@ char strinsert(char *text, char c, int index, int text_size){
 //returns TRUE on success, FALSE on failure
 char strremove(char *text, int index){
 	int length=strlen(text);
+	char do_null_terminate=FALSE;
 	
 	//if there are any characters to remove
 	if(strlen(text)>0){
+		//if we're removing the last character
+		//then we want to manually terminate the result
+		//to ensure the string ends at the expected point
+		if(index>=(length-1)){
+			do_null_terminate=TRUE;
+		}
+		
 		//if they're asking to remove from past the end just remove from the end
 		if(index>length){
 			index=length-1;
@@ -587,6 +597,10 @@ char strremove(char *text, int index){
 		while(index<length){
 			text[index]=text[index+1];
 			index++;
+		}
+		
+		if(do_null_terminate){
+			text[index]='\0';
 		}
 		
 		return TRUE;
@@ -2283,13 +2297,13 @@ void refresh_channel_text(){
 						wattroff(channel_text,A_BOLD);
 					}
 				//unicode support (requires -lncursesw)
-				}else if((output_text[byte_idx] & 0x80)>0){
+				}else if((output_text[byte_idx] & UTF8_MASK)>0){
 					//realistically a unicode character will only be like 4 or 5 bytes max
 					//but modern systems have enough memory we can take a whole buffer
 					//for just a second
 					char utf8_char[BUFFER_SIZE];
 					int utf_start=byte_idx;
-					while((output_text[byte_idx] & 0x80)>0){
+					while((output_text[byte_idx] & UTF8_MASK)>0){
 						utf8_char[(byte_idx-utf_start)]=output_text[byte_idx];
 						byte_idx++;
 					}
@@ -2401,13 +2415,13 @@ void refresh_user_input(char *input_buffer, int cursor_char_pos, int input_displ
 				wprintw(user_input,"_");
 				wattroff(user_input,A_BOLD);
 			//unicode support (requires -lncursesw)
-			}else if((input_buffer[byte_idx] & 0x80)>0){
+			}else if((input_buffer[byte_idx] & UTF8_MASK)>0){
 				//realistically a unicode character will only be like 4 or 5 bytes max
 				//but modern systems have enough memory we can take a whole buffer
 				//for just a second
 				char utf8_char[BUFFER_SIZE];
 				int utf_start=byte_idx;
-				while((input_buffer[byte_idx] & 0x80)>0){
+				while((input_buffer[byte_idx] & UTF8_MASK)>0){
 					utf8_char[(byte_idx-utf_start)]=input_buffer[byte_idx];
 					byte_idx++;
 				}
@@ -2425,6 +2439,7 @@ void refresh_user_input(char *input_buffer, int cursor_char_pos, int input_displ
 				wprintw(user_input,"%c",input_buffer[byte_idx]);
 			}
 		}else{
+			byte_idx=input_display_start_byte+width;
 			break;
 		}
 		char_idx++;
@@ -6574,9 +6589,15 @@ void kill_word(char *input_buffer, int *persistent_cursor_byte_pos, int *persist
 	int input_display_start_char=(*persistent_input_display_start_char);
 	
 	while((cursor_byte_pos>0) && (input_buffer[cursor_byte_pos-1]!=' ') && (input_buffer[cursor_byte_pos-1]!='\t')){
-		while((input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK)==UTF8CONT_MASK){
-			strremove(input_buffer,cursor_byte_pos-1);
+		//if we're currently selecting a utf-8 character, then shift cursor_byte_pos to the beginning of the current character
+		//rather than the end of it
+		while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
 			cursor_byte_pos--;
+		}
+		while((input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK)==UTF8CONT_MASK){
+			if(strremove(input_buffer,cursor_byte_pos-1)){
+				cursor_byte_pos--;
+			}
 		}
 		if(strremove(input_buffer,cursor_byte_pos-1)){
 			//and update the cursor position upon success
@@ -6589,6 +6610,13 @@ void kill_word(char *input_buffer, int *persistent_cursor_byte_pos, int *persist
 					input_display_start_byte--;
 				}
 			}
+		}
+	}
+	//allow repeated ctrl+w actions to clear multiple words without manual editing
+	if((cursor_byte_pos>0) && (input_buffer[cursor_byte_pos-1]==' ')){
+		if(strremove(input_buffer,cursor_byte_pos-1)){
+			cursor_byte_pos--;
+			cursor_char_pos--;
 		}
 	}
 	
@@ -6766,11 +6794,11 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 				break;
 			case KEY_LEFT:
 				if(cursor_char_pos>0){
-					cursor_char_pos--;
-					cursor_byte_pos--;
 					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
 						cursor_byte_pos--;
 					}
+					cursor_char_pos--;
+					cursor_byte_pos--;
 					if((input_display_start_byte>0) && (cursor_char_pos<input_display_start_byte)){
 						input_display_start_char--;
 						input_display_start_byte--;
@@ -6879,15 +6907,45 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 			case 127:
 			//user wants to destroy something they entered
 			case KEY_BACKSPACE:
-				if(cursor_char_pos>0){
-					while((input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK)==UTF8CONT_MASK){
-						strremove(input_buffer,cursor_byte_pos-1);
-						cursor_byte_pos--;
+/*
+#ifdef DEBUG
+				char error_buffer[BUFFER_SIZE];
+				snprintf(error_buffer,BUFFER_SIZE,"Dbg: Got backspace on input_buffer=\"%s\", cursor_byte_pos=%i, cursor_char_pos=%i",input_buffer,cursor_byte_pos,cursor_char_pos);
+				error_log(error_buffer);
+#endif
+*/
+				
+				if(cursor_byte_pos>=1){
+					//if we're currently deleting a multi-byte utf-8 character, then shift cursor_byte_pos to the beginning of the current character
+					//rather than the end of it
+					while((input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK)==UTF8_MASK){
+/*
+#ifdef DEBUG
+						char error_buffer[BUFFER_SIZE];
+						snprintf(error_buffer,BUFFER_SIZE,"Dbg: input_buffer[cursor_byte_pos-1]=%#x, input_buffer[cursor_byte-1]&UTF8CONT_MASK=%#x",input_buffer[cursor_byte_pos-1],input_buffer[cursor_byte_pos-1]&UTF8CONT_MASK);
+						error_log(error_buffer);
+#endif
+*/
+						if(strremove(input_buffer,cursor_byte_pos-1)){
+							cursor_byte_pos--;
+						}
 					}
+/*
+#ifdef DEBUG
+//					char error_buffer[BUFFER_SIZE];
+					snprintf(error_buffer,BUFFER_SIZE,"Dbg: after removing leading UTF8CONT_MASK characters, cursor_byte_pos=%i",cursor_byte_pos);
+					error_log(error_buffer);
+#endif
+*/
 					if(strremove(input_buffer,cursor_byte_pos-1)){
 						//and update the cursor position upon success
 						cursor_byte_pos--;
 						cursor_char_pos--;
+						
+						//if we're at the beginning of a UTF8 character, shift the cursor_byte_pos until it's at the end of that character
+//						while((cursor_byte_pos<strnlen(input_buffer,BUFFER_SIZE)) && (input_buffer[cursor_byte_pos+1]&UTF8CONT_MASK)==UTF8CONT_MASK){
+//							cursor_byte_pos++;
+//						}
 						
 						if(cursor_char_pos<input_display_start_char){
 							input_display_start_char--;
@@ -6902,11 +6960,18 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 			//user wants to destroy something they entered
 			case KEY_DEL:
 				if(cursor_char_pos<ustrnlen(input_buffer,BUFFER_SIZE)){
+					//if we're currently selecting a utf-8 character, then shift cursor_byte_pos to the beginning of the current character
+					//rather than the end of it
+					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8_MASK){
+						cursor_byte_pos--;
+					}
+					
+					//remove the byte where the character starts and any utf-8 bytes following it
 					strremove(input_buffer,cursor_byte_pos);
-					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
+					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8_MASK){
 						strremove(input_buffer,cursor_byte_pos);
 					}
-					//note cursor position doesn't change here (character OR byte)
+					//NOTE: character cursor position doesn't change here
 				}
 				break;
 			//11 is C-k, added for emacs-style line editing
@@ -6946,6 +7011,13 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 				}
 			//normal input
 			default:
+/*
+#ifdef DEBUG
+				char error_buffer[BUFFER_SIZE];
+				snprintf(error_buffer,BUFFER_SIZE,"Dbg: inserting character into input_buffer=\"%s\" at cursor_byte_pos=%i, cursor_char_pos=%i, character to insert is %c",input_buffer,cursor_byte_pos,cursor_char_pos,c);
+				error_log(error_buffer);
+#endif
+*/
 				if(strinsert(input_buffer,(char)(c),cursor_byte_pos,BUFFER_SIZE)){
 					if((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
 						cursor_byte_pos++;
