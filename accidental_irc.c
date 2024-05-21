@@ -51,11 +51,13 @@
 #define MIN_WIDTH 32
 
 //switching to more typical semantic major.minor.patch versioning as of version 2.0; previous version was "0.13.1"
-//I'm counting at 2.0.0 rather than 1.0.0 for two reasons:
-//	a) the doubly-linked list library change counts as a substantial rewrite
-//	b) it's not the first public release so version 1 doesn't really make sense
-//hence going forward we'll be on 2.x.x for a bit
-#define VERSION "2.0.3"
+//changelog 0.13.1 -> 2.0.0
+//	the doubly-linked list library change (counts as a substantial rewrite)
+//changelog 2.0.3 -> 3.0.0
+//	restructured parsing to always treat irc prefixes as optional per the spec and thereby fix numerous parsing issues
+//	fixed utf-8 support in both user input and channel text output
+//	[minor] updated faux-pm channels (/hi) to recognize and handle NICK changes
+#define VERSION "3.0.0-beta"
 
 //the mask by which we can determine whether a given byte is utf-8 or ascii (the only encodings we support)
 #define UTF8_MASK 0x80
@@ -6779,7 +6781,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 				if(cursor_char_pos<ustrnlen(input_buffer,BUFFER_SIZE)){
 					cursor_char_pos++;
 					cursor_byte_pos++;
-					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
+					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8_MASK){
 						cursor_byte_pos++;
 					}
 					if((cursor_char_pos-input_display_start_char)>=width){
@@ -6794,7 +6796,7 @@ void event_poll(int c, char *input_buffer, int *persistent_cursor_byte_pos, int 
 				break;
 			case KEY_LEFT:
 				if(cursor_char_pos>0){
-					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8CONT_MASK){
+					while((input_buffer[cursor_byte_pos]&UTF8CONT_MASK)==UTF8_MASK){
 						cursor_byte_pos--;
 					}
 					cursor_char_pos--;
